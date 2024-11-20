@@ -4,8 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mpl_toolkits.basemap import Basemap
-from metrics import mcc_latent
-from data_loader import DataLoader
+from climatem.metrics import mcc_latent
 import torch
 
 import cartopy.crs as ccrs
@@ -1370,15 +1369,16 @@ if __name__ == "__main__":
         hp = json.load(f)
 
     # load GT graph and W
-    data_loader = DataLoader(ratio_train=hp["ratio_train"],
-                             ratio_valid=hp["ratio_valid"],
-                             data_path=hp["data_path"],
-                             data_format=hp["data_format"],
-                             latent=hp["latent"],
-                             no_gt=hp["no_gt"],
-                             debug_gt_w=hp["debug_gt_w"],
-                             instantaneous=hp["instantaneous"],
-                             tau=hp["tau"])
+    # commented out this old dataloader stuff
+    #data_loader = DataLoader(ratio_train=hp["ratio_train"],
+    #                         ratio_valid=hp["ratio_valid"],
+    #                         data_path=hp["data_path"],
+    #                         data_format=hp["data_format"],
+    #                        no_gt=hp["no_gt"],
+    #                         debug_gt_w=hp["debug_gt_w"],
+    #                         latent=hp["latent"],
+    #                         instantaneous=hp["instantaneous"],
+    #                         tau=hp["tau"])
 
-    plotter.load(hp["exp_path"], data_loader)
+    #plotter.load(hp["exp_path"], data_loader)
     # plotter.plot(data)

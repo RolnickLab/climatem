@@ -4,14 +4,16 @@ import os
 
 import torch
 from torch.profiler import ProfilerActivity
+import torch.distributions as dist
+
 import numpy as np
 import wandb
 
 from geopy import distance
-from dag_optim import compute_dag_constraint
-from plot_multigpu import Plotter
-from utils import ALM
-from prox import monkey_patch_RMSprop
+from climatem.dag_optim import compute_dag_constraint
+from climatem.plot_multigpu import Plotter
+from climatem.utils import ALM
+from climatem.prox import monkey_patch_RMSprop
 
 from accelerate import Accelerator
 from accelerate.utils import LoggerType
@@ -20,8 +22,6 @@ from accelerate.utils import DistributedDataParallelKwargs
 import scipy.stats as stats
 
 # here is the combo:
-import torch
-import torch.distributions as dist
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
@@ -86,6 +86,9 @@ class TrainingLatent:
 
         # add the spectral loss
         self.train_spectral_loss_list = []
+
+        # add the temporal spectral loss
+        self.train_temporal_spectral_loss_list = []
         
         self.train_sparsity_cons_list = []
         self.mu_sparsity_list = []
@@ -168,7 +171,7 @@ class TrainingLatent:
         config = self.hp
 
         accelerator.init_trackers("test-gpu-code-wandb", config=config,
-                                  init_kwargs={"wandb":{"name":f"var_{self.datamodule.hparams.in_var_ids}_scenarios_{self.datamodule.hparams.train_scenarios}_climatemodel_{self.datamodule.hparams.train_models}_historical_years_{self.datamodule.hparams.train_historical_years}_ssp_years_{self.datamodule.hparams.train_years}_aggregate_{self.datamodule.num_months_aggregated}_tau_{self.tau}_z_{self.d_z}_nonlinearmixing_{self.hp.nonlinear_mixing}_batchsize_{self.batch_size}_orthomuinit_{self.hp.ortho_mu_init}_orthoh_{self.hp.ortho_h_threshold}_sparsitymuinit_{self.hp.sparsity_mu_init}_sparsityupperthreshold_{self.hp.sparsity_upper_threshold}_fixed_{self.hp.fixed}_seasonality_removal_{self.datamodule.hparams.seasonality_removal}_num_ensembles_{self.datamodule.hparams.num_ensembles}_crpscoef_{self.hp.crps_coeff}_spcoef_{self.hp.spectral_coeff}"}}
+                                  init_kwargs={"wandb":{"name":f"var_{self.datamodule.hparams.in_var_ids}_scenarios_{self.datamodule.hparams.train_scenarios}_climatemodel_{self.datamodule.hparams.train_models}_historical_years_{self.datamodule.hparams.train_historical_years}_ssp_years_{self.datamodule.hparams.train_years}_aggregate_{self.datamodule.num_months_aggregated}_tau_{self.tau}_z_{self.d_z}_nonlinearmixing_{self.hp.nonlinear_mixing}_batchsize_{self.batch_size}_orthomuinit_{self.hp.ortho_mu_init}_orthoh_{self.hp.ortho_h_threshold}_sparsitymuinit_{self.hp.sparsity_mu_init}_sparsityupperthreshold_{self.hp.sparsity_upper_threshold}_fixed_{self.hp.fixed}_seasonality_removal_{self.datamodule.hparams.seasonality_removal}_num_ensembles_{self.datamodule.hparams.num_ensembles}_crpscoef_{self.hp.crps_coeff}_spcoef_{self.hp.spectral_coeff}_tempspcoef_{self.hp.temporal_spectral_coeff}"}}
                                 )
 
 
@@ -260,7 +263,7 @@ class TrainingLatent:
                           "mae_recons_train_1": self.train_mae_recons_1, "mae_recons_train_2": self.train_mae_recons_2, "mae_recons_train_3": self.train_mae_recons_3, "mae_recons_train_4": self.train_mae_recons_4,
                           "mae_pred_train_1": self.train_mae_pred_1, "mae_pred_train_2": self.train_mae_pred_2, "mae_pred_train_3": self.train_mae_pred_3, "mae_pred_train_4": self.train_mae_pred_4,                         
                           
-                          "spectral_loss_train": self.train_spectral_loss, "crps_loss_train": self.train_crps_loss
+                          "spectral_loss_train": self.train_spectral_loss, "temporal_spectral_loss_train": self.train_temporal_spectral_loss, "crps_loss_train": self.train_crps_loss
                           
                           })
 
@@ -466,8 +469,13 @@ class TrainingLatent:
         crps = self.get_crps_loss(y, px_mu, px_std)
         spectral_loss = self.get_spectral_loss(y, y_pred)
         
+        temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred)
+        
+        #print('Am I tracking the gradients of temporal_spectral_loss?', temporal_spectral_loss.requires_grad)
+
         # add the spectral loss to the loss
-        loss = loss + self.hp.crps_coeff * crps + self.hp.spectral_coeff * spectral_loss
+        loss = loss + self.hp.crps_coeff * crps + self.hp.spectral_coeff * spectral_loss + self.hp.temporal_spectral_coeff * temporal_spectral_loss
+
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
@@ -510,6 +518,9 @@ class TrainingLatent:
 
         # adding the spectral loss to the logs
         self.train_spectral_loss = spectral_loss.item()
+
+        # adding the temporal spectral loss to the logs
+        self.train_temporal_spectral_loss = temporal_spectral_loss.item()
 
 
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
@@ -834,6 +845,9 @@ class TrainingLatent:
         # adding spectral loss
         self.train_spectral_loss_list.append(self.train_spectral_loss)
 
+        # adding temporal spectral loss
+        self.train_temporal_spectral_loss_list.append(self.train_temporal_spectral_loss)
+
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
@@ -982,6 +996,8 @@ class TrainingLatent:
 
         I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
         
+        I would quite like to do this on future timesteps too.
+
         Args:
             y: torch.Tensor, the true values
             mu: torch.Tensor, the mean of the Gaussians
@@ -993,11 +1009,6 @@ class TrainingLatent:
         y = y
         mu = mu
         sigma = sigma
-
-        # check if these require gradients
-        print('what is the requires grad of y?', y.requires_grad)
-        print('what is the requires grad of mu?', mu.requires_grad)
-        print('what is the requires grad of sigma?', sigma.requires_grad)
 
         # standardised y
         sy = (y - mu) / sigma
@@ -1013,18 +1024,10 @@ class TrainingLatent:
         # calculate the CRPS
         crps = sigma * (sy * (2. * cdf - 1.) + 2. * pdf - pi_inv)
 
-        # check all these things require grad
-        print('what is the requires grad of pdf?', pdf.requires_grad)
-        print('what is the requires grad of cdf?', cdf.requires_grad)
-        print('what is the requires grad of pi_inv?', pi_inv.requires_grad)
-
-
-        print('what is the shape of the crps?', crps.shape)
-
         # add together all the CRPS values and divide by the number of samples
         crps = torch.sum(crps) / y.size(0)
 
-        print('what is the shape of y?', y.shape)
+        #of y?', y.shape)
 
         return crps
     
@@ -1039,6 +1042,8 @@ class TrainingLatent:
         Separating out the contributions of the different variables? All unclear.
 
         I might actually want to log this, so that the loss is not just dominated by the very low frequency, high power components.
+
+        I should be setting some kind of limit at which I do this here - I am still not sure if it is an upper or lower bound that is the right threshold on the power spectrum.
 
         Args:
             y: torch.Tensor, the true values
@@ -1083,6 +1088,45 @@ class TrainingLatent:
         #print('what is the shape of the spectral loss?', spectral_loss)
         
         return spectral_loss
+
+    def get_temporal_spectral_loss(self, x, y_true, y_pred):
+    
+        """
+        Calculate the temporal spectra (frequency domain) of the true values compared to the predicted values.
+        This needs to look at the power spectra through time per grid cell of predicted and true values.
+
+        Args:
+            x: torch.Tensor, the input values, past timesteps
+            y_true: torch.Tensor, the true value of the timestep we predict
+            y_pred: torch.Tensor, the predicted values of the timestep we predict
+        """
+
+        # unsqueeze y_true and y_pred along the time axis, so that they go from (batch_size, num_vars, coords) to (batch_size, 1, num_vars, coords)
+        # where coords can be 6250, icosahedral, or 96, 144 in the case where we still have regular data
+        y_true = y_true.unsqueeze(1)
+        y_pred = y_pred.unsqueeze(1)
+
+        # concatenate x and y_true along the time axis
+        obs = torch.cat((x, y_true), dim=1)
+        pred = torch.cat((x, y_pred), dim=1)
+
+        # calculate the spectra of the true values along the time dimension, and then take the mean across the batch
+        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs, dim=1)), dim=0)
+        # calculate the spectra of the predicted values along the time dimension, and then take the mean across the batch
+        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred, dim=1)), dim=0)
+
+        # Calculate the power spectrum
+
+        # compute the distance between the losses...
+        temporal_spectral_loss = torch.abs(fft_pred - fft_true)
+
+        # the shape here is (time/2 + 1, num_vars, coords)
+
+        # average across all frequencies, variables and coordinates...
+        temporal_spectral_loss = torch.mean(temporal_spectral_loss[:, :, :])
+
+        return temporal_spectral_loss
+
     
     def connectivity_reg_complete(self):
         """

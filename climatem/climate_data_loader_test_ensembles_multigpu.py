@@ -8,13 +8,16 @@ from pprint import pprint
 
 import torch
 
-from emulator.src.datamodules.climate_datamodule import ClimateDataModule
+#from emulator.src.datamodules.climate_datamodule import ClimateDataModule
+# replacing this with new import from climatem, same as below
+from climatem.climate_datamodule_test_ensembles_multigpu import ClimateDataModule
+
 
 # Here we replace the original import with a new experimental import.
 #from emulator.src.data.climate_dataset import Input4MipsDataset, CMIP6Dataset
-from emulator.src.data.climate_dataset_test_ensembles import Input4MipsDataset, CMIP6Dataset
+from climatem.climate_dataset_test_ensembles import Input4MipsDataset, CMIP6Dataset
 
-from emulator.src.data.constants import (
+from climatem.constants import (
     OPENBURNING_MODEL_MAPPING,
     AVAILABLE_MODELS_FIRETYPE,
 )

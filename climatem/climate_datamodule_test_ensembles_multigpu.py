@@ -8,9 +8,9 @@ from torch.utils.data import DataLoader
 import torch.distributed
 from torch.utils.data.distributed import DistributedSampler
 
-from emulator.src.data.climate_dataset import ClimateDataset
+from climatem.climate_dataset_test_ensembles import ClimateDataset
 import torch
-from emulator.src.data.constants import TEMP_RES, SEQ_LEN_MAPPING, LAT, LON, NUM_LEVELS, DATA_DIR
+from climatem.constants import TEMP_RES, SEQ_LEN_MAPPING, LAT, LON, NUM_LEVELS, DATA_DIR
 from emulator.src.utils.utils import get_logger, random_split
 
 # import the multigpu code:
@@ -179,7 +179,8 @@ class ClimateDataModule(LightningDataModule):
     # y: (batch_size, sequence_length, lon, lat, out_vars) if channels_last else (batch_size, sequence_lenght, out_vars, lon, lat)
     def train_dataloader(self):
 
-        train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
+        # NOTE:(seb), when shuffle=True this seems to fail with the error:
+        train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
 
         return DataLoader(
             dataset=self._data_train,
