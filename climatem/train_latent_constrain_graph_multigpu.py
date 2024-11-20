@@ -610,7 +610,7 @@ class TrainingLatent:
                                                                 path=self.hp.exp_path, iteration=self.iteration, 
                                                                 valid=False, plot_through_time=True)
             else: 
-                print("2 + 2")
+                print("Not plotting predictions.")
                 #self.plotter.plot_compare_prediction(x_past=x_original[0, -1, :, :].cpu().detach().numpy(), 
                 #                                      x=y_original[0, 0].cpu().detach().numpy(), 
                 #                                      #y_recons=y_original_recons.cpu().detach().numpy(), 
@@ -700,8 +700,6 @@ class TrainingLatent:
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = self.autoregress_prediction_original(valid=True, timesteps=10)
 
             # print all the shapes of these
-            print("What are the shapes of all these tensors that I predict?")
-            print(y_original.shape, y_original_pred.shape, y_original_recons.shape, x_original.shape)
 
             self.val_mae_recons = torch.mean(torch.abs(y_original_recons - y_original)).item()
             self.val_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
@@ -717,9 +715,7 @@ class TrainingLatent:
             self.val_var_recons = torch.var(y_original_recons)
             self.val_var_pred = torch.var(y_original_pred)
 
-            # including some per variable metrics
-
-            print('I am in the valid step and I want to check the shapes of these tensors:', y_original.shape, y_original_pred.shape, y_original_recons.shape)
+            # NOTE:(seb) including some per variable metrics, specifically for the 4 variable case
 
             if self.d == 4:
                 self.val_mae_recons_1 = torch.mean(torch.abs(y_original_recons[:, 0] - y_original[:, 0])).item()

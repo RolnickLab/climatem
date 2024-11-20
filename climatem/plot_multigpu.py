@@ -45,7 +45,7 @@ class Plotter:
 
         if learner.latent:
             # save matrix W of the decoder and encoder
-            print('SAVING THE DECODER AND ENCODER AND GRAPHS')
+            print('Saving the decoder, encoder and graphs.')
             w_decoder = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
             np.save(os.path.join(learner.hp.exp_path, "w_decoder.npy"), w_decoder)
             w_encoder = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
@@ -128,26 +128,6 @@ class Plotter:
 
         # plot learning curves
         if learner.latent:
-            # plot distribution of weights
-            # if learner.hp.plot_through_time:
-            #     fname = f"w_distr_{learner.iteration}.png"
-            # else:
-            #     fname = "w_distr.png"
-            # plt.hist(w.flatten(), bins=50)
-            # plt.savefig(os.path.join(learner.hp.exp_path, fname))
-            # plt.close()
-
-            # NOTE:(seb) blocking this loss out
-            #self.plot_learning_curves(train_loss=learner.train_loss_list,
-            #                          train_recons=learner.train_recons_list,
-            #                          train_kl=learner.train_kl_list,
-            #                          valid_loss=learner.valid_loss_list,
-            #                          valid_recons=learner.valid_recons_list,
-            #                          valid_kl=learner.valid_kl_list,
-            #                          best_metrics=learner.best_metrics,
-            #                          iteration=learner.iteration,
-            #                          plot_through_time=learner.hp.plot_through_time,
-            #                          path=learner.hp.exp_path)
             
             # NOTE:(seb) adding here capacity to plot the new sparsity constraint!
             losses = [{"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
@@ -161,8 +141,6 @@ class Plotter:
             
             
             
-            # {"name": "tr acyclic", "data": learner.train_acyclic_cons_list, "s": "-"},
-            # {"name": "tr connect", "data": learner.train_connect_reg_list, "s": "-"},
             self.plot_learning_curves2(losses=losses,
                                        iteration=learner.iteration,
                                        plot_through_time=learner.hp.plot_through_time,
@@ -196,9 +174,6 @@ class Plotter:
                                       iteration=learner.iteration,
                                       plot_through_time=learner.hp.plot_through_time,
                                       path=learner.hp.exp_path)
-
-        # TODO: plot the prediction vs gt
-        # plot_compare_prediction(x, x_hat)
 
         # plot the adjacency matrix (learned vs ground-truth)
         adj = learner.model.module.get_adj().cpu().detach().numpy()
@@ -319,14 +294,6 @@ class Plotter:
 
         # plot learning curves
         if learner.latent:
-            # plot distribution of weights
-            # if learner.hp.plot_through_time:
-            #     fname = f"w_distr_{learner.iteration}.png"
-            # else:
-            #     fname = "w_distr.png"
-            # plt.hist(w.flatten(), bins=50)
-            # plt.savefig(os.path.join(learner.hp.exp_path, fname))
-            # plt.close()
 
             self.plot_learning_curves(train_loss=learner.train_loss_list,
                                       train_recons=learner.train_recons_list,
@@ -453,7 +420,6 @@ class Plotter:
                                          'w',
                                          learner.no_gt)
             # plot the encoder matrix W_2
-            # gt_w2 = np.swapaxes(gt_w, 1, 2)
             gt_w2 = gt_w
             self.plot_adjacency_matrix_w(adj_w2,
                                          gt_w2,
@@ -467,22 +433,6 @@ class Plotter:
                                                    learner.hp.exp_path,
                                                    'w')
             else:
-                # NOTE:(seb) removing this one plot one...
-                #self.plot_regions_map(adj_w,
-                #                      learner.coordinates,
-                #                      learner.iteration,
-                #                      learner.hp.plot_through_time,
-                #                      path=learner.hp.exp_path,
-                #                      idx_region=None,
-                #                      annotate=True,
-                #                      one_plot=True)
-                # for idx in range(learner.d_z):
-                #     self.plot_regions_map(adj_w,
-                #                           learner.data.coordinates,
-                #                           learner.iteration,
-                #                           learner.hp.plot_through_time,
-                #                           path=learner.hp.exp_path,
-                #                           idx_region=idx)
                 self.plot_regions_map(adj_w,
                                       learner.coordinates,
                                       learner.iteration,
@@ -735,8 +685,6 @@ class Plotter:
         norms = np.max(w_adj, axis=2)
 
         # here we want the number of latents PER variable
-        print('Shape of w_adj:', w_adj.shape)
-        print('Shape of idx:', idx.shape)
         
         d_z = w_adj.shape[2]
 
@@ -800,202 +748,6 @@ class Plotter:
 
         plt.savefig(os.path.join(path, fname),  format="png")
         plt.close()
-
-    def plot_regions_map_old(self, w_adj, coordinates: np.ndarray, iteration: int,
-                         plot_through_time: bool, path: str, idx_region: int = None,
-                         annotate: bool = False, one_plot: bool = False):
-        """
-        Plot the regions
-        Args:
-            w_adj: weight of edges between X and latents Z
-            coordinates: lat, lon of every grid location
-            iteration: number of training iteration
-            plot_through_time: if False, overwrite the plot
-            path: path where to save the plot
-        """
-
-        # TODO: (seb) to clean this up.
-        ##### ORIGINAL AND SAFE
-        # d = w_adj.shape[0]
-        # d_x = w_adj.shape[1]
-        #####d_z = w_adj.shape[2]
-
-        # find the argmax per row
-        #####idx = np.argmax(w_adj, axis=2)[0]
-        # norms = np.linalg.norm(w_adj, axis=2)[0]
-        #####norms = np.max(w_adj, axis=2)[0]
-
-        ####### NEW AND RISKY #########
-        # This works nicely - but perhaps it should be run in the main function,
-        # separately to this function, which is for the spatial aggregation maps really.
-        # d = w_adj.shape[0]
-        # d_x = w_adj.shape[1]
-        d_z = w_adj.shape[2]
-        #print(d_z)
-
-        print('Shape of w_adj:', w_adj.shape)
-
-
-        # NOTE:(seb) this was working before, with idx and norms and doing [0]
-        # find the argmax per row
-        ###idx = np.argmax(w_adj, axis=2)[0]
-        #print(idx, idx.shape, idx[0:40])
-        # norms = np.linalg.norm(w_adj, axis=2)[0]
-        ###norms = np.max(w_adj, axis=2)[0]
-        
-        # I am going to overwrite this above, to make it work for more than one variable
-        idx = np.argmax(w_adj, axis=2)
-        norms = np.max(w_adj, axis=2)
-
-        #d_z = w_adj.shape[2]
-        #idx = np.argmax(w_adj, axis=2)[0]
-    
-        #print(coordinates.shape)
-        #print(idx.shape)
-
-        # NOTE:(seb) do I need to do some if else to make sure I get the right coordinates?
-        # I have a problem where for plotting, I think the lat, lon order of columns is different for the icosahedral coords and the regular coords:
-        # HACK: hard code...I guess I could do something with the ranges of the coordinates, but this is easier for now.
-        # e.g. whichever column has the highest value, that is the lon column, and the other is the lat column
-        
-        #print('Max value in the first column of coordinates:', np.max(coordinates[:, 0]))
-        #print('Max value in the second column of coordinates:', np.max(coordinates[:, 1]))
-        #print('Min value in the first column of coordinates:', np.min(coordinates[:, 0]))
-        #print('Min value in the second column of coordinates:', np.min(coordinates[:, 1]))
-        
-        # The code below is designed to have the lat column first, and the lon column second.
-        # This checks if the max value in the first column is greater than 91.
-        # If so, then the first column must be the lon column, and hence we need to swap them.
-
-        # First, I will assert that I have two columns.
-        assert coordinates.shape[1] == 2
-
-        # Then, swap the columns if the first column at the moment is the longitude column.
-        if np.max(coordinates[:, 0]) > 91:
-            coordinates = np.flip(coordinates, axis=1)
-    
-
-        
-        # stopping this here...    
-        # NOTE:(seb) feasibly this should be saved somewhere else...
-        # save this for every iteration. 
-        #coordinates_idx = np.concatenate((coordinates, idx.reshape(-1, 1)), axis=1)
-        #if plot_through_time:
-        #    np.save(os.path.join(path, f"coordinates_idx_latent_{iteration}.npy"), coordinates_idx)
-
-
-        # plot the regions
-        colors = plt.cm.rainbow(np.linspace(0, 1, d_z))
-
-        if idx_region is not None:
-            # plot the map
-            map = Basemap(projection='robin', lon_0=0)
-            map.drawcoastlines()
-            map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-            map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
-
-            k = idx_region
-            color = colors[idx_region]
-            alpha = 1.
-            region = coordinates[idx == k]
-            c = np.repeat(np.array([color]), region.shape[0], axis=0)
-            map.scatter(x=region[:, 1], y=region[:, 0], c=c, alpha=alpha, s=3, latlon=True)
-            x, y = map(region[:, 1].mean(), region[:, 0].mean())
-            plt.annotate(str(k), xy=(x, y))
-        
-        elif one_plot:
-
-            print('For spatial aggregation, I am in one_plot here...')
-
-            fig, axes = plt.subplots(d_z // 5, 5, figsize=(15, d_z // 2))
-
-            for k, color in zip(range(d_z), colors):
-                alpha = 1.
-                region = coordinates[idx == k]
-                c = np.repeat(np.array([color]), region.shape[0], axis=0)
-                i = k // 5
-                j = k % 5
-
-                # plot the map
-                map = Basemap(projection='robin', lon_0=0, ax=axes[i, j])
-                map.drawcoastlines()
-                # map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-                # map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
-
-                # NOTE:(seb) I guess that these need to be rotated if we are icosahedral...
-                map.scatter(x=region[:, 1], y=region[:, 0], c=c, alpha=alpha, s=3, latlon=True)
-
-                if annotate:
-                    x, y = self.get_centroid(region[:, 1], region[:, 0])
-                    x1, y1 = map(x, y)
-                    # x, y = map(region[:, 1].mean(), region[:, 0].mean())
-                    axes[i, j].annotate(str(k), xy=(x1, y1))
-
-        else:
-            
-            
-            
-            print('For spatial aggregation, I am in else here...')
-            # plot the map
-            map = Basemap(projection='robin', lon_0=0)
-            map.drawcoastlines()
-            map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-            map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
-
-            centroids = []
-            centroids_map = []
-
-            # make three subplots for a map each
-            fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-
-
-            for k, color in zip(range(d_z), colors):
-                # alpha = norms[idx == k] / np.max(norms)
-                alpha = 1.
-                # threshold = np.percentile(alpha, 30)
-                # alpha[alpha < threshold] = 0
-                
-                
-
-                region0 = coordinates[idx[0] == k]
-                region1 = coordinates[idx[1] == k]
-                region2 = coordinates[idx[2] == k]
-            
-                c = np.repeat(np.array([color]), region.shape[0], axis=0)
-
-                #print('length of d_z in spatial aggregation:', d_z)
-
-                axes[0] = map.scatter(x=region0[:, 1], y=region0[:, 0], c=c, alpha=alpha, s=3, latlon=True)
-                axes[1] = map.scatter(x=region1[:, 1], y=region1[:, 0], c=c, alpha=alpha, s=3, latlon=True)
-                axes[2] = map.scatter(x=region2[:, 1], y=region2[:, 0], c=c, alpha=alpha, s=3, latlon=True)
-
-
-                # add number for each region (that are completely in one of the four quadrants)
-                if annotate:
-                    x, y = self.get_centroid(region[:, 1], region[:, 0])
-                    x1, y1 = map(x, y)
-                    centroids.append([x, y])
-                    centroids_map.append([x1, y1])
-                    plt.annotate(str(k), xy=(x1, y1))
-                    # if ((np.sum(region[:, 1] > 0) == 0 and np.sum(region[:, 0] > 0) == 0) or (np.sum(region[:, 1] > 0) == 0 and np.sum(region[:, 0] < 0) == 0) or (np.sum(region[:, 1] < 0) == 0 and np.sum(region[:, 0] > 0) == 0) or (np.sum(region[:, 1] < 0) == 0 and np.sum(region[:, 0] < 0) == 0)):
-                    #     x, y = map(region[:, 1].mean(), region[:, 0].mean())
-                    #     plt.annotate(str(k), xy=(x, y))
-            np.save(os.path.join(path, "centroids.npy"), centroids)
-            np.save(os.path.join(path, "centroids_map.npy"), centroids_map)
-
-        if idx_region is not None:
-            fname = f"spatial_aggregation{idx_region}.png"
-        elif plot_through_time:
-            fname = f"spatial_aggregation_{iteration}.png"
-        elif one_plot:
-            fname = "spatial_aggregation_all_clusters.png"
-        else:
-            fname = "spatial_aggregation.png"
-
-        plt.savefig(os.path.join(path, fname),  format="png")
-        plt.close()
-
-
 
     def get_centroid(self, xs, ys):
         """
@@ -1146,8 +898,6 @@ class Plotter:
         """
         tau = mat1.shape[0]
         
-        print('Learned latents causal relations shape:', mat1.shape)
-
         subfig_names = [f"Learned, latent dimensions = {mat1.shape[1], mat1.shape[2]}", "Ground Truth", "Difference: Learned - GT"]
 
         fig = plt.figure(constrained_layout=True)

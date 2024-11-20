@@ -3,18 +3,11 @@
 import json
 import numpy as np
 from typing import Optional
-from emulator import train
-from pprint import pprint
 
 import torch
 
-#from emulator.src.datamodules.climate_datamodule import ClimateDataModule
-# replacing this with new import from climatem, same as below
+# import relevant data loading modules
 from climatem.climate_datamodule_test_ensembles_multigpu import ClimateDataModule
-
-
-# Here we replace the original import with a new experimental import.
-#from emulator.src.data.climate_dataset import Input4MipsDataset, CMIP6Dataset
 from climatem.climate_dataset_test_ensembles import Input4MipsDataset, CMIP6Dataset
 
 from climatem.constants import (
@@ -103,7 +96,6 @@ class CausalClimateDataModule(ClimateDataModule):
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
                     climate_model=self.hparams.train_models,
-                    #num_ensembles=1, #TODO: extend to more than one - NOTE:(seb) this shall be done! Ok going to do this now, 20th August 2024.
                     num_ensembles=self.hparams.num_ensembles,
                     variables=self.hparams.in_var_ids,
                     scenarios=self.hparams.train_scenarios,
@@ -178,16 +170,14 @@ class CausalClimateDataModule(ClimateDataModule):
             self._data_test = []
             for test_scenario in self.hparams.test_scenarios:
                 for test_model in self.hparams.test_models:
-                    # NOTE:(seb) adding psl here...note that this should probably be extended to include other variables...************
-                    # NOTE:(seb) THIS JUST LOOKS AT train_years and train_historical_years - test_years is totally ignored for this dataset!!!
+                    # NOTE:(seb) this only uses train_years and train_historical_years, while test_years is totally ignored.
                     if "tas" in self.hparams.in_var_ids or "pr" in self.hparams.in_var_ids or "psl" in self.hparams.in_var_ids or "ts" in self.hparams.in_var_ids:
                         test_input4mips = CMIP6Dataset(
                             years=train_years,
                             historical_years=train_historical_years,
                             data_dir=self.hparams.data_dir,
                             climate_model=self.hparams.train_models,
-                            # NOTE:(seb) this has now been added
-                            num_ensembles=self.hparams.num_ensembles,  # TODO: extend to more than one NOTE:(seb) this shall be done!
+                            num_ensembles=self.hparams.num_ensembles, 
                             variables=self.hparams.in_var_ids,
                             scenarios=self.hparams.train_scenarios,
                             channels_last=self.hparams.channels_last,
@@ -197,6 +187,7 @@ class CausalClimateDataModule(ClimateDataModule):
                             seasonality_removal=self.hparams.seasonality_removal
                         )
                     else:
+                        # NOTE:(seb) this is left over, but may be useful when we include forcings later.
                         test_input4mips = Input4MipsDataset(
                             years=test_years,
                             historical_years=test_historical_years,

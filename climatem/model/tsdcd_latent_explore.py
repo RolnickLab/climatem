@@ -583,11 +583,6 @@ class LatentTSDCD(nn.Module):
             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
             z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
             
-            print('Shape of pz_mu:', pz_mu.shape)
-            print('Shape of pz_std:', pz_std.shape)
-            print('Shape of z_samples:', z_samples.shape)
-            print('Shape of self.distr_transition:', self.distr_transition(pz_mu, pz_std).sample().shape)
-
             for i in range(num_samples):
                 z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
                 samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
@@ -595,18 +590,13 @@ class LatentTSDCD(nn.Module):
                 #some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
                 
                 #samples_from_zs[i] = some_decoded_samples_mu
-            
-            
-            print('Shape of samples from sampling z:', samples_from_zs.shape)
-            
+                        
             # decode
             px_mu, px_std = self.decode(pz_mu)
 
             # here we decode from pz_mu, and then sample from the distribution over xs.
             # note this will simply give us chequerboards.
             samples_from_xs = torch.zeros(num_samples, b, self.d, self.d_x)
-            print('Shape of samples from sampling x:', samples_from_xs.shape)
-            print('Shape of self.distr_decoder:', self.distr_decoder(px_mu, px_std).sample().shape)
 
             for i in range(num_samples):
                 samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()

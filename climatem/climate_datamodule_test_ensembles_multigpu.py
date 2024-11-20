@@ -3,18 +3,17 @@ from typing import Optional, List, Callable, Union
 
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
-from torch.utils.data import DataLoader
 
+import torch
 import torch.distributed
 from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import DataLoader
 
 from climatem.climate_dataset_test_ensembles import ClimateDataset
-import torch
 from climatem.constants import TEMP_RES, SEQ_LEN_MAPPING, LAT, LON, NUM_LEVELS, DATA_DIR
-from emulator.src.utils.utils import get_logger, random_split
 
-# import the multigpu code:
-import torch.distributed
+# NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
+from emulator.src.utils.utils import get_logger, random_split
 
 log = get_logger()
 
@@ -171,15 +170,13 @@ class ClimateDataModule(LightningDataModule):
     def _shared_eval_dataloader_kwargs(self) -> dict:
         return dict(**self._shared_dataloader_kwargs(), batch_size=self.hparams.eval_batch_size, shuffle=False)
 
-    #NOTE(seb): do I want to add drop_last=True here to avoid having to deal with different batch sizes? Done.
-
     # Probably we also just want a list of Train Dataloaders not just a single one so we can swith sets in our memory
     # resulting tensors sizes: 
     # x: (batch_size, sequence_length, lon, lat, in_vars) if channels_last else (batch_size, sequence_lenght, in_vars, lon, lat)
     # y: (batch_size, sequence_length, lon, lat, out_vars) if channels_last else (batch_size, sequence_lenght, out_vars, lon, lat)
     def train_dataloader(self):
 
-        # NOTE:(seb), when shuffle=True this seems to fail with the error:
+        # NOTE:(seb), when shuffle=True this seems to fail:
         train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
 
         return DataLoader(
@@ -202,6 +199,7 @@ class ClimateDataModule(LightningDataModule):
             **self._shared_eval_dataloader_kwargs()
         ) if self._data_val is not None else None
 
+    # NOTE:(seb) this is not used currently
     def test_dataloader(self) -> List[DataLoader]:
 
         test_sampler = DistributedSampler(dataset=ds_test, shuffle=False)
