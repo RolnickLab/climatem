@@ -1,3 +1,5 @@
+# Collection of plotting functions for plotting the results of experiments.
+
 import os
 import json
 import numpy as np
@@ -9,9 +11,6 @@ import torch
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-
-# I don't know why there is a logging iter...
-# I am going to change to have this as the iteration for naming the plots...
 
 def moving_average(a: np.ndarray, n: int = 10):
     """
@@ -54,31 +53,6 @@ class Plotter:
             # save the graphs G
             adj = learner.model.module.get_adj().cpu().detach().numpy()
             np.save(os.path.join(learner.hp.exp_path, "graphs.npy"), adj)
-
-            # save variance of encoder and decoder
-            # np.save(os.path.join(learner.hp.exp_path, "logvar_encoder_tt"), learner.logvar_encoder_tt)
-            # np.save(os.path.join(learner.hp.exp_path, "logvar_decoder_tt"), learner.logvar_decoder_tt)
-            # np.save(os.path.join(learner.hp.exp_path, "logvar_transition_tt"), learner.logvar_transition_tt)
-
-            # save adj_tt and adj_w_tt, adjacencies through time
-            # np.save(os.path.join(learner.hp.exp_path, "adj_tt"), learner.adj_tt)
-            # np.save(os.path.join(learner.hp.exp_path, "adj_w_tt"), learner.adj_w_tt)
-
-            # save losses and penalties
-            # penalties = [{"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
-            #              {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
-            #              {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
-            #             ]
-            # for p in penalties:
-            #     np.save(os.path.join(learner.hp.exp_path, p["name"]), np.array(p["data"]))
-
-            # losses = [{"name": "tr ELBO", "data": learner.train_loss_list, "s": "-."},
-            #           {"name": "Recons", "data": learner.train_recons_list, "s": "-"},
-            #           {"name": "KL", "data": learner.train_kl_list, "s": "-"},
-            #           {"name": "val ELBO", "data": learner.valid_loss_list, "s": "-."},
-            #           ]
-            # for loss in losses:
-            #     np.save(os.path.join(learner.hp.exp_path, loss["name"]), np.array(loss["data"]))
 
     def load(self, exp_path: str, data_loader):
         # load matrix W of the decoder and encoder
@@ -264,13 +238,7 @@ class Plotter:
                                       idx_region=None,
                                       annotate=True,
                                       one_plot=True)
-                # for idx in range(learner.d_z):
-                #     self.plot_regions_map(adj_w,
-                #                           learner.data.coordinates,
-                #                           learner.iteration,
-                #                           learner.hp.plot_through_time,
-                #                           path=learner.hp.exp_path,
-                #                           idx_region=idx)
+
                 self.plot_regions_map(adj_w,
                                       learner.coordinates,
                                       learner.iteration,
@@ -509,7 +477,6 @@ class Plotter:
         plt.close()
 
 
-
     def plot_compare_predictions_regular_grid(self, x_past: np.ndarray, y_true: np.ndarray, y_recons: np.ndarray, 
                                           y_hat: np.ndarray, sample: int, coordinates: np.ndarray, 
                                           path: str, iteration: int, valid: str = False, plot_through_time: bool = True):
@@ -577,9 +544,8 @@ class Plotter:
         plt.savefig(os.path.join(path, fname), format="png")
         plt.close()
 
-    
 
-    # I am trying to improve this so that we can plot different variables...
+    # This plot should allow the plotting of multiple variables now.
     def plot_compare_predictions_icosahedral(self, x_past: np.ndarray, y_true: np.ndarray, y_recons: np.ndarray, 
                                              y_hat: np.ndarray, sample: int, coordinates: np.ndarray, 
                                              path: str, iteration: int, valid: str = False, plot_through_time: bool = True):
@@ -664,15 +630,13 @@ class Plotter:
         plt.savefig(os.path.join(path, fname), format="png")
         plt.close()
 
-    
-    
+     
     def plot_compare_regions():
         pass
 
     # need to fix this plot so it works well for multiple variables
 
     # NOTE:(seb) trying to extend the plot_regions_map function to plot multiple variables
-
     def plot_regions_map(self, w_adj, coordinates: np.ndarray, iteration: int,
                             plot_through_time: bool, path: str, idx_region: int = None,
                             annotate: bool = False, one_plot: bool = False):
@@ -1111,24 +1075,10 @@ class Plotter:
             fig.clf()
 
 
+# this is futile
 if __name__ == "__main__":
     # Load saved data and plot it
     plotter = Plotter()
     # load hp of the model
     with open(os.path.join("causal_climate_exp/exp0", "params.json"), 'r') as f:
         hp = json.load(f)
-
-    # load GT graph and W
-    # commented out this old dataloader stuff
-    #data_loader = DataLoader(ratio_train=hp["ratio_train"],
-    #                         ratio_valid=hp["ratio_valid"],
-    #                         data_path=hp["data_path"],
-    #                         data_format=hp["data_format"],
-    #                        no_gt=hp["no_gt"],
-    #                         debug_gt_w=hp["debug_gt_w"],
-    #                         latent=hp["latent"],
-    #                         instantaneous=hp["instantaneous"],
-    #                         tau=hp["tau"])
-
-    #plotter.load(hp["exp_path"], data_loader)
-    # plotter.plot(data)
