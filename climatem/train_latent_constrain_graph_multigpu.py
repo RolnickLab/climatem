@@ -15,6 +15,7 @@ from climatem.plot_multigpu import Plotter
 from climatem.utils import ALM
 from climatem.prox import monkey_patch_RMSprop
 
+# we use accelerate for distributed training
 from accelerate import Accelerator
 from accelerate.utils import LoggerType
 from accelerate.utils import DistributedDataParallelKwargs
@@ -68,6 +69,7 @@ class TrainingLatent:
         self.profiler = profiler
         self.profiler_path = profiler_path
 
+        # collection of lists to store relevant metrics
         self.train_loss_list = []
         self.train_elbo_list = []
         self.train_recons_list = []
@@ -134,7 +136,7 @@ class TrainingLatent:
             raise NotImplementedError("optimizer {} is not implemented".format(hp.optimizer))
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=hp.lr_scheduler_epochs, gamma=hp.lr_scheduler_gamma)
 
-        # prepare the model, optimizer, data loader, and scheduler
+        # prepare the model, optimizer, data loader, and scheduler using Accerate for distributed training
         print('Preparing all the models here!')
         self.model, self.optimizer, self.data_loader_train, self.scheduler = accelerator.prepare(self.model, self.optimizer, self.data_loader_train, self.scheduler)
 
@@ -149,8 +151,6 @@ class TrainingLatent:
                 self.sparsity_normalization = self.tau * self.d_z * self.d_z
             
         
-
-
     def train_with_QPM(self):
         """
         Optimize a problem under constraint using the Augmented Lagragian
@@ -159,8 +159,7 @@ class TrainingLatent:
         the adjacency matrix
         """
 
-        # start a new wandb run to track this script
-        
+        # Pre-Accelerate - start a new wandb run to track this script
         #wandb.init(
             # set the wandb project where this run will be logged
             # please alter this project, and set the name to something appropriate for your experiments
@@ -207,7 +206,7 @@ class TrainingLatent:
         if self.profiler:
 
             # NOTE:(seb) profiler here.
-            # we should have this function elsewhere, but it is rarely used.
+            # we should have this function elsewhere. It is rarely used.
             def trace_handler(p):
                 print("Printing profiler key averages from trace handler!")
                 output_cpu = p.key_averages().table(sort_by="cpu_time_total", row_limit=20)
@@ -375,9 +374,7 @@ class TrainingLatent:
         if self.iteration >= self.hp.max_iteration:
             self.threshold()
 
-        
-
-        
+         
         # final plotting and printing
         self.plotter.plot_sparsity(self, save=True)
         self.print_results()
@@ -468,14 +465,10 @@ class TrainingLatent:
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         crps = self.get_crps_loss(y, px_mu, px_std)
         spectral_loss = self.get_spectral_loss(y, y_pred)
-        
         temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred)
         
-        #print('Am I tracking the gradients of temporal_spectral_loss?', temporal_spectral_loss.requires_grad)
-
         # add the spectral loss to the loss
         loss = loss + self.hp.crps_coeff * crps + self.hp.spectral_coeff * spectral_loss + self.hp.temporal_spectral_coeff * temporal_spectral_loss
-
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
@@ -486,14 +479,6 @@ class TrainingLatent:
         accelerator.backward(loss)
 
         _, _ = self.optimizer.step() if self.hp.optimizer == "rmsprop" else self.optimizer.step(), self.hp.lr
-        
-        # code to inspect the new masks
-        # mask_new = self.model.mask.param.clone()
-        # print("LEARNING RATE")
-        # print(self.hp.lr)
-        # print("GRADIENT")
-        # print(self.iteration)
-        # print((mask_new - mask_prev).max())
 
         # projection of the gradient for w
         if self.model.module.autoencoder.use_grad_project and not self.no_w_constraint:
@@ -549,7 +534,7 @@ class TrainingLatent:
             self.train_var_recons = torch.var(y_original_recons)
             self.train_var_pred = torch.var(y_original_pred)
 
-            # including per variable metrics
+            # including per variable metrics, for when we train in the 4 variable case.
             if self.d == 4:
                 self.train_mae_recons_1 = torch.mean(torch.abs(y_original_recons[:, 0] - y_original[:, 0])).item()
                 self.train_mae_recons_2 = torch.mean(torch.abs(y_original_recons[:, 1] - y_original[:, 1])).item()
@@ -572,7 +557,7 @@ class TrainingLatent:
                 self.train_mae_pred_4 = 0
 
             # should probably have this somewhere else...
-            coordinates = np.loadtxt("/home/mila/s/sebastian.hickman/work/icosahedral/mappings/vertex_lonlat_mapping.txt")
+            coordinates = np.loadtxt("../climatem/vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
 
             # choose a random integer in self.batch_size, setting a seed for this
@@ -581,11 +566,9 @@ class TrainingLatent:
             #sample = np.random.randint(0, self.batch_size)
             
             # NOTE:(seb)  these samples have been changed to be different for each plot
-            
             # Plotting the predictions for three different samples, including the reconstructions and the true values
-            
             # if the shape of the data is icosahedral, we can plot like this:
-            if self.d == 4:
+            if self.d == 1 or self.d == 4:
                 self.plotter.plot_compare_predictions_icosahedral(x_past=x_original[:, -1, :, :].cpu().detach().numpy(), 
                                                                 y_true=y_original.cpu().detach().numpy(), 
                                                                 y_recons=y_original_recons.cpu().detach().numpy(), 
@@ -642,7 +625,7 @@ class TrainingLatent:
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
             y = y[:, 0]
-            # NOTE: sh, z here, I am pretty sure, is if we have a ground truth
+            # NOTE: sh, z here is if we have a ground truth
             z = None
 
             #print('doing get_nll in validation')
@@ -742,12 +725,12 @@ class TrainingLatent:
             #self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
 
             # should probably have this somewhere else...
-            coordinates = np.loadtxt("/home/mila/s/sebastian.hickman/work/icosahedral/mappings/vertex_lonlat_mapping.txt")
+            coordinates = np.loadtxt("../climatem/vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
             
             # NOTE:(seb) changed to have random selection for each plot
 
-            if self.d == 4:
+            if self.d == 1 or self.d == 4:
                 self.plotter.plot_compare_predictions_icosahedral(x_past=x_original[:, -1, :, :].cpu().detach().numpy(), 
                                                                 y_true=y_original.cpu().detach().numpy(), 
                                                                 y_recons=y_original_recons.cpu().detach().numpy(), 
@@ -1022,8 +1005,6 @@ class TrainingLatent:
 
         # add together all the CRPS values and divide by the number of samples
         crps = torch.sum(crps) / y.size(0)
-
-        #of y?', y.shape)
 
         return crps
     
