@@ -8,29 +8,15 @@ import os
 import json
 import torch
 import numpy as np
+
 from climatem.metrics import mcc_latent, shd, precision_recall, edge_errors, w_mae
-#from climatem.model.tsdcd import TSDCD
 from climatem.model.tsdcd_latent_explore import LatentTSDCD
-
-# from data_loader import DataLoader
-
-# first replace this with the modified data loader
-#from climate_data_loader import CausalClimateDataModule
 from climatem.climate_data_loader_test_ensembles_multigpu import CausalClimateDataModule
-
-#from train import Training
-
-# NOTE: here I am working with the use of the constrained graph sparsity:
-
-# this does work to some extent...
-#from train_latent_constrain_graph import TrainingLatent
-
 from climatem.train_latent_constrain_graph_multigpu import TrainingLatent
 
 from accelerate import Accelerator
 
 accelerator = Accelerator()
-
 
 class Bunch:
     """
@@ -96,18 +82,9 @@ def main(hp):
         datamodule.setup()
 
     train_dataloader = iter(datamodule.train_dataloader())
-     # val_dataloader = iter(datamodule.val_dataloader())
+    # val_dataloader = iter(datamodule.val_dataloader())
 
     x, y = next(train_dataloader)
-    # data_loader = DataLoader(ratio_train=hp.ratio_train,
-    #                          ratio_valid=hp.ratio_valid,
-    #                          data_path=hp.data_path,
-    #                          data_format=hp.data_format,
-    #                          latent=hp.latent,
-    #                          no_gt=hp.no_gt,
-    #                          debug_gt_w=hp.debug_gt_w,
-    #                          instantaneous=hp.instantaneous,
-    #                          tau=hp.tau, device=device)
 
     # initialize model
     d = x.shape[2]
@@ -119,60 +96,37 @@ def main(hp):
     else:
         num_input = d * hp.tau * (hp.tau_neigh * 2 + 1)
 
-    if not hp.latent:
-        model = TSDCD(model_type="fixed",
-                      num_layers=hp.num_layers,
-                      num_hidden=hp.num_hidden,
-                      num_input=num_input,
-                      num_output=2,
-                      d=d,
-                      tau=hp.tau,
-                      tau_neigh=hp.tau_neigh,
-                      instantaneous=hp.instantaneous,
-                      hard_gumbel=hp.hard_gumbel)
-    else:
-        model = LatentTSDCD(num_layers=hp.num_layers,
-                            num_hidden=hp.num_hidden,
-                            num_input=num_input,
-                            num_output=2,
-                            num_layers_mixing=hp.num_layers_mixing,
-                            num_hidden_mixing=hp.num_hidden_mixing,
-                            coeff_kl=hp.coeff_kl,
-                            d=d,
-                            distr_z0="gaussian",
-                            distr_encoder="gaussian",
-                            distr_transition="gaussian",
-                            distr_decoder="gaussian",
-                            d_x=hp.d_x,
-                            d_z=hp.d_z,
-                            tau=hp.tau,
-                            instantaneous=hp.instantaneous,
-                            nonlinear_mixing=hp.nonlinear_mixing,
-                            hard_gumbel=hp.hard_gumbel,
-                            no_gt=hp.no_gt,
-                            debug_gt_graph=hp.debug_gt_graph,
-                            debug_gt_z=hp.debug_gt_z,
-                            debug_gt_w=hp.debug_gt_w,
-                            # gt_w=data_loader.gt_w,
-                            # gt_graph=data_loader.gt_graph,
-                            tied_w=hp.tied_w,
-                            # NOTE: seb adding fixed to try to test when we have a fixed graph
-                            # also 
-                            fixed=hp.fixed,
-                            fixed_output_fraction=hp.fixed_output_fraction)
 
-    #print("Trying to move model to GPU...")
-    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #model.to(device)
-    #print("Where is my model?", next(model.parameters()).device)
-    
-    
-    # print what device the model is on at this point
-    #print("Where is my model?", next(model.parameters()).device)
-
-    # thinking about accelerator here...
-    #device = accelerator.device
-    #model.to(device)
+    # set the model
+    model = LatentTSDCD(num_layers=hp.num_layers,
+                        num_hidden=hp.num_hidden,
+                        num_input=num_input,
+                        num_output=2,
+                        num_layers_mixing=hp.num_layers_mixing,
+                        num_hidden_mixing=hp.num_hidden_mixing,
+                        coeff_kl=hp.coeff_kl,
+                        d=d,
+                        distr_z0="gaussian",
+                        distr_encoder="gaussian",
+                        distr_transition="gaussian",
+                        distr_decoder="gaussian",
+                        d_x=hp.d_x,
+                        d_z=hp.d_z,
+                        tau=hp.tau,
+                        instantaneous=hp.instantaneous,
+                        nonlinear_mixing=hp.nonlinear_mixing,
+                        hard_gumbel=hp.hard_gumbel,
+                        no_gt=hp.no_gt,
+                        debug_gt_graph=hp.debug_gt_graph,
+                        debug_gt_z=hp.debug_gt_z,
+                        debug_gt_w=hp.debug_gt_w,
+                        # gt_w=data_loader.gt_w,
+                        # gt_graph=data_loader.gt_graph,
+                        tied_w=hp.tied_w,
+                        # NOTE: seb adding fixed to try to test when we have a fixed graph
+                        # also 
+                        fixed=hp.fixed,
+                        fixed_output_fraction=hp.fixed_output_fraction)
     
     name = f"var_{datamodule.hparams.in_var_ids}_scenarios_{datamodule.hparams.train_scenarios[0]}_tau_{hp.tau}_z_{hp.d_z}_lr_{hp.lr}_spreg_{hp.reg_coeff}_ormuinit_{hp.ortho_mu_init}_spmuinit_{hp.sparsity_mu_init}_spthres_{hp.sparsity_upper_threshold}_fixed_{hp.fixed}_num_ensembles_{datamodule.hparams.num_ensembles}_instantaneous_{hp.instantaneous}_crpscoef_{hp.crps_coeff}_spcoef_{hp.spectral_coeff}_tempspcoef_{hp.temporal_spectral_coeff}"
     hp.exp_path = hp.exp_path + name
@@ -189,11 +143,8 @@ def main(hp):
     #     best_metrics = json.load(f)
     best_metrics = {'recons': 0, 'kl': 0, 'mcc': 0, 'elbo': 0}
 
-    # train
-    if not hp.latent:
-        trainer = Training(model, datamodule, hp)
-    else:
-        trainer = TrainingLatent(model, datamodule, hp, best_metrics, d)
+    # train, always with the latent version
+    trainer = TrainingLatent(model, datamodule, hp, best_metrics, d)
     
     # where is the model at this point?
     print("Where is my model?", next(trainer.model.parameters()).device)
