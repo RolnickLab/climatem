@@ -557,7 +557,7 @@ class TrainingLatent:
                 self.train_mae_pred_4 = 0
 
             # should probably have this somewhere else...
-            coordinates = np.loadtxt("/home/mila/s/sebastian.hickman/work/climatem/climatem/vertex_lonlat_mapping.txt")
+            coordinates = np.loadtxt("climatem/vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
 
             # choose a random integer in self.batch_size, setting a seed for this
@@ -725,7 +725,7 @@ class TrainingLatent:
             #self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
 
             # should probably have this somewhere else...
-            coordinates = np.loadtxt("/home/mila/s/sebastian.hickman/work/climatem/climatem/vertex_lonlat_mapping.txt")
+            coordinates = np.loadtxt("climatem/vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
             
             # NOTE:(seb) changed to have random selection for each plot
