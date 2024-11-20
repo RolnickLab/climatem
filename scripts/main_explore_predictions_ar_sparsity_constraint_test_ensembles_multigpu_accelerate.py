@@ -8,24 +8,24 @@ import os
 import json
 import torch
 import numpy as np
-from metrics import mcc_latent, shd, precision_recall, edge_errors, w_mae
-from model.tsdcd import TSDCD
-from model.tsdcd_latent_explore import LatentTSDCD
+from climatem.metrics import mcc_latent, shd, precision_recall, edge_errors, w_mae
+#from climatem.model.tsdcd import TSDCD
+from climatem.model.tsdcd_latent_explore import LatentTSDCD
 
 # from data_loader import DataLoader
 
 # first replace this with the modified data loader
 #from climate_data_loader import CausalClimateDataModule
-from climate_data_loader_test_ensembles_multigpu import CausalClimateDataModule
+from climatem.climate_data_loader_test_ensembles_multigpu import CausalClimateDataModule
 
-from train import Training
+#from train import Training
 
 # NOTE: here I am working with the use of the constrained graph sparsity:
 
 # this does work to some extent...
 #from train_latent_constrain_graph import TrainingLatent
 
-from train_latent_constrain_graph_multigpu import TrainingLatent
+from climatem.train_latent_constrain_graph_multigpu import TrainingLatent
 
 from accelerate import Accelerator
 
@@ -174,7 +174,7 @@ def main(hp):
     #device = accelerator.device
     #model.to(device)
     
-    name = f"var_{datamodule.hparams.in_var_ids}_scenarios_{datamodule.hparams.train_scenarios[0]}_tau_{hp.tau}_z_{hp.d_z}_lr_{hp.lr}_spreg_{hp.reg_coeff}_ormuinit_{hp.ortho_mu_init}_spmuinit_{hp.sparsity_mu_init}_spthres_{hp.sparsity_upper_threshold}_fixed_{hp.fixed}_num_ensembles_{datamodule.hparams.num_ensembles}_instantaneous_{hp.instantaneous}_crpscoef_{hp.crps_coeff}_spcoef_{hp.spectral_coeff}"
+    name = f"var_{datamodule.hparams.in_var_ids}_scenarios_{datamodule.hparams.train_scenarios[0]}_tau_{hp.tau}_z_{hp.d_z}_lr_{hp.lr}_spreg_{hp.reg_coeff}_ormuinit_{hp.ortho_mu_init}_spmuinit_{hp.sparsity_mu_init}_spthres_{hp.sparsity_upper_threshold}_fixed_{hp.fixed}_num_ensembles_{datamodule.hparams.num_ensembles}_instantaneous_{hp.instantaneous}_crpscoef_{hp.crps_coeff}_spcoef_{hp.spectral_coeff}_tempspcoef_{hp.temporal_spectral_coeff}"
     hp.exp_path = hp.exp_path + name
 
     # create path to exp and save hyperparameters
@@ -888,6 +888,8 @@ if __name__ == "__main__":
                         help="Coefficient for the CRPS term of the loss")
     parser.add_argument("--spectral-coeff", type=float,
                         help="Coefficient for the spectral term of the loss")
+    parser.add_argument("--temporal-spectral-coeff", type=float,
+                        help="Coefficient for the temporal spectral term of the loss")
 
     # logging
     parser.add_argument("--valid-freq", type=int, help="Frequency of evaluating the loss on the validation set")

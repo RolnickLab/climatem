@@ -16,7 +16,7 @@ module purge
 module --quiet load python/3.10
 
 # 2. Load your environment
-source $HOME/work/causalpaca/env_emulator/bin/activate
+source $HOME/work/climatem/env_emulator_climatem/bin/activate
 
 # 3. Copy your dataset on the compute node - I am not sure whether I need to do this at the moment...
 # cp /network/datasets/<dataset> $SLURM_TMPDIR
@@ -42,10 +42,10 @@ accelerate launch \
     --num_cpu_threads_per_process=8 \
     --main_process_ip=$MASTER_ADDR \
     --main_process_port=$MASTER_PORT \
-    --num_processes=2 \
+    --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/work/causalpaca/causal/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate.py --no-gt --tau 3 --gpu --d-z 70 --d-x 6250 --config-exp-path $HOME/work/causalpaca/causal/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa.json --exp-path $HOME/scratch/results/test_multigpu_spectral_icosa/ --config-path $HOME/work/causalpaca/causal/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.1 --sparsity-upper-threshold 0.5
+    $HOME/work/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate.py --no-gt --tau 3 --gpu --d-z 50 --d-x 6250 --config-exp-path $HOME/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa.json --exp-path $HOME/scratch/results/test_climatem/ --config-path $HOME/work/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.1 --sparsity-upper-threshold 0.5
 
 
 #accelerate launch $HOME/work/causalpaca/causal/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate.py --no-gt --tau 3 --gpu --d-z 50 --d-x 6250 --config-exp-path $HOME/work/causalpaca/causal/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all.json --exp-path $HOME/scratch/results/test_multigpu/ --config-path $HOME/work/causalpaca/causal/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.735740171 --sparsity-upper-threshold 0.5

@@ -48,12 +48,12 @@
     "acyclic_mu_mult_factor": 2,
     "acyclic_h_threshold": 1e-8,
     "acyclic_min_iter_convergence": 1000,
-    "max_iteration": 60000,
+    "max_iteration": 40000,
     "patience": 5000,
     "patience_post_thresh": 50,
     "valid_freq": 5,
-    "plot_freq": 500,
-    "print_freq": 500,
+    "plot_freq": 20,
+    "print_freq": 20,
     "gpu": true,
     "float": false,
     "plot_through_time": true,
@@ -61,5 +61,6 @@
     "nonlinear_mixing": true,
     "fixed": false,
     "crps_coeff": 1,
-    "spectral_coeff": 5
+    "spectral_coeff": 1,
+    "temporal_spectral_coeff": 20
 }
