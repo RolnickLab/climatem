@@ -7,10 +7,18 @@ In order to set up the environment, please use venv, running the following comma
 Environment creation, first make sure you have a python installation, and run from the climatem directory:
 
 python3 -m venv env_emulator_climatem
+
 source activate env_emulator_climatem
-pip install -r requirements_env_emulator.txt    (this still has a left over installation from the causalpaca github that I have tried to make sure we don't need any more, but I need to check this)
+
+pip install -r requirements_env_emulator.txt    
+
+P.S. (this still has a left over installation from the causalpaca github that I have tried to make sure we don't need any more, but I need to check this)
 
 Then follow poetry instructions.
+
+You may also need to create a directory: climatem/Climateset_DATA/
+
+Ok!
 
 
 
