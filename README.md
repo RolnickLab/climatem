@@ -6,19 +6,28 @@ In order to set up the environment, please use venv, running the following comma
 
 Environment creation, first make sure you have a python installation, and run from the climatem directory:
 
-python3 -m venv env_emulator_climatem
+1. python3 -m venv env_emulator_climatem
 
-source activate env_emulator_climatem
+2. source activate env_emulator_climatem
 
-pip install -r requirements_env_emulator.txt    
+3. pip install -r requirements_env_emulator.txt    
 
-P.S. (this still has a left over installation from the causalpaca github that I have tried to make sure we don't need any more, but I need to check this)
+P.S. (this still has a left over installation from the causalpaca github that I have tried to make sure we don't need any more - TBC)
 
 Then follow poetry instructions.
 
-You may also need to create a directory: climatem/Climateset_DATA/
+You may also need to create a directory: climatem/Climateset_DATA/, where the processed data will be stored.
+
+Then results that are output by the model training, and various output plots will be written to --exp-path $HOME/scratch/results/test_climatem/ (as detailed in the run_cdsd....sh scripts).
+
+Finally, raw data is currently stored in /home/mila/s/sebastian.hickman/scratch/data/icosahedral_data/structured/picontrol/24_ni/outputs/CMIP6/NorESM2-LM/r1i1p1f1/piControl ...
+
+Shall I put some of this data into a project directory to make it easily accessible for now?
+
 
 Ok!
+
+
 
 
 
