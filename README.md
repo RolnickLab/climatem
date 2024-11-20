@@ -24,7 +24,6 @@ Finally, raw data is currently stored in /home/mila/s/sebastian.hickman/scratch/
 
 Shall I put some of this data into a project directory to make it easily accessible for now?
 
-
 Ok!
 
 
