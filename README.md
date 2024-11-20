@@ -1,3 +1,29 @@
+# ClimatEM
+
+This is the code to run experiments to train and evaluate probabilistic generative models that aim to emulate climate models.
+
+In order to set up the environment, please use venv, running the following commands once the repository is cloned.
+
+Environment creation, first make sure you have a python installation, and run from the climatem directory:
+
+python3 -m venv env_emulator_climatem
+source activate env_emulator_climatem
+pip install -r requirements_env_emulator.txt    (this still has a left over installation from the causalpaca github that I have tried to make sure we don't need any more, but I need to check this)
+
+Then follow poetry instructions.
+
+
+
+
+
+
+
+
+
+
+
+### See lab-basic-template readme below:
+
 # README
 
 Set up a minimal codebase to run climate emulation experiments with causal representation learning.
