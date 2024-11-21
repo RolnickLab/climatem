@@ -19,7 +19,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import cv2
 
-from emulator.src.utils.utils import get_logger
+from climatem.emulator_utils import get_logger
 from climatem.constants import LON, LAT, SEQ_LEN, INPUT4MIPS_TEMP_RES, CMIP6_TEMP_RES, INPUT4MIPS_NOM_RES, CMIP6_NOM_RES, DATA_DIR, OPENBURNING_MODEL_MAPPING, NO_OPENBURNING_VARS, AVAILABLE_MODELS_FIRETYPE
 log = get_logger()
 
@@ -1389,11 +1389,3 @@ class Input4MipsDataset(ClimateDataset):
 
     def __getitem__(self, index):
         return self.Data[index]
-
-
-if __name__=="__main__":
-    ds = ClimateDataset(seq_to_seq=False)
-    #for (i,j) in ds:
-        #print("i:", i.shape)
-        #print("j:", j.shape)
-    print(len(ds))

@@ -246,7 +246,3 @@ def main():
     # TODO: validate on entire set [set batch size to len(dataset)] or batch in valid_step?
     # val_dataloader = datamodule.val_dataloader()
     # test_dataloader = datamodule.test_dataloader()
-
-
-if __name__ == "__main__":
-    main()

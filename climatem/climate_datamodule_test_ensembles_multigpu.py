@@ -13,7 +13,7 @@ from climatem.climate_dataset_test_ensembles import ClimateDataset
 from climatem.constants import TEMP_RES, SEQ_LEN_MAPPING, LAT, LON, NUM_LEVELS, DATA_DIR
 
 # NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
-from emulator.src.utils.utils import get_logger, random_split
+from climatem.emulator_utils import get_logger, random_split
 
 log = get_logger()
 
@@ -219,9 +219,3 @@ class ClimateDataModule(LightningDataModule):
             sampler=valid_sampler,
             **self._shared_eval_dataloader_kwargs()
         ) if self._data_val is not None else None]
-
-
-
-if __name__=="__main__":
-    dm = ClimateDataModule()
-    dm.setup('test')
