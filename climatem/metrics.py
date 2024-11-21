@@ -1,9 +1,10 @@
-import numpy as np
 import glob
+from typing import Tuple
+
+import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 from scipy.stats import spearmanr
-from typing import Tuple
 
 
 def w_mae(w: np.ndarray, gt_w: np.ndarray):
@@ -18,8 +19,7 @@ def w_mae(w: np.ndarray, gt_w: np.ndarray):
     return w_mae
 
 
-def mean_corr_coef(x: np.ndarray, y: np.ndarray, method: str = 'pearson',
-                   indices: list = None) -> float:
+def mean_corr_coef(x: np.ndarray, y: np.ndarray, method: str = "pearson", indices: list = None) -> float:
     """
     Source: https://github.com/ilkhem/icebeem/blob/master/metrics/mcc.py
     A numpy implementation of the mean correlation coefficient (MCC) metric.
@@ -31,12 +31,12 @@ def mean_corr_coef(x: np.ndarray, y: np.ndarray, method: str = 'pearson',
         indices: list of indices to consider, if None consider all variables
     """
     d = x.shape[1]
-    if method == 'pearson':
+    if method == "pearson":
         cc = np.corrcoef(x, y, rowvar=False)[:d, d:]
-    elif method == 'spearman':
+    elif method == "spearman":
         cc = spearmanr(x, y)[0][:d, d:]
     else:
-        raise ValueError('not a valid method: {}'.format(method))
+        raise ValueError(f"not a valid method: {method}")
 
     cc = np.abs(cc)
     if indices is not None:
@@ -55,7 +55,7 @@ def mean_corr_coef(x: np.ndarray, y: np.ndarray, method: str = 'pearson',
     return score, cc_program_perm, assignments
 
 
-def mcc_latent(model, data_loader, num_samples=int(1e5), method='pearson', indices=None):
+def mcc_latent(model, data_loader, num_samples=int(1e5), method="pearson", indices=None):
     """Source: https://github.com/ilkhem/icebeem/blob/master/metrics/mcc.py"""
     with torch.no_grad():
         model.eval()
@@ -82,9 +82,9 @@ def mcc_latent(model, data_loader, num_samples=int(1e5), method='pearson', indic
 
             sample_counter += x.shape[0]
 
-        z = torch.cat(z_list, 0)[:int(num_samples)]
-        z_hat = torch.cat(z_hat_list, 0)[:int(num_samples)]
-        x = torch.cat(x_list, 0)[:int(num_samples)]
+        z = torch.cat(z_list, 0)[: int(num_samples)]
+        z_hat = torch.cat(z_hat_list, 0)[: int(num_samples)]
+        x = torch.cat(x_list, 0)[: int(num_samples)]
         z, z_hat = z.cpu().numpy(), z_hat.cpu().numpy()
         x = x.cpu().numpy()
 
@@ -110,10 +110,8 @@ def assignment_l1(x, y):
 
 
 def clustering_consistency(path: str):
-    """
-    Test how consistent the clusters at the grid-location level
-    are consistent (find the best permutation since labels are arbitrary)
-    """
+    """Test how consistent the clusters at the grid-location level are consistent (find the best permutation since
+    labels are arbitrary)"""
     # find all the experiments in the given directory
     files = glob.glob(f"{path}/exp*/w_tensor.npy")
     print(files)
@@ -127,7 +125,7 @@ def clustering_consistency(path: str):
         ws.append(np.load(file)[0])
 
     for i in range(n):
-        for j in range(i+1, n):
+        for j in range(i + 1, n):
             # find the best cluster alignment for each pair
             score[i, j], assignments = assignment_l1(ws[i], ws[j])
             score[j, i] = score[i, j]
@@ -138,8 +136,8 @@ def clustering_consistency(path: str):
 
 def edge_errors(pred: np.ndarray, target: np.ndarray) -> dict:
     """
-    Counts all types of sensitivity/specificity metrics (true positive (tp),
-    true negative (tn), false negatives (fn), false positives (fp), reversed edges (rev))
+    Counts all types of sensitivity/specificity metrics (true positive (tp), true negative (tn), false negatives (fn),
+    false positives (fp), reversed edges (rev))
 
     Args:
         pred: The predicted adjacency matrix
@@ -160,8 +158,15 @@ def edge_errors(pred: np.ndarray, target: np.ndarray) -> dict:
     fn_rev = fn - rev
     fp_rev = fp - rev
 
-    return {"tp": float(tp), "tn": float(tn), "fp": float(fp), "fn": float(fn),
-            "fp_rev": float(fp_rev), "fn_rev": float(fn_rev), "rev": float(rev)}
+    return {
+        "tp": float(tp),
+        "tn": float(tn),
+        "fp": float(fp),
+        "fn": float(fn),
+        "fp_rev": float(fp_rev),
+        "fn_rev": float(fn_rev),
+        "rev": float(rev),
+    }
 
 
 def shd(pred: np.ndarray, target: np.ndarray, rev_as_double: bool = False) -> float:
@@ -185,7 +190,7 @@ def shd(pred: np.ndarray, target: np.ndarray, rev_as_double: bool = False) -> fl
 
 def precision_recall(pred: np.ndarray, target: np.ndarray) -> Tuple[float, float]:
     """
-    Calculates the Precision and Recall between the prediction and the target
+    Calculates the Precision and Recall between the prediction and the target.
 
     Args:
         pred: The predicted adjacency matrix
@@ -205,8 +210,7 @@ def precision_recall(pred: np.ndarray, target: np.ndarray) -> Tuple[float, float
 
 def f1_score(pred: np.ndarray, target: np.ndarray) -> float:
     """
-    Calculates the F1 score, ie the harmonic mean of
-    the precision and recall.
+    Calculates the F1 score, ie the harmonic mean of the precision and recall.
 
     Args:
         pred: The predicted adjacency matrix

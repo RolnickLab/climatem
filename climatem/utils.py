@@ -4,19 +4,22 @@ import torch
 
 class ALM:
     """
-    Augmented Lagrangian Method
-    To use the quadratic penalty method (e.g. for the acyclicity constraint),
-    just ignore 'self.lambda'
-    NOTE:(seb) self.lambda does not even exist? We mean self.gamma?
+    Augmented Lagrangian Method To use the quadratic penalty method (e.g. for the acyclicity constraint), just ignore
+    'self.lambda' NOTE:(seb) self.lambda does not even exist?
+
+    We mean self.gamma?
     """
-    def __init__(self,
-                 mu_init: float,
-                 mu_mult_factor: float,
-                 omega_gamma: float,
-                 omega_mu: float,
-                 h_threshold: float,
-                 min_iter_convergence: int,
-                 dim_gamma = (1)):
+
+    def __init__(
+        self,
+        mu_init: float,
+        mu_mult_factor: float,
+        omega_gamma: float,
+        omega_mu: float,
+        h_threshold: float,
+        min_iter_convergence: int,
+        dim_gamma=(1),
+    ):
         self.gamma = torch.zeros(*dim_gamma)
         self.delta_gamma = -np.inf
         self.mu = mu_init
@@ -32,8 +35,7 @@ class ALM:
 
     def _compute_delta_gamma(self, iteration: int, val_loss: list):
         # compute delta for gamma
-        if iteration >= 2 * self.stop_crit_window and \
-           iteration % (2 * self.stop_crit_window) == 0:
+        if iteration >= 2 * self.stop_crit_window and iteration % (2 * self.stop_crit_window) == 0:
             t0, t_half, t1 = val_loss[-3], val_loss[-2], val_loss[-1]
 
             # if the validation loss went up and down, do not update lagrangian and penalty coefficients.
@@ -46,7 +48,9 @@ class ALM:
 
     def update(self, iteration: int, h_list: list, val_loss: list):
         """
-        Update the value of mu and gamma. Return True if it has converged.
+        Update the value of mu and gamma.
+
+        Return True if it has converged.
         Args:
             iteration: number of training iterations completed
             h_list: list of the values of the constraint

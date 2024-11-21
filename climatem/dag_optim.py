@@ -1,12 +1,10 @@
-import torch
 import numpy as np
+import torch
 from scipy.linalg import expm
 
 
 class TrExpScipy(torch.autograd.Function):
-    """
-    autograd.Function to compute trace of an exponential of a matrix
-    """
+    """autograd.Function to compute trace of an exponential of a matrix."""
 
     @staticmethod
     def forward(ctx, input):
@@ -32,20 +30,15 @@ class TrExpScipy(torch.autograd.Function):
 
 
 def compute_dag_constraint(w_adj):
-    """
-    Compute the DAG constraint of w_adj
-    :param np.ndarray w_adj: the weighted adjacency matrix (each entry in [0,1])
-    """
+    """Compute the DAG constraint of w_adj :param np.ndarray w_adj: the weighted adjacency matrix (each entry in
+    [0,1])"""
     assert (w_adj >= 0).detach().cpu().numpy().all()
     h = TrExpScipy.apply(w_adj) - w_adj.shape[0]
     return h
 
 
 def is_acyclic(adjacency):
-    """
-    Return true if adjacency is a acyclic
-    :param np.ndarray adjacency: adjacency matrix
-    """
+    """Return true if adjacency is a acyclic :param np.ndarray adjacency: adjacency matrix."""
     prod = np.eye(adjacency.shape[0])
     for _ in range(1, adjacency.shape[0] + 1):
         prod = np.matmul(adjacency, prod)
