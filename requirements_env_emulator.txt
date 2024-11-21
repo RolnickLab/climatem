@@ -36,7 +36,6 @@ docker-pycreds==0.4.0
 eccodes==1.7.0
 ecmwflibs==0.6.3
 efficientnet-pytorch==0.7.1
--e git+ssh://git@github.com/RolnickLab/causalpaca.git@f8dd68e722b2c01eb30c337df10bd8114172afee#egg=emulator
 exceptiongroup==1.2.0
 executing==2.0.1
 fastjsonschema==2.19.1
