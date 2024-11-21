@@ -216,39 +216,3 @@ def f1_score(pred: np.ndarray, target: np.ndarray) -> float:
     m = edge_errors(pred, target)
     f1_score = m["tp"] / (m["tp"] + 0.5 * (m["fp"] + m["fn"]))
     return float(f1_score)
-
-
-if __name__ == "__main__":
-    pass
-    # clustering_consistency("./test")
-
-    # simple tests
-    # from sklearn.metrics import f1_score as sk_f1_score
-    # from scipy.spatial.distance import hamming
-
-    # pred = np.asarray([[0, 1, 0],
-    #                    [0, 0, 1],
-    #                    [0, 0, 1]])
-    # good_pred = np.asarray([[1, 1, 0],
-    #                         [0, 0, 0],
-    #                         [1, 1, 0]])
-    # true = np.asarray([[1, 1, 0],
-    #                    [0, 0, 0],
-    #                    [1, 1, 1]])
-
-    # print(f"F1 score: {f1_score(pred, true)}")
-    # print(f"F1 score: {f1_score(good_pred, true)}")
-    # print(f"F1 score: {f1_score(true, true)}")
-    # print("----------")
-    # average_type = 'weighted'
-    # print(f"F1 score (sklearn): {sk_f1_score(pred.flatten(), true.flatten(), average=average_type)}")
-    # print(f"F1 score (sklearn): {sk_f1_score(good_pred.flatten(), true.flatten(), average=average_type)}")
-    # print(f"F1 score (sklearn): {sk_f1_score(true.flatten(), true.flatten(), average=average_type)}")
-    # print("==============================")
-    # print(f"SHD: {shd(pred, true)}")
-    # print(f"SHD: {shd(good_pred, true)}")
-    # print(f"SHD: {shd(true, true)}")
-    # print("----------")
-    # print(f"SHD (sklearn): {9 * hamming(pred.flatten(), true.flatten())}")
-    # print(f"SHD (sklearn): {9 * hamming(good_pred.flatten(), true.flatten())}")
-    # print(f"SHD (sklearn): {9 * hamming(true.flatten(), true.flatten())}")

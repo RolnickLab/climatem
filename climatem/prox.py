@@ -1,6 +1,5 @@
 import torch
 
-
 def monkey_patch_RMSprop(RMSProp_class):
     def step(self, closure=None):
         """Performs a single optimization step.

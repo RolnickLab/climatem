@@ -1075,10 +1075,3 @@ class Plotter:
             fig.clf()
 
 
-# this is futile
-if __name__ == "__main__":
-    # Load saved data and plot it
-    plotter = Plotter()
-    # load hp of the model
-    with open(os.path.join("causal_climate_exp/exp0", "params.json"), 'r') as f:
-        hp = json.load(f)
