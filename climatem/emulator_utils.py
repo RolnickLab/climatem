@@ -12,8 +12,6 @@ from torch import default_generator, randperm
 from torch._utils import _accumulate
 from torch.utils.data.dataset import Subset
 
-# from emulator.src.core.losses import RMSELoss, NRMSELoss_ClimateBench, NRMSELoss_g_ClimateBench, NRMSELoss_s_ClimateBench, LLweighted_MSELoss_Climax, LLweighted_RMSELoss_Climax, LLWeighted_RMSELoss_WheatherBench
-
 
 def to_DictConfig(obj: Optional[Union[List, Dict]]):
     if isinstance(obj, DictConfig):
@@ -85,57 +83,6 @@ def get_activation_function(name: str, functional: bool = False, num: int = 1):
         return [get_nn(name) for _ in range(num)]
 
 
-def get_loss_function(name, reduction="mean"):  # TODO: include further paremeters
-    name = name.lower().strip().replace("-", "_")
-    if name in ["l1", "mae", "mean_absolute_error"]:
-        loss = nn.L1Loss(reduction=reduction)
-    elif name in ["l2", "mse", "mean_squared_error"]:
-        # TODO: clarify with time dimension
-        loss = nn.MSELoss(reduction=reduction)
-    elif name in ["rmse", "root_mean_squared_error"]:
-        loss = RMSELoss(reduction=reduction)
-    elif name in [
-        "nrmse_g_cb",
-        "weighted_nrmse_global",
-        "weighted_normalized_root_mean_squared_error_global",
-        "climate_bench_nrmse_global",
-    ]:
-        loss = NRMSELoss_g_ClimateBench()
-    elif name in [
-        "nrmse_s_cb",
-        "weighted_nrmse_spatial",
-        "weighted_normalized_root_mean_squared_error_spatial",
-        "climate_bench_nrmse_spatial",
-    ]:
-        loss = NRMSELoss_s_ClimateBench()
-    elif name in ["nrmse_cb", "weighted_nrmse", "weighted_normalized_root_mean_squared_error", "climate_bench_nrmse"]:
-        loss = NRMSELoss_ClimateBench()
-    elif name in [
-        "llrmse_wb",
-        "longitude_latitude_weighted_root_mean_squared_error_wheather_ench",
-        "wheather_bench_lon_lat_rmse",
-    ]:
-        loss = LLWeighted_RMSELoss_WheatherBench()
-    elif name in [
-        "llrmse_cx",
-        "longitude_latitude_weighted_root_mean_squared_error_climax",
-        "climax_lon_lat_rmse",
-    ]:
-        loss = LLweighted_RMSELoss_Climax()
-    elif name in [
-        "llmse_cx",
-        "longitude_latitude_weighted_mean_squared_error_climax",
-        "climax_lon_lat_mse",
-    ]:
-        loss = LLweighted_MSELoss_Climax()
-
-    elif name in ["smoothl1", "smooth"]:
-        loss = nn.SmoothL1Loss(reduction=reduction)
-    else:
-        raise ValueError(f"Unknown loss function {name}")
-    return loss
-
-
 def get_trainable_params(model):
     trainable_params = []
     for name, param in model.named_parameters():
@@ -186,7 +133,7 @@ def random_split(dataset, lengths, generator=default_generator):
         lengths = subset_lengths
         for i, length in enumerate(lengths):
             if length == 0:
-                warnings.warn(f"Length of split at index {i} is 0. " f"This might result in an empty dataset.")
+                print(f"Length of split at index {i} is 0. " f"This might result in an empty dataset.")
 
     # Cannot verify that dataset is Sized
     if sum(lengths) != len(dataset):  # type: ignore[arg-type]
