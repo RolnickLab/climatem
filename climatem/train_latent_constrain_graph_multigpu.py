@@ -618,7 +618,7 @@ class TrainingLatent:
             # NOTE:(seb)  these samples have been changed to be different for each plot
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
-            if self.d == 1 or self.d == 4:
+            if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
                 self.plotter.plot_compare_predictions_icosahedral(
                     x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                     y_true=y_original.cpu().detach().numpy(),
@@ -799,7 +799,7 @@ class TrainingLatent:
 
             # NOTE:(seb) changed to have random selection for each plot
 
-            if self.d == 1 or self.d == 4:
+            if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
                 self.plotter.plot_compare_predictions_icosahedral(
                     x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                     y_true=y_original.cpu().detach().numpy(),
