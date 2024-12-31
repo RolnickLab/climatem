@@ -196,6 +196,7 @@ class ClimateDataModule(LightningDataModule):
     # resulting tensors sizes:
     # x: (batch_size, sequence_length, lon, lat, in_vars) if channels_last else (batch_size, sequence_lenght, in_vars, lon, lat)
     # y: (batch_size, sequence_length, lon, lat, out_vars) if channels_last else (batch_size, sequence_lenght, out_vars, lon, lat)
+
     def train_dataloader(self):
 
         # NOTE:(seb), when shuffle=True this seems to fail:
