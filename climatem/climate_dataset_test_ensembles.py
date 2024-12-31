@@ -918,6 +918,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         print("Normalizing data...")
         data = np.moveaxis(data, 2, 0)  # DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144)
         norm_data = (data - stats["mean"]) / (stats["std"])
+        print("I completed the normalisation of the data.")
 
         # NOTE:(seb) - what on Earth is this? Why is this shape in [1, 2, 4]? Because emissions?! Seriously...?
         # NOTE:(seb) - removing this if statement...
@@ -928,6 +929,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # Replace NaNs with 0s
         norm_data = np.nan_to_num(norm_data)
 
+        print("Really, I completed the normalisation of the data, just about to return.")
         return norm_data
 
     # NOTE:(seb) I need to check the axis is correct here?
@@ -952,6 +954,8 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         mean = np.nanmean(data, axis=0)
         std = np.nanstd(data, axis=0)
+
+        print("Just about to return the data after removing seasonality.")
 
         return (data - mean[None]) / std[None]
 
@@ -1123,6 +1127,8 @@ class CMIP6Dataset(ClimateDataset):
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
 
+            print("In CMIP6Dataset, just finished removing the seasonality.")
+
         else:
             # Add code here for adding files for input nc data
             # Similar to the loop below for output files
@@ -1222,7 +1228,7 @@ class CMIP6Dataset(ClimateDataset):
                     print("Stats file already exists! Loading from memory.")
                     # seb making a fix:
                     # stats = self.load_statistics_data(stats_fname)
-                    stats = self.load_dataset_statistics(stats_fname)
+                    stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
 
                     self.norm_data = self.normalize_data(self.raw_data, stats)
                     if self.seasonality_removal:
@@ -1257,10 +1263,14 @@ class CMIP6Dataset(ClimateDataset):
                     self.norm_data = self.remove_seasonality(self.norm_data)
 
             # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
+            print("In cmip6, just about to save the data.")
             self.data_path = self.save_data_into_disk(self.raw_data, fname, output_save_dir)
+            print("In cmip6, just saved the data.")
 
+            print("In cmip6, just about to copy the data to slurm.")
             # self.copy_to_slurm(self.input_path)
             self.copy_to_slurm(self.data_path)
+            print("In cmip6, just copied the data to slurm.")
 
             self.Data = self.norm_data
 
@@ -1350,6 +1360,8 @@ class Input4MipsDataset(ClimateDataset):
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
 
+            print("In Input4mips, just finished removing the seasonality.")
+
         else:
             files_per_var = []
             for var in variables:
@@ -1423,10 +1435,14 @@ class Input4MipsDataset(ClimateDataset):
                     self.norm_data = self.remove_seasonality(self.norm_data)
 
             # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
+            print("In input4mips, just about to save the data.")
             self.data_path = self.save_data_into_disk(self.raw_data, fname, output_save_dir)
+            print("In input4mips, just saved the data.")
 
+            print("In input4mips, just about to copy the data to slurm.")
             # self.copy_to_slurm(self.input_path)
             self.copy_to_slurm(self.data_path)
+            print("In input4mips, just copied the data to slurm.")
 
             # Call _reload_data here with self.input_path and self.output_path
             # self.X = self._reload_data(input_path)
