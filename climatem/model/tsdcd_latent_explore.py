@@ -149,7 +149,6 @@ def gumbel_sigmoid(log_alpha, uniform, bs, tau=1, hard=False):
 
     else:
         y = y_soft
-
     return y
 
 
@@ -329,12 +328,20 @@ class LatentTSDCD(nn.Module):
             )
 
             # NOTE:(seb) previous non-linear option, with loops.
-            # print("Using non-linear mixing, and using the NonLinearAutoEncoderMLPs autoencoder.")
+            # print("Using non-linear mixing, and using the NonLinearAutoEncoderUniqueMLP_noloop autoencoder, which has this embedding dimension.")
             # self.autoencoder = NonLinearAutoEncoderMLPs(d, d_x, d_z,
             #                                            self.num_hidden_mixing,
             #                                            self.num_layers_mixing,
             #                                            use_gumbel_mask=False,
             #                                            tied=tied_w,
+            #                                            gt_w=None)
+
+            # self.autoencoder = NonLinearAutoEncoderUniqueMLP(d, d_x, d_z,
+            #                                            self.num_hidden_mixing,
+            #                                            self.num_layers_mixing,
+            #                                            tied=tied_w,
+            #                                            use_gumbel_mask=False,
+            #                                            embedding_dim=100,
             #                                            gt_w=None)
 
         else:
@@ -348,7 +355,7 @@ class LatentTSDCD(nn.Module):
             self.d, self.d_z, self.total_tau, self.num_layers, self.num_hidden, self.num_output
         )
 
-        print("We are setting the Mask here, and it has fixed=fixed!")
+        print("We are setting the Mask here.")
         self.mask = Mask(
             d,
             d_z,
@@ -516,7 +523,8 @@ class LatentTSDCD(nn.Module):
 
     def predict_pxmu_pxstd(self, x, y):
 
-        # NOTE: this one was working fine for the CRPS loss because I was not using no_grad bro!
+        # NOTE: this one was working fine for the CRPS loss because I was not using no_grad...
+        # I need to keep the grads if I am going to add to the loss
 
         b = x.size(0)
 
@@ -538,7 +546,7 @@ class LatentTSDCD(nn.Module):
 
     def predict(self, x, y):
 
-        # Soooooooo...here we use no grad to speed it up! BUT, I want to use grad since I am going to compare the spectra of these predictions bro!
+        # Use no grad to speed it up! But I need to keep the grads if I am going to add to the loss.
 
         """
         This is the prediction function for the model.
@@ -582,6 +590,8 @@ class LatentTSDCD(nn.Module):
 
         Note this function also returns the option where we sample from the decoders, but of course these samples are
         just chequerboards and not very interesting.
+
+        I can use no_grad here, because I am not going to be using the gradients for anything.
         """
 
         b = x.size(0)
@@ -882,6 +892,125 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         mask_ = super().select_encoder_mask(mask, i, j_values)
 
+        # Could I reduce the memory usage of this?
+        x_ = torch.cat(
+            (mask_ * x.unsqueeze(1), embedded_x), dim=2
+        )  # expand dimensions of x for broadcasting - looks good.
+
+        mu = self.encoder(x_).squeeze()
+
+        return mu, self.logvar_encoder
+
+    def decode(self, z, i):
+        mask = super().get_decode_mask(z.shape[0])
+        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
+
+        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
+        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
+
+        # Embed all j_values at once
+        embedded_z = self.embedding_encoder(j_values)
+
+        # Select all decoder masks at once
+        mask_ = super().select_decoder_mask(mask, i, j_values)
+
+        # Concatenate along dimension 2
+        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
+
+        # Apply the decoder to all z_ at once and squeeze the result
+        mu = self.decoder(z_).squeeze()
+
+        return mu, self.logvar_decoder
+
+    def forward(self, x, i, encode: bool = False):
+        if encode:
+            return self.encode(x, i)
+        else:
+            return self.decode(x, i)
+
+
+class NonLinearAutoEncoderUniqueMLP_noloop_tisr(NonLinearAutoEncoder):
+
+    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
+        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
+        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
+        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
+
+        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
+        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
+
+    def encode(self, x, i):
+
+        mask = super().get_encode_mask(x.shape[0])
+        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
+
+        j_values = torch.arange(self.d_z, device=x.device).expand(
+            x.shape[0], -1
+        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
+
+        embedded_x = self.embedding_encoder(j_values)
+
+        mask_ = super().select_encoder_mask(mask, i, j_values)
+
+        # Could I reduce the memory usage of this?
+        x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)  # expand dimensions of x for broadcasting
+
+        mu = self.encoder(x_).squeeze()
+
+        return mu, self.logvar_encoder
+
+    def decode(self, z, i):
+        mask = super().get_decode_mask(z.shape[0])
+        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
+
+        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
+        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
+
+        # Embed all j_values at once
+        embedded_z = self.embedding_encoder(j_values)
+
+        # Select all decoder masks at once
+        mask_ = super().select_decoder_mask(mask, i, j_values)
+
+        # Concatenate along dimension 2
+        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
+
+        # Apply the decoder to all z_ at once and squeeze the result
+        mu = self.decoder(z_).squeeze()
+
+        return mu, self.logvar_decoder
+
+    def forward(self, x, i, encode: bool = False):
+        if encode:
+            return self.encode(x, i)
+        else:
+            return self.decode(x, i)
+
+
+class NonLinearAutoEncoderUniqueMLP_noloop_tisr_co2(NonLinearAutoEncoder):
+
+    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
+        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
+        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
+        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
+
+        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
+        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
+
+    def encode(self, x, i):
+
+        mask = super().get_encode_mask(x.shape[0])
+        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
+
+        j_values = torch.arange(self.d_z, device=x.device).expand(
+            x.shape[0], -1
+        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
+
+        embedded_x = self.embedding_encoder(j_values)
+
+        mask_ = super().select_encoder_mask(mask, i, j_values)
+
+        # Could I reduce the memory usage of this?
         x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)  # expand dimensions of x for broadcasting
 
         mu = self.encoder(x_).squeeze()
