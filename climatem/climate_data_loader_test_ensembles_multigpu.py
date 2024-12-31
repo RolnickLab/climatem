@@ -150,68 +150,73 @@ class CausalClimateDataModule(ClimateDataModule):
                 for test_model in self.hparams.test_models
             }
 
-            test_years = self.years_to_list(self.hparams.test_years)
-            test_historical_years = self.years_to_list(None)
+            ###############################################################################################
+            # NOTE:(seb) - I am going to comment out the test data loading for now, as we are not using it.
+            ###############################################################################################
 
-            self._data_test = []
-            for test_scenario in self.hparams.test_scenarios:
-                for test_model in self.hparams.test_models:
-                    # NOTE:(seb) this only uses train_years and train_historical_years, while test_years is totally ignored.
-                    if (
-                        "tas" in self.hparams.in_var_ids
-                        or "pr" in self.hparams.in_var_ids
-                        or "psl" in self.hparams.in_var_ids
-                        or "ts" in self.hparams.in_var_ids
-                    ):
-                        test_input4mips = CMIP6Dataset(
-                            years=train_years,
-                            historical_years=train_historical_years,
-                            data_dir=self.hparams.data_dir,
-                            climate_model=self.hparams.train_models,
-                            num_ensembles=self.hparams.num_ensembles,
-                            variables=self.hparams.in_var_ids,
-                            scenarios=self.hparams.train_scenarios,
-                            channels_last=self.hparams.channels_last,
-                            openburning_specs=openburning_specs,
-                            mode="train+val",
-                            output_save_dir=self.hparams.output_save_dir,
-                            seasonality_removal=self.hparams.seasonality_removal,
-                        )
-                    else:
-                        # NOTE:(seb) this is left over, but may be useful when we include forcings later.
-                        test_input4mips = Input4MipsDataset(
-                            years=test_years,
-                            historical_years=test_historical_years,
-                            data_dir=self.hparams.data_dir,
-                            variables=self.hparams.in_var_ids,
-                            scenarios=[test_scenario],
-                            channels_last=self.hparams.channels_last,
-                            openburning_specs=openburning_specs[test_model],
-                            mode="test",
-                            output_save_dir=self.hparams.output_save_dir,
-                        )
+            # test_years = self.years_to_list(self.hparams.test_years)
+            # test_historical_years = self.years_to_list(None)
 
-                    test = test_input4mips.get_causal_data(
-                        tau=self.tau,
-                        channels_last=self.hparams.channels_last,
-                        num_vars=len(self.hparams.in_var_ids),
-                        num_scenarios=1,
-                        num_ensembles=self.hparams.num_ensembles,
-                        num_years=len(train_years),
-                        num_months_aggregated=self.num_months_aggregated,
-                        mode="test",
-                    )
+            # Commenting all this out!
+            # self._data_test = []
+            # for test_scenario in self.hparams.test_scenarios:
+            #    for test_model in self.hparams.test_models:
+            #        # NOTE:(seb) this only uses train_years and train_historical_years, while test_years is totally ignored.
+            #        if (
+            #            "tas" in self.hparams.in_var_ids
+            #            or "pr" in self.hparams.in_var_ids
+            #            or "psl" in self.hparams.in_var_ids
+            #            or "ts" in self.hparams.in_var_ids
+            #        ):
+            #            test_input4mips = CMIP6Dataset(
+            #                years=train_years,
+            #                historical_years=train_historical_years,
+            #                data_dir=self.hparams.data_dir,
+            #                climate_model=self.hparams.train_models,
+            #                num_ensembles=self.hparams.num_ensembles,
+            #                variables=self.hparams.in_var_ids,
+            #                scenarios=self.hparams.train_scenarios,
+            #                channels_last=self.hparams.channels_last,
+            #                openburning_specs=openburning_specs,
+            #                mode="train+val",
+            #                output_save_dir=self.hparams.output_save_dir,
+            #                seasonality_removal=self.hparams.seasonality_removal,
+            #            )
+            #        else:
+            #            # NOTE:(seb) this is left over, but may be useful when we include forcings later.
+            #            test_input4mips = Input4MipsDataset(
+            #                years=test_years,
+            #                historical_years=test_historical_years,
+            #                data_dir=self.hparams.data_dir,
+            #                variables=self.hparams.in_var_ids,
+            #                scenarios=[test_scenario],
+            #                channels_last=self.hparams.channels_last,
+            #                openburning_specs=openburning_specs[test_model],
+            #                mode="test",
+            #                output_save_dir=self.hparams.output_save_dir,
+            #            )
 
-                    test_x, test_y = test
-                    test_x = test_x.reshape((test_x.shape[0], test_x.shape[1], test_x.shape[2], -1))
-                    test_y = test_y.reshape((test_y.shape[0], test_y.shape[1], test_y.shape[2], -1))
-                    test_scenario_data = CausalDataset(test_x, test_y)
-                    self._data_test.append(test_scenario_data)
-                    # self.train_years = train_val_input4mips.
-                    self.coordinates = test_input4mips.coordinates
+            #        test = test_input4mips.get_causal_data(
+            #            tau=self.tau,
+            #            channels_last=self.hparams.channels_last,
+            #            num_vars=len(self.hparams.in_var_ids),
+            #            num_scenarios=1,
+            #            num_years=len(train_years),
+            #            num_ensembles=self.hparams.num_ensembles,
+            #            num_months_aggregated=self.num_months_aggregated,
+            #            mode="test",
+            #        )
 
-        if stage in ["predict", None]:
-            self._data_predict = self._data_test
+            #        test_x, test_y = test
+            #        test_x = test_x.reshape((test_x.shape[0], test_x.shape[1], test_x.shape[2], -1))
+            #        test_y = test_y.reshape((test_y.shape[0], test_y.shape[1], test_y.shape[2], -1))
+            #        test_scenario_data = CausalDataset(test_x, test_y)
+            #        self._data_test.append(test_scenario_data)
+            #        # self.train_years = train_val_input4mips.
+            #        self.coordinates = test_input4mips.coordinates
+
+        # if stage in ["predict", None]:
+        #      self._data_predict = self._data_test
 
 
 def main():
