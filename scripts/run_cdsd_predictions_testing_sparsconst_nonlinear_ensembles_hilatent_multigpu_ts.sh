@@ -46,11 +46,13 @@ accelerate launch \
     --num_processes=2 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/work/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate_no_vae.py --no-gt --tau 5 --gpu --d-z 90 --d-x 6250 --config-exp-path $HOME/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa.json --exp-path $HOME/scratch/results/climatem_spectral_extratropics/ --config-path $HOME/work/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.1 --sparsity-upper-threshold 0.5
+    $HOME/work/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate_no_vae.py --no-gt --tau 5 --gpu --d-z 90 --d-x 6250 --config-exp-path $HOME/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa.json --exp-path $HOME/scratch/results/climatem_spectral/ --config-path $HOME/work/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.743706 --sparsity-upper-threshold 0.5
+
 
 #accelerate launch $HOME/work/causalpaca/causal/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate.py --no-gt --tau 3 --gpu --d-z 50 --d-x 6250 --config-exp-path $HOME/work/causalpaca/causal/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all.json --exp-path $HOME/scratch/results/test_multigpu/ --config-path $HOME/work/causalpaca/causal/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.735740171 --sparsity-upper-threshold 0.5
 
 #srun python -u $HOME/work/causalpaca/causal/main_explore_predictions_ar_sparsity_constraint_test_ensembles_multigpu_accelerate.py --no-gt --tau 3 --gpu --d-z 50 --d-x 6250 --config-exp-path $HOME/work/causalpaca/causal/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all.json --exp-path $HOME/scratch/results/test_multigpu/ --config-path $HOME/work/causalpaca/causal/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.1 --sparsity-upper-threshold 0.5
+
 
 # cp $SLURM_TMPDIR/<to_save> /network/scratch/<u>/<username>/
 
