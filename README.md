@@ -8,7 +8,8 @@ Environment creation, first make sure you have a python installation, and run fr
 
 1. python3 -m venv env_emulator_climatem
 
-2. source activate env_emulator_climatem
+2. source env_emulator_climatem/bin/activate
+3. poetry add dependency...
 
 3. pip install -r requirements_env_emulator.txt    
 

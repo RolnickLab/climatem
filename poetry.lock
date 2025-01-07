@@ -4066,6 +4066,17 @@ files = [
 ]
 
 [[package]]
+name = "rpds"
+version = "5.1.0"
+description = "Sua descrição aqui"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "rpds-5.1.0-py3-none-any.whl", hash = "sha256:8086c9c9b534c41c53c14d9bb649d853b58a80f76fcd99c31eba5b02968900d9"},
+    {file = "rpds-5.1.0.tar.gz", hash = "sha256:36f9bbfa5175c01a21110fd11a016ff969d80badf92bb874ee8d8644a5b86edc"},
+]
+
+[[package]]
 name = "rpds-py"
 version = "0.18.0"
 description = "Python bindings to Rust's persistent data structures (rpds)"
@@ -5437,4 +5448,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "f44c4aa9bab26e32cf09f898b720afde215ee273145db9d2008bd212efef9f6a"
+content-hash = "35a8f030503c21efcac723f750b93fce9172ea56aa45ed666635bb81a640c63c"

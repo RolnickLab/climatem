@@ -5,7 +5,7 @@ from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from climatem.climate_dataset_test_ensembles import ClimateDataset
+from climatem.climate_dataset_explore_ensembles import ClimateDataset
 from climatem.constants import DATA_DIR, LAT, LON, NUM_LEVELS, SEQ_LEN_MAPPING, TEMP_RES
 
 # NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
