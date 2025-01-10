@@ -176,5 +176,6 @@ Climateset_DATA/*
 wandb/
 notebooks/*.npy
 notebooks/*.npz
+notebooks/*.png
 notebooks/plots/
 notebooks/rollouts/
