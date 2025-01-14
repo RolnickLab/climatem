@@ -239,6 +239,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         years: Union[int, str] = "2015-2020",
         mode: str = "train",  # Train or test maybe # deprecated
         output_save_dir: Optional[str] = DATA_DIR,
+        coordinates_path: str = "vertex_lonlat_mapping.txt",
         climate_model: str = "NorESM2-LM",  # implementing single model only for now
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         scenarios: Union[List[str], str] = ["ssp126", "ssp370", "ssp585"],
@@ -274,6 +275,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         super().__init__()
         self.test_dir = output_save_dir
         self.output_save_dir = output_save_dir
+        self.coordinates_path = coordinates_path
 
         self.channels_last = channels_last
         self.load_data_into_mem = load_data_into_mem
@@ -429,7 +431,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.loadtxt(
-                "/home/mila/s/sebastian.hickman/work/icosahedral/mappings/vertex_lonlat_mapping.txt"
+                self.coordinates_path
             )
             coordinates = coordinates[:, 1:]
 
@@ -1030,6 +1032,7 @@ class CMIP6Dataset(ClimateDataset):
         years: Union[int, str],
         historical_years: Union[int, str],
         data_dir: Optional[str] = DATA_DIR,
+        coordinates_path: str = "vertex_lonlat_mapping.txt",
         climate_model: str = "NorESM2-LM",
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
@@ -1045,8 +1048,8 @@ class CMIP6Dataset(ClimateDataset):
 
         self.mode = mode
         self.output_save_dir = output_save_dir
+        self.coordinates_path = coordinates_path
         self.root_dir = os.path.join(data_dir, "outputs/CMIP6")
-        # self.output_save_dir = output_save_dir
         self.input_nc_files = []
         self.output_nc_files = []
         self.in_variables = variables
@@ -1292,6 +1295,7 @@ class Input4MipsDataset(ClimateDataset):
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
+        coordinates_path: str = "vertex_lonlat_mapping.txt",
         data_dir: Optional[str] = DATA_DIR,
         variables: List[str] = ["BC_sum"],
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
@@ -1307,6 +1311,7 @@ class Input4MipsDataset(ClimateDataset):
         self.channels_last = channels_last
 
         self.mode = mode
+        self.coordinates_path = coordinates_path
         self.root_dir = os.path.join(data_dir, "inputs/input4mips")
         self.output_save_dir = output_save_dir
         self.input_nc_files = []

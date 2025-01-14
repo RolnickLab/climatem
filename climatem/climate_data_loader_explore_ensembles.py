@@ -7,7 +7,7 @@ from typing import Optional
 
 import torch
 
-from climatem.climate_datamodule_explore_ensembles import ClimateDataModule
+from climatem.climate_datamodule_explore_ensembles_multigpu import ClimateDataModule
 
 # Here we replace the original import with a new experimental import.
 #from emulator.src.data.climate_dataset import Input4MipsDataset, CMIP6Dataset
@@ -86,6 +86,7 @@ class CausalClimateDataModule(ClimateDataModule):
             train_historical_years = self.years_to_list(
                 self.hparams.train_historical_years
             )
+
             #NOTE:(seb) 23rd May, changing to include psl too... this is limiting, 
             # and tells us just to do this if we are looking at tas or pr, 
             # we basically just ignore the input4mips dataset
@@ -93,6 +94,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 print(self.hparams.train_scenarios)
                 train_val_input4mips = CMIP6Dataset(
                     years=train_years,
+                    coordinates_path = self.hparams.icosahedral_coordinates_path,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
                     climate_model=self.hparams.train_models,
@@ -109,6 +111,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 # NOTE:(seb) if I am here, I have probably make an error and I do not have the right input variable above directing us to the CMIP6Dataset
                 train_val_input4mips = Input4MipsDataset(
                     years=train_years,
+                    coordinates_path = self.hparams.icosahedral_coordinates_path,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
                     variables=self.hparams.in_var_ids,
@@ -177,6 +180,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         test_input4mips = CMIP6Dataset(
                             years=train_years,
                             historical_years=train_historical_years,
+                            coordinates_path = self.hparams.icosahedral_coordinates_path,
                             data_dir=self.hparams.data_dir,
                             climate_model=self.hparams.train_models,
                             # NOTE:(seb) this has now been added
@@ -192,6 +196,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     else:
                         test_input4mips = Input4MipsDataset(
                             years=test_years,
+                            coordinates_path = self.hparams.icosahedral_coordinates_path,
                             historical_years=test_historical_years,
                             data_dir=self.hparams.data_dir,
                             variables=self.hparams.in_var_ids,
@@ -225,14 +230,19 @@ class CausalClimateDataModule(ClimateDataModule):
             self._data_predict = self._data_test
 
 
+# TODO: CHANGE BELOW --> 2 json files, main() function although this is not a script.... We need one json and one class that we call in the scripts
+# Also there's too many directories, a bit of a mess
+# + should add some assert / os path.exists / makedirs to check that directories exist
+
 def main():
     # Has to be json file
     # I guess this is setting a default...
+    # TODO: REMOVE THIS!! OR MAKE IT IN THE SAME REPO / Better to have only 1 json files + all the data stored in the same place
     config_fname = "/home/mila/j/julien.boussard/causal_model/causalpaca/emulator/configs/datamodule/climate_1850_2015_tas.json"
     print(config_fname)
     with open(config_fname) as f:
         data_params = json.load(f)
-
+        
     datamodule = CausalClimateDataModule(**data_params)
     datamodule.setup()
 

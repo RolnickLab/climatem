@@ -16,7 +16,7 @@ module purge
 module --quiet load python/3.10
 
 # 2. Load your environment
-source $HOME/work/climatem/env_emu_poetry/bin/activate
+source $HOME/causal_model/env_emu_climateem/bin/activate
 
 # 3. Copy your dataset on the compute node - I am not sure whether I need to do this at the moment...
 # cp /network/datasets/<dataset> $SLURM_TMPDIR
@@ -25,7 +25,7 @@ source $HOME/work/climatem/env_emu_poetry/bin/activate
 #    and look for the dataset into $SLURM_TMPDIR
 # -u is for unbuffered output
 
-python -u $HOME/work/climatem/notebooks/rollout_pf_rejection.py 
+python -u $HOME/causal_model/climatem/notebooks/rollout_pf_rejection.py 
 
 echo "Job finished."
 

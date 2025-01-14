@@ -1,15 +1,24 @@
 from typing import List, Optional, Union
-
+import os
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from climatem.climate_dataset_explore_ensembles import ClimateDataset
+# constants - should be merged with json to get only one
 from climatem.constants import DATA_DIR, LAT, LON, NUM_LEVELS, SEQ_LEN_MAPPING, TEMP_RES
 
 # NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
 from climatem.emulator_utils import get_logger, random_split
+
+# import torch.distributed as dist
+# def setup_ddp(rank=1, world_size=1):
+#     # os.environ['MASTER_ADDR'] = 'localhost'
+#     # os.environ['MASTER_PORT'] = '12355'
+#     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+# TODO: Parallelization doesnt work for me... Need to make this code more flexible and make sure it works
 
 log = get_logger()
 
@@ -114,6 +123,10 @@ class ClimateDataModule(LightningDataModule):
         Set internal variables: self._data_train, self._data_val, self._data_test.
         """
 
+        print("OUTPUT SAVE DIR 1?")
+        print(self.hparams.output_save_dir)
+        print(f"{ucwdfwcd}")
+
         # shared for all
         dataset_kwargs = dict(
             output_save_dir=self.hparams.output_save_dir,
@@ -144,7 +157,9 @@ class ClimateDataModule(LightningDataModule):
             train_model = self.hparams.train_models[0]
             # create one big training dataset with all training scenarios
             #  then split it to assighn data train and data val
+            print(f"coordinates path of self hparams: {self.hparams.icosahedral_coordinates_path}!!")
             full_ds = ClimateDataset(
+                coordinates_path=self.hparams.icosahedral_coordinates_path,   
                 years=self.hparams.train_years,
                 historical_years=self.hparams.train_historical_years,
                 mode="train+val",
@@ -163,6 +178,7 @@ class ClimateDataModule(LightningDataModule):
         if stage == "test" or stage is None:
             self._data_test = [
                 ClimateDataset(
+                    coordinates_path=self.hparams.icosahedral_coordinates_path,
                     years=self.hparams.test_years,
                     mode="test",
                     scenarios=test_scenario,
@@ -200,24 +216,29 @@ class ClimateDataModule(LightningDataModule):
     def train_dataloader(self):
 
         # NOTE:(seb), when shuffle=True this seems to fail:
-        train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
+
+        # setup_ddp()
+
+        # train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
 
         return DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
             shuffle=False,
             drop_last=True,
-            sampler=train_sampler,
+            # sampler=train_sampler,
             **self._shared_dataloader_kwargs(),
         )
 
     def val_dataloader(self):
 
-        valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        # valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return (
             DataLoader(
-                dataset=self._data_val, drop_last=True, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs()
+                dataset=self._data_val, drop_last=True, 
+                # sampler=valid_sampler, 
+                **self._shared_eval_dataloader_kwargs()
             )
             if self._data_val is not None
             else None
@@ -226,20 +247,24 @@ class ClimateDataModule(LightningDataModule):
     # NOTE:(seb) this is not used currently
     def test_dataloader(self) -> List[DataLoader]:
 
-        test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
+        # test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
 
         return [
-            DataLoader(dataset=ds_test, sampler=test_sampler, **self._shared_eval_dataloader_kwargs())
+            DataLoader(dataset=ds_test, 
+                    #    sampler=test_sampler, 
+                       **self._shared_eval_dataloader_kwargs())
             for ds_test in self._data_test
         ]
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
 
-        valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        # valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return [
             (
-                DataLoader(dataset=self._data_val, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs())
+                DataLoader(dataset=self._data_val, 
+                        #    sampler=valid_sampler, 
+                           **self._shared_eval_dataloader_kwargs())
                 if self._data_val is not None
                 else None
             )

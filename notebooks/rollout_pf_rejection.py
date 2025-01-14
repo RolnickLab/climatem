@@ -5,6 +5,7 @@
 
 import os
 import sys
+from pathlib import Path
 
 module_path = os.path.abspath(os.path.join("../"))
 if module_path not in sys.path:
@@ -284,31 +285,287 @@ def particle_filter(
     return selected_samples
 
 
+def logscore_the_samples_for_spatial_spectra_bayesian(y_true, y_pred_samples, coords:np.ndarray, sigma:float = 1, num_particles:int = 100, mid_latitudes:bool = False):
+    '''
+    Calculate the spatial spectra of the true values and the predicted values, 
+    and then calculate a score between them. This is a measure of how well the model is 
+    predicting the spatial spectra of the true values.
+
+    Args:
+        true_values: torch.Tensor, observed values in a batch
+        y_pred: torch.Tensor, a selection of predicted values
+        num_particles: int, the number of samples that have been taken from the model
+    '''
+    
+    if mid_latitudes:
+        print('Doing only spectral regularisation for the mid-latitudes')
+        # isolate just the latitude values
+        lat_values = coords[:, 1]
+        # check these are the right values
+        # get the indices of the points that are in the extratropics
+        extratropics_indices = np.where((lat_values > -65) & (lat_values < -25) | (lat_values > 25) & (lat_values < 65))[0]
+        # select just the coordinates of the extratropics for y_true, y_recons, and y_pred                    
+        print('Shapes of y_true and y_pred_samples before selecting the extratropics:', y_true.shape, y_pred_samples.shape)
+        y_true = y_true[:, :, extratropics_indices]
+        y_pred_samples = y_pred_samples[:, :, :, extratropics_indices]
+    
+    
+    # calculate the average spatial spectra of the true values, averaging across the batch
+    print("y_true shape:", y_true.shape)
+    #fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2)), dim=0)
+    fft_true = torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2))
+    # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
+    print("y_pred shape:", y_pred_samples.shape)
+    #fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3)), dim=1)
+    fft_pred = torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3))
+    
+
+    # extend fft_true so it is the same value but extended to the same shape as fft_pred
+    fft_true = fft_true.repeat(num_particles, 1, 1, 1)
+    
+    if fft_pred.dim() == fft_true.dim()+1:
+        fft_pred = torch.flatten(fft_pred, start_dim=0, end_dim=1)
+
+    # assert that the first two elements of fft_true are the same
+    #assert torch.allclose(fft_true[0, :, :], fft_true[1, :, :])
+
+    print("fft_true shape after repeating:", fft_true.shape)
+    print("fft_pred shape:", fft_pred.shape)
+
+    assert fft_true.shape == fft_pred.shape
+
+    # calculate the difference between the true and predicted spatial spectra
+    spatial_spectra_score = ((fft_pred - fft_true)**2)/2
+
+    # take the mean of the spatial spectra score across the variables and the wavenumbers, the final 2 axes
+    spatial_spectra_score = -torch.sum(spatial_spectra_score, dim=(2, 3))
+
+    # then normalise all the values of spatial_spectra_score by the maximum value
+    # print("Spatial spectra score before normalising:", spatial_spectra_score)
+    
+    # Do normalisation and 1 - if we want the score to be increasing
+    #spatial_spectra_score = spatial_spectra_score / torch.max(spatial_spectra_score)
+    #print("Spatial spectra score normalised:", spatial_spectra_score)
+
+    # the do 1 - score to give the score to be increasing...
+    #spatial_spectra_score = 1 - spatial_spectra_score
+    #print("Spatial spectra score doing 1 - score:", spatial_spectra_score)
+
+    print("The spatial spectra score shape should be (num_particles, num_batch_size):", spatial_spectra_score.shape)
+    # score = ...  
+    return spatial_spectra_score
+
+
+def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particles_per_particle:int = 10, timesteps:int = 120, score:str ='variance', 
+                    save_dir:str = None, save_name:str = None):
+    '''
+    Implement a particle filter to make a set of autoregressive predictions, where each created sample is 
+    evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
+    We need to pass the directory to save stuff to, and the stem of the filenames...
+    TODO: REMOVE FOR LOOP OVER BATCH - torch/model can deal with the additional row? 
+    '''
+
+    print('Initial number of particles:', num_particles)
+
+    for _ in range(timesteps):
+        print(f"Filtering timestep {_}")
+        
+        # Prediction
+        # make all the new predictions, taking samples from the latents
+        
+        if _ == 0:
+            print("This is the first timestep, so I am going to generate samples from the initial latents.")
+            if score == 'log_bayesian':
+                print(f"x shape {x.shape}")
+                print(f"y shape {y.shape}")
+                unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs = model.predict_sample(x, y, num_particles*num_particles_per_particle, with_zs_logprob=True)
+                logscore_samples_fromzs = torch.sum(logscore_samples_fromzs, -1).squeeze(2)
+                print(f"unused_samples_from_xs shape {unused_samples_from_xs.shape}")
+                print(f"samples_from_zs shape {samples_from_zs.shape}")
+                print(f"logscore_samples_fromzs shape {logscore_samples_fromzs.shape}")
+            else:
+                unused_samples_from_xs, samples_from_zs, y = model.predict_sample(x, y, num_particles*num_particles_per_particle, with_zs_logprob=False)
+
+        else:
+            print("Not the first timestep, so generating samples using initial particles.")
+            # px_mu, y, z, pz_mu, pz_std = model.predict(x, y, num_particles)
+            # note, here I think x is no. of samples - dimensional
+            for i in range(num_particles):
+                print(f"Generating mean sample for particle {i}")
+                #px_mu, y, z, pz_mu, pz_std = model.predict(x[:, i, :, :], y[i, :, :])
+                
+                #New code
+                # Here for each particle at time t predict num_particles_per_particle at time t+1
+                if score == 'log_bayesian':
+                    unused_samples_from_xs, next_sample_from_zs, y, next_logscore_samples_fromzs = model.predict_sample(x[i, :, :, :, :], y, num_particles_per_particle, with_zs_logprob=True)
+                    next_logscore_samples_fromzs = torch.sum(next_logscore_samples_fromzs, -1).squeeze()
+#                     print("What should be the correct shape??")
+#                     print(f"shape of new samples {next_sample_from_zs.shape}")
+#                     print(f"{sfug}")
+                else:
+                    next_sample_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x[i, :, :, :, :], y)
+#                     print("Here is the correct shape??")
+#                     print(f"shape of new samples {next_sample_from_zs.shape}")
+#                     print(f"{sfug}")
+                if i == 0:
+                    samples_from_zs = next_sample_from_zs.unsqueeze(0)
+                    logscore_samples_fromzs = next_logscore_samples_fromzs.unsqueeze(0)
+                else:
+                    samples_from_zs = torch.cat([samples_from_zs, next_sample_from_zs.unsqueeze(0)], dim=0)
+                    logscore_samples_fromzs = torch.cat([logscore_samples_fromzs, next_logscore_samples_fromzs.unsqueeze(0)], dim=0)
+            #samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x, y)
+
+        # then calculate the score of each of the samples
+        # Update the weights, where we want the weights to increase as the score improves
+        
+        if score == 'variance':
+            new_weights = score_the_samples_for_variance(y, samples_from_zs, num_particles)
+        elif score == 'spatial_spectra':
+            new_weights = score_the_samples_for_spatial_spectra(y, samples_from_zs, coords=coordinates, 
+                                                                num_particles=num_particles*num_particles_per_particle, mid_latitudes=True)
+        elif score == 'log_bayesian':
+            print(f"logscore_samples_fromzs shape {logscore_samples_fromzs.shape}")
+            print(f"y shape {y.shape}")
+            if _ > 0:
+                logscore_samples_fromzs = torch.flatten(logscore_samples_fromzs, start_dim=0, end_dim=1)
+                samples_from_zs = torch.flatten(samples_from_zs, start_dim=0, end_dim=1)
+            print(f"samples_from_zs shape {samples_from_zs.shape}")
+            scores_spatial_spectra = logscore_the_samples_for_spatial_spectra_bayesian(y, samples_from_zs, coords=coordinates, num_particles=num_particles*num_particles_per_particle)
+            print(f"spatial_spectra shape {scores_spatial_spectra.shape}")
+            new_weights = logscore_samples_fromzs + scores_spatial_spectra
+#             new_weights = torch.exp(new_weights) # Here we might be able to sample directly from the log probabilities in torch to avoid taking the exp
+        else:
+            raise ValueError("Score must be either variance or spatial_spectra")
+        
+        
+        print('New log weights are higher is better if log_bayesian otherwise lower...')
+        print('Shape of new weights:', new_weights.shape)
+
+#         print('Minimum of the new weights, along the first dimension:', torch.min(new_weights, dim=0))
+#         print('Maximum of the new weights, along the 0th dimension:', torch.max(new_weights, dim=0))
+        print("What is the shape of the min calculated above:", torch.min(new_weights, dim=0).values.shape)
+
+        # normalise the weights along the first dimension
+
+        # TODO below this!!
+        max_weight = torch.max(new_weights, dim=0)
+        if score != 'log_bayesian':
+            min_weight = torch.min(new_weights, dim=0)
+            # normalise along the first dimension
+            normalised_weights = (new_weights - min_weight.values) / (max_weight.values - min_weight.values)
+        else:
+            new_weights = torch.exp(new_weights - max_weight.values)
+            min_weight = torch.min(new_weights, dim=0)
+            max_weight = torch.max(new_weights, dim=0)
+            normalised_weights = (new_weights - min_weight.values) / (max_weight.values - min_weight.values)
+        # Do we need to normalize if log scores
+
+        print("shape of normalised weights:", normalised_weights.shape)
+        # assert that the sum of the normalised weights is 1 for each row
+#         print("Sum of the normalised weights:", torch.sum(normalised_weights, dim=0))
+
+        new_weights = 1 - normalised_weights  # Invert scores for lower score preference
+        new_weights =  new_weights / torch.sum(new_weights, dim=0) 
+        print("Shape of the new_weights after normalising:", new_weights.shape)
+#         print("Sum of the new normalised weights:", torch.sum(new_weights, dim=0))
+
+        # Resampling (e.g., systematic resampling)
+        # for each of the batch, of dimension 256, resample the particles based on their weights, and do this in a loop
+        # for each of the batch members
+        #indices = torch.multinomial(new_weights, num_particles, replacement=True)
+        #selected_samples = samples_from_zs[indices, torch.arange(256), :, :]
+        
+        for i in range(256):
+            resampled_indices = torch.multinomial(new_weights[:, i], num_particles, replacement=True)
+            # append these resampled indices to n array so we get an output of shape (5, 256)
+            if i == 0:
+                resampled_indices_array = resampled_indices.unsqueeze(1)
+            else:
+                resampled_indices_array = torch.cat([resampled_indices_array, resampled_indices.unsqueeze(1)], dim=1)
+
+
+        # Use list comprehension to collect resampled indices for each column
+        #resampled_indices_array2 = torch.stack([torch.multinomial(new_weights[:, i], num_particles, replacement=True) for i in range(256)], dim=1)
+
+        # assert that the two resampled indices are the same
+        #assert torch.all(resampled_indices_array == resampled_indices_array2)
+
+
+        selected_samples = samples_from_zs[resampled_indices_array, torch.arange(256), :, :]
+
+
+
+        if _ == 0:
+            x = x.repeat(num_particles, 1, 1, 1, 1)
+            print("Shape of x after repeating, in the first timestep:", x.shape)
+
+        x = x[:, :, 1:, :, :]
+
+        # now we just need to unsqueeze the selected samples, so that we can concatenate them to x
+        selected_samples = selected_samples.unsqueeze(2)
+
+        print("What is the shape of x, just before we concatenate?", x.shape)
+        print("What is the shape of the selected samples, just before we concatenate?", selected_samples.shape)
+
+        # then we need to append the selected samples to x, along the right axis
+        x = torch.cat([x, selected_samples], dim=2)
+
+        # then we are going back to the top of the loop     
+
+    return selected_samples
+
 # Check if GPU is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", device)
 
 # Read the coordinates too...
 
-coordinates = np.loadtxt("/home/mila/s/sebastian.hickman/work/icosahedral/mappings/vertex_lonlat_mapping.txt")
+home_dir_path = Path("/home/mila/j/julien.boussard")
+
+local_folder = home_dir_path / "causal_model" # Where code + small data is stored
+scratch_dir = home_dir_path / "scratch" # Where large data is stored
+results_dir = scratch_dir / "results"
+os.makedirs(results_dir, exist_ok=True)
+climateem_repo = local_folder / "climatem"
+
+coordinates_path =  local_folder / "icosahedral/mappings/vertex_lonlat_mapping.txt"
+
+coordinates = np.loadtxt(coordinates_path)
 coordinates = coordinates[:, 1:]
+
+results_save_folder = results_dir / "jan13_particle_filters"
+os.makedirs(results_save_folder, exist_ok=True)
+# Make below updated with variables automatically + simpler
+results_save_folder_var = results_save_folder / "ts_picontrol"
+os.makedirs(results_save_folder_var, exist_ok=True)
+results_save_folder_var_spectral = results_save_folder_var / "spectral"
+os.makedirs(results_save_folder_var_spectral, exist_ok=True)
 
 # path to the results directory that I care about
 # Now doing for two models, one where we learned a causal graph (taking the final model) and one where we didn't
 
-results_dir_ts_vae = "/home/mila/s/sebastian.hickman/scratch/results/climatem_spectral/var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000/"
-results_dir_ts_novae = "/home/mila/s/sebastian.hickman/scratch/results/climatem_spectral/var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000/"
+local_results_dir = results_dir / "climatem_spectral"
+os.makedirs(local_results_dir, exist_ok=True)
 
+# TODO: These names are bad... the [] and '' make it super annoying + the params should update the name automatically
+name_res_ts_vae = "var_[ts]_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
+name_res_ts_novae = "var_[ts]_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
+
+results_dir_ts_vae = local_results_dir / name_res_ts_vae
+os.makedirs(results_dir_ts_vae, exist_ok=True)
+results_dir_ts_novae = local_results_dir / name_res_ts_novae
+os.makedirs(results_dir_ts_novae, exist_ok=True)
 # make sure we use the correct directory here
 
-with open(results_dir_ts_vae + "params.json", "r") as f:
+with open(results_dir_ts_vae / "params.json", "r") as f:
     hp = json.load(f)
 
 # Let's overwrite some of the hyperparameters to see if we can load in some different ssp data...
 # overwrite the config_exp_path here:
-
+# TODO -- update this
 hp["config_exp_path"] = (
-    "/home/mila/s/sebastian.hickman/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_picontrol.json"
+    climateem_repo / "scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_picontrol.json"
+    # "/home/mila/s/sebastian.hickman/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_picontrol.json"
 )
 # hp['config_exp_path'] = '/home/mila/s/sebastian.hickman/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_ssp126.json'
 # hp['config_exp_path'] = '/home/mila/s/sebastian.hickman/work/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_ssp245.json'
@@ -379,7 +636,7 @@ model = LatentTSDCD(
 
 # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
 
-state_dict_vae_final = torch.load(results_dir_ts_vae + "model.pth", map_location=None)
+state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=None)
 model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
 
 # Move the model to the GPU
@@ -390,7 +647,7 @@ print("Where is the model?", next(model.parameters()).device)
 
 # model = model.cuda()
 
-scratch_path = "/home/mila/s/sebastian.hickman/scratch/results/dec30_particle_filters/ts_picontrol/"
+# Below line not needed? 
 # scratch_path = "/home/mila/s/sebastian.hickman/scratch/results/dec30_particle_filters/ts_ssp126/"
 # scratch_path = "/home/mila/s/sebastian.hickman/scratch/results/dec30_particle_filters/ts_ssp245/"
 
@@ -407,6 +664,7 @@ with torch.no_grad():
         timesteps=1200,
         batch_size=16,
         score="spatial_spectra",
-        save_dir="/home/mila/s/sebastian.hickman/scratch/results/dec30_particle_filters/ts_picontrol/spectral/",
+        save_dir=results_save_folder_var_spectral,
+        #Make below simpler and automatic
         save_name="pfspecclip_20000_samples_100_years_16_batch_finalvae_best_sample_train_y_pred_ar",
     )

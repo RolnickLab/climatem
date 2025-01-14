@@ -584,7 +584,7 @@ class LatentTSDCD(nn.Module):
 
         return px_mu, y, z, pz_mu, pz_std
 
-    def predict_sample(self, x, y, num_samples):
+    def predict_sample(self, x, y, num_samples, with_zs_logprob:bool = False):
         """
         This is a prediction function for the model, but where we take samples from the Gaussians of the latents.
 
@@ -611,9 +611,14 @@ class LatentTSDCD(nn.Module):
             # here I am taking the approach of sampling from the Z distributions, and then decoding.
             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
             z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
+            if with_zs_logprob:
+                z_samples_logprob = torch.zeros(num_samples, b, self.d, self.d_z)
 
             for i in range(num_samples):
                 z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
+                if with_zs_logprob:
+                    z_samples_logprob[i] = self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i])
+                # self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i]) gives log probability
                 samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
 
                 # some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
@@ -630,6 +635,8 @@ class LatentTSDCD(nn.Module):
             for i in range(num_samples):
                 samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
 
+        if with_zs_logprob:
+            return samples_from_xs, samples_from_zs, y, z_samples_logprob
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
 
