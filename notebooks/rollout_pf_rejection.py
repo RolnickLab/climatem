@@ -30,6 +30,79 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
+def logscore_the_samples_for_spatial_spectra_bayesian(y_true, y_pred_samples, coords:np.ndarray, sigma:float = 1, num_particles:int = 100, mid_latitudes:bool = False, 
+                                                      distribution_spatial_spectra:str = "laplace"):
+    '''
+    Calculate the spatial spectra of the true values and the predicted values, 
+    and then calculate a score between them. This is a measure of how well the model is 
+    predicting the spatial spectra of the true values.
+
+    Args:
+        true_values: torch.Tensor, observed values in a batch
+        y_pred: torch.Tensor, a selection of predicted values
+        num_particles: int, the number of samples that have been taken from the model
+    '''
+    
+    if mid_latitudes:
+        print('Doing only spectral regularisation for the mid-latitudes')
+        # isolate just the latitude values
+        lat_values = coords[:, 1]
+        # check these are the right values
+        # get the indices of the points that are in the extratropics
+        extratropics_indices = np.where((lat_values > -65) & (lat_values < -25) | (lat_values > 25) & (lat_values < 65))[0]
+        # select just the coordinates of the extratropics for y_true, y_recons, and y_pred                    
+        print('Shapes of y_true and y_pred_samples before selecting the extratropics:', y_true.shape, y_pred_samples.shape)
+        y_true = y_true[:, :, extratropics_indices]
+        y_pred_samples = y_pred_samples[:, :, :, extratropics_indices]
+    
+    
+    # calculate the average spatial spectra of the true values, averaging across the batch
+    print("y_true shape:", y_true.shape)
+    #fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2)), dim=0)
+    fft_true = torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2))
+    # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
+    print("y_pred shape:", y_pred_samples.shape)
+    #fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3)), dim=1)
+    fft_pred = torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3))
+    
+
+    # extend fft_true so it is the same value but extended to the same shape as fft_pred
+    fft_true = fft_true.repeat(num_particles, 1, 1, 1)
+    
+    if fft_pred.dim() == fft_true.dim()+1:
+        fft_pred = torch.flatten(fft_pred, start_dim=0, end_dim=1)
+
+    # assert that the first two elements of fft_true are the same
+    #assert torch.allclose(fft_true[0, :, :], fft_true[1, :, :])
+
+    print("fft_true shape after repeating:", fft_true.shape)
+    print("fft_pred shape:", fft_pred.shape)
+
+    assert fft_true.shape == fft_pred.shape
+
+    # calculate the difference between the true and predicted spatial spectra
+    if distribution_spatial_spectra == "laplace":
+        spatial_spectra_score = torch.abs(fft_pred - fft_true/(2*sigma))
+    elif distribution_spatial_spectra == "gaussian":
+        spatial_spectra_score = ((fft_pred - fft_true)**2)/(2*sigma**2)
+
+    # take the mean of the spatial spectra score across the variables and the wavenumbers, the final 2 axes
+    spatial_spectra_score = -torch.sum(spatial_spectra_score, dim=(2, 3))
+
+    # then normalise all the values of spatial_spectra_score by the maximum value
+    # print("Spatial spectra score before normalising:", spatial_spectra_score)
+    
+    # Do normalisation and 1 - if we want the score to be increasing
+    #spatial_spectra_score = spatial_spectra_score / torch.max(spatial_spectra_score)
+    #print("Spatial spectra score normalised:", spatial_spectra_score)
+
+    # the do 1 - score to give the score to be increasing...
+    #spatial_spectra_score = 1 - spatial_spectra_score
+    #print("Spatial spectra score doing 1 - score:", spatial_spectra_score)
+
+    print("The spatial spectra score shape should be (num_particles, num_batch_size):", spatial_spectra_score.shape)
+    # score = ...  
+    return spatial_spectra_score
 
 def score_the_samples_for_spatial_spectra(
     y_true, y_pred_samples, coords: np.ndarray, num_particles: int = 100, mid_latitudes: bool = False
@@ -285,84 +358,24 @@ def particle_filter(
     return selected_samples
 
 
-def logscore_the_samples_for_spatial_spectra_bayesian(y_true, y_pred_samples, coords:np.ndarray, sigma:float = 1, num_particles:int = 100, mid_latitudes:bool = False):
-    '''
-    Calculate the spatial spectra of the true values and the predicted values, 
-    and then calculate a score between them. This is a measure of how well the model is 
-    predicting the spatial spectra of the true values.
-
-    Args:
-        true_values: torch.Tensor, observed values in a batch
-        y_pred: torch.Tensor, a selection of predicted values
-        num_particles: int, the number of samples that have been taken from the model
-    '''
-    
-    if mid_latitudes:
-        print('Doing only spectral regularisation for the mid-latitudes')
-        # isolate just the latitude values
-        lat_values = coords[:, 1]
-        # check these are the right values
-        # get the indices of the points that are in the extratropics
-        extratropics_indices = np.where((lat_values > -65) & (lat_values < -25) | (lat_values > 25) & (lat_values < 65))[0]
-        # select just the coordinates of the extratropics for y_true, y_recons, and y_pred                    
-        print('Shapes of y_true and y_pred_samples before selecting the extratropics:', y_true.shape, y_pred_samples.shape)
-        y_true = y_true[:, :, extratropics_indices]
-        y_pred_samples = y_pred_samples[:, :, :, extratropics_indices]
-    
-    
-    # calculate the average spatial spectra of the true values, averaging across the batch
-    print("y_true shape:", y_true.shape)
-    #fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2)), dim=0)
-    fft_true = torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2))
-    # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
-    print("y_pred shape:", y_pred_samples.shape)
-    #fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3)), dim=1)
-    fft_pred = torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3))
-    
-
-    # extend fft_true so it is the same value but extended to the same shape as fft_pred
-    fft_true = fft_true.repeat(num_particles, 1, 1, 1)
-    
-    if fft_pred.dim() == fft_true.dim()+1:
-        fft_pred = torch.flatten(fft_pred, start_dim=0, end_dim=1)
-
-    # assert that the first two elements of fft_true are the same
-    #assert torch.allclose(fft_true[0, :, :], fft_true[1, :, :])
-
-    print("fft_true shape after repeating:", fft_true.shape)
-    print("fft_pred shape:", fft_pred.shape)
-
-    assert fft_true.shape == fft_pred.shape
-
-    # calculate the difference between the true and predicted spatial spectra
-    spatial_spectra_score = ((fft_pred - fft_true)**2)/2
-
-    # take the mean of the spatial spectra score across the variables and the wavenumbers, the final 2 axes
-    spatial_spectra_score = -torch.sum(spatial_spectra_score, dim=(2, 3))
-
-    # then normalise all the values of spatial_spectra_score by the maximum value
-    # print("Spatial spectra score before normalising:", spatial_spectra_score)
-    
-    # Do normalisation and 1 - if we want the score to be increasing
-    #spatial_spectra_score = spatial_spectra_score / torch.max(spatial_spectra_score)
-    #print("Spatial spectra score normalised:", spatial_spectra_score)
-
-    # the do 1 - score to give the score to be increasing...
-    #spatial_spectra_score = 1 - spatial_spectra_score
-    #print("Spatial spectra score doing 1 - score:", spatial_spectra_score)
-
-    print("The spatial spectra score shape should be (num_particles, num_batch_size):", spatial_spectra_score.shape)
-    # score = ...  
-    return spatial_spectra_score
-
-
-def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particles_per_particle:int = 10, timesteps:int = 120, score:str ='variance', 
-                    save_dir:str = None, save_name:str = None):
+def particle_filter_weighting_bayesian(
+    x, 
+    y, 
+    num_particles:int = 100, 
+    num_particles_per_particle:int = 10, 
+    timesteps:int = 120, 
+    score:str ='variance', 
+    save_dir:str = None, 
+    save_name:str = None, 
+    batch_size:int = 16
+):
     '''
     Implement a particle filter to make a set of autoregressive predictions, where each created sample is 
     evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
     We need to pass the directory to save stuff to, and the stem of the filenames...
     TODO: REMOVE FOR LOOP OVER BATCH - torch/model can deal with the additional row? 
+
+    TODO: COde is quite confusing because here x is latent and z is reconstruction + y is fixed obs corresponding to FFT 
     '''
 
     print('Initial number of particles:', num_particles)
@@ -390,6 +403,7 @@ def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particl
             print("Not the first timestep, so generating samples using initial particles.")
             # px_mu, y, z, pz_mu, pz_std = model.predict(x, y, num_particles)
             # note, here I think x is no. of samples - dimensional
+            # REMOVE THIS FOR LOOP IF POSSIBLE
             for i in range(num_particles):
                 print(f"Generating mean sample for particle {i}")
                 #px_mu, y, z, pz_mu, pz_std = model.predict(x[:, i, :, :], y[i, :, :])
@@ -425,13 +439,18 @@ def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particl
                                                                 num_particles=num_particles*num_particles_per_particle, mid_latitudes=True)
         elif score == 'log_bayesian':
             print(f"logscore_samples_fromzs shape {logscore_samples_fromzs.shape}")
+            # This is [K, L, batch size]
             print(f"y shape {y.shape}")
             if _ > 0:
+                # In correct dimension?? should be
                 logscore_samples_fromzs = torch.flatten(logscore_samples_fromzs, start_dim=0, end_dim=1)
                 samples_from_zs = torch.flatten(samples_from_zs, start_dim=0, end_dim=1)
             print(f"samples_from_zs shape {samples_from_zs.shape}")
+            # This is [K*L, batch size, 1, 6250]--> Is this expected? 
+            # Then fft_true shape after repeating: torch.Size([K*L, batch size, 1, 3126]
             scores_spatial_spectra = logscore_the_samples_for_spatial_spectra_bayesian(y, samples_from_zs, coords=coordinates, num_particles=num_particles*num_particles_per_particle)
             print(f"spatial_spectra shape {scores_spatial_spectra.shape}")
+            # This is [K*L, batch size]
             new_weights = logscore_samples_fromzs + scores_spatial_spectra
 #             new_weights = torch.exp(new_weights) # Here we might be able to sample directly from the log probabilities in torch to avoid taking the exp
         else:
@@ -464,20 +483,21 @@ def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particl
         # assert that the sum of the normalised weights is 1 for each row
 #         print("Sum of the normalised weights:", torch.sum(normalised_weights, dim=0))
 
-        new_weights = 1 - normalised_weights  # Invert scores for lower score preference
+        # new_weights = 1 - normalised_weights  # Here no need to invert! we're already in prob space
         new_weights =  new_weights / torch.sum(new_weights, dim=0) 
         print("Shape of the new_weights after normalising:", new_weights.shape)
 #         print("Sum of the new normalised weights:", torch.sum(new_weights, dim=0))
 
         # Resampling (e.g., systematic resampling)
-        # for each of the batch, of dimension 256, resample the particles based on their weights, and do this in a loop
+        # for each of the batch, of dimension batch_size, resample the particles based on their weights, and do this in a loop
         # for each of the batch members
         #indices = torch.multinomial(new_weights, num_particles, replacement=True)
-        #selected_samples = samples_from_zs[indices, torch.arange(256), :, :]
+        #selected_samples = samples_from_zs[indices, torch.arange(batch_size), :, :]
         
-        for i in range(256):
+        #REMOVE THIS FOR LOOP IF POSSIBLE
+        for i in range(batch_size):
             resampled_indices = torch.multinomial(new_weights[:, i], num_particles, replacement=True)
-            # append these resampled indices to n array so we get an output of shape (5, 256)
+            # append these resampled indices to n array so we get an output of shape (5, batch_size)
             if i == 0:
                 resampled_indices_array = resampled_indices.unsqueeze(1)
             else:
@@ -491,8 +511,9 @@ def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particl
         #assert torch.all(resampled_indices_array == resampled_indices_array2)
 
 
-        selected_samples = samples_from_zs[resampled_indices_array, torch.arange(256), :, :]
-
+        selected_samples = samples_from_zs[resampled_indices_array, torch.arange(batch_size), :, :]
+        np.save(os.path.join(save_dir, f"{save_name}_{_}.npy"), selected_samples.detach().cpu().numpy())
+        print("Saved the selected samples with name:", f"{save_name}_{_}.npy")
 
 
         if _ == 0:
@@ -508,6 +529,7 @@ def particle_filter_weighting_bayesian(x, y, num_particles:int = 20, num_particl
         print("What is the shape of the selected samples, just before we concatenate?", selected_samples.shape)
 
         # then we need to append the selected samples to x, along the right axis
+        # Here shouldn't it be the unused samples fromxs???
         x = torch.cat([x, selected_samples], dim=2)
 
         # then we are going back to the top of the loop     
@@ -656,15 +678,17 @@ print("Where is the model?", next(model.parameters()).device)
 # NOTE: make sure we have the right setting for mid_latitudes in the particle_filter function above
 # NOTE: and the corresponding correct naming for the save_name
 
+batch_size = 16
 with torch.no_grad():
-    final_picontrol_particles = particle_filter(
-        x,
-        y,
-        num_particles=20000,
+    final_picontrol_particles = particle_filter_weighting_bayesian(
+        x[:batch_size], 
+        y[:batch_size],
+        num_particles = 23, 
+        num_particles_per_particle = 17, 
         timesteps=1200,
-        batch_size=16,
-        score="spatial_spectra",
+        score ='log_bayesian', 
         save_dir=results_save_folder_var_spectral,
         #Make below simpler and automatic
-        save_name="pfspecclip_20000_samples_100_years_16_batch_finalvae_best_sample_train_y_pred_ar",
+        save_name="pfspecclip_25_samples_100_years_16_batch_finalvae_best_sample_train_y_pred_ar",
+        batch_size = batch_size
     )

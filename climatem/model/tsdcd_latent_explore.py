@@ -620,7 +620,6 @@ class LatentTSDCD(nn.Module):
                     z_samples_logprob[i] = self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i])
                 # self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i]) gives log probability
                 samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
-
                 # some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
 
                 # samples_from_zs[i] = some_decoded_samples_mu
