@@ -20,13 +20,14 @@ from sklearn.decomposition import PCA
 
 
 ### Here set SAVAR paths and load data ####
-tau = 5
 n_gt_connections = 6
+difficulty = "med_easy"
+noisestrength = 1
+
+tau = 5
 n_modes = 4
 time_len = 10_000
 lat = lon = 50
-difficulty = "easy"
-noisestrength = 0.2
 var_names = []
 for k in range(n_modes):
     var_names.append(fr'$X^{k}$')
@@ -41,6 +42,7 @@ links_coeffs = params["links_coeffs"]
 modes_gt = np.load(savar_folder / f'{savar_fname[:-4]}_mode_weights.npy')
 modes_gt -= modes_gt.mean()
 modes_gt /= modes_gt.std()
+json_results_fname = savar_folder / f'varimax_pcmci_{savar_fname[:-4]}_results.json'
 
 ############################
 
@@ -219,6 +221,5 @@ results = {
     "shd": shd
 }
 # Save results as a JSON file
-json_filename = results_path / f"thr_{threshold}_evaluation_results.json"
-with open(json_filename, 'w') as json_file:
+with open(json_results_fname, 'w') as json_file:
     json.dump(results, json_file)
