@@ -13,6 +13,10 @@ import numpy as np
 import torch
 import xarray as xr
 
+# JK: consider using the __init__.py for path handling
+# feel free to move this to the constants instead for consistency!
+from climatem import MAPPINGS_DIR
+
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     AVAILABLE_MODELS_FIRETYPE,
     CMIP6_NOM_RES,
@@ -429,7 +433,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.loadtxt(
-                "/home/mila/s/sebastian.hickman/work/icosahedral/mappings/vertex_lonlat_mapping.txt"
+                MAPPINGS_DIR / "vertex_lonlat_mapping.txt"
             )
             coordinates = coordinates[:, 1:]
 
