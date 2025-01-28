@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from accelerate import Accelerator
 
-from climatem.climate_data_loader_explore_ensembles_multigpu import (
+from climatem.climate_data_loader_explore_ensembles import (
     CausalClimateDataModule,
 )
 from climatem.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae

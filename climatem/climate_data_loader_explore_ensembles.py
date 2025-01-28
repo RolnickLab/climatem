@@ -7,7 +7,7 @@ from typing import Optional
 
 import torch
 
-from climatem.climate_datamodule_explore_ensembles import ClimateDataModule
+from climatem.climate_datamodule_explore_ensembles_multigpu import ClimateDataModule
 
 # Here we replace the original import with a new experimental import.
 #from emulator.src.data.climate_dataset import Input4MipsDataset, CMIP6Dataset
