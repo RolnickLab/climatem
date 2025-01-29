@@ -6,11 +6,11 @@
 #SBATCH --ntasks-per-node=2                                              # Ask for 2 CPUs
 #SBATCH --nodes=1                                                        # Ask for 2 CPUs
 #SBATCH --mem=80G            # 80                                       # Ask for 10 GB of RAM
-#SBATCH --time=16:00:00                                                  # The job will run for 10 hours
+#SBATCH --time=2:00:00                                                  # The job will run for 10 hours
 #SBATCH -o /home/mila/j/julia.kaltenborn/slurm_logs/climatem/slurm-%j.out  # Write the log on scratch
 
 # RUN this file like that (in climatem):
-# sbatch scripts/tuning/jk_single_experiment.sh $HOME/climatem/scripts/configs/tuning/default_configs.json
+# sbatch scripts/tuning/jk_debugging.sh $HOME/climatem/scripts/configs/tuning/jk_dz-30_tau-3_nonlinearmixing-False.json
 
 # indicate which configs are running
 echo "Running CDSD Experiment with config file: $1"
@@ -26,7 +26,7 @@ source $HOME/climatem/env_emulator_climatem/bin/activate
 
 # create directory if it does not exist yet:
 mkdir -p $HOME/climatem/Climateset_DATA/
-mkdir -p $HOME/scratch/results/climatem_tune_29Jan/
+mkdir -p $HOME/scratch/results/climatem_linear-mixing/
 
 # 3. Copy your dataset on the compute node - I am not sure whether I need to do this at the moment...
 # cp /network/datasets/<dataset> $SLURM_TMPDIR
@@ -56,5 +56,5 @@ accelerate launch \
     --num_processes=2 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_explore_ensembles_multigpu_accelerate.py --no-gt --gpu --config-exp-path $1 --exp-path $HOME/scratch/results/climatem_tune_29Jan/ --config-path $HOME/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.3 --sparsity-upper-threshold 0.5
+    $HOME/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_explore_ensembles_multigpu_accelerate.py --no-gt --gpu --config-exp-path $1 --exp-path $HOME/scratch/results/climatem_linear-mixing/ --config-path $HOME/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent.json --lr 0.001 --reg-coeff 0.3 --sparsity-upper-threshold 0.5
 
