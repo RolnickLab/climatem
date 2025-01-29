@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # Data constants
-LON = 96
+LON = 96 # TODO JK commenting: LON and LAT must be swapped...
 LAT = 144
 NUM_LEVELS = 1
 SEQ_LEN = 12
@@ -13,6 +13,7 @@ INPUT4MIPS_NOM_RES = "map_250_km"
 CMIP6_NOM_RES = "250_km"  # TODO: not allow different resolutions
 SEQ_LEN_MAPPING = {"mon": 12}
 
+# TODO JK commenting: this should be done via the __init__.py
 DATA_DIR = os.path.join(
     Path(__file__).absolute().parent.parent, "Climateset_DATA"
 )  # os.path.join(os.getcwd(), 'Climateset_DATA') # set path to local data
