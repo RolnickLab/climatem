@@ -506,7 +506,7 @@ class TrainingLatent:
 
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         crps = self.get_crps_loss(y, px_mu, px_std)
-        spectral_loss = self.get_spectral_loss(y, y_pred_recons, y_pred)
+        spectral_loss = self.get_spectral_loss(y, y_pred_recons, y_pred, take_log=True)
         temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_recons, y_pred)
 
         # add the spectral loss to the loss
@@ -1087,7 +1087,7 @@ class TrainingLatent:
 
         return crps
 
-    def get_spectral_loss(self, y_true, y_recons, y_pred):
+    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=True):
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
@@ -1145,6 +1145,11 @@ class TrainingLatent:
         else:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
+        if take_log:
+            fft_true = torch.log(fft_true)
+            fft_recons = torch.log(fft_recons)
+            fft_pred = torch.log(fft_pred)
+        
         # Calculate the power spectrum
         spectral_loss_recons = torch.abs(fft_recons - fft_true)
         spectral_loss_pred = torch.abs(fft_pred - fft_true)
