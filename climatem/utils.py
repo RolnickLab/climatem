@@ -5,9 +5,6 @@ import torch
 class ALM:
     """
     Augmented Lagrangian Method To use the quadratic penalty method (e.g. for the acyclicity constraint), just ignore
-    'self.lambda' NOTE:(seb) self.lambda does not even exist?
-
-    We mean self.gamma?
     """
 
     def __init__(
