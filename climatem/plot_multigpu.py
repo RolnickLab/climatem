@@ -101,7 +101,6 @@ class Plotter:
         Plot the learning curves and if the ground-truth is known the adjacency and adjacency through time.
         """
 
-        # NOTE:(seb) I am going to save the coordinates here, but this should be moved.
         np.save(os.path.join(learner.hp.exp_path, "coordinates.npy"), learner.coordinates)
 
         if save:
@@ -110,7 +109,6 @@ class Plotter:
         # plot learning curves
         if learner.latent:
 
-            # NOTE:(seb) adding here capacity to plot the new sparsity constraint!
             losses = [
                 {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
@@ -285,7 +283,6 @@ class Plotter:
                 plot_through_time=learner.hp.plot_through_time,
                 path=learner.hp.exp_path,
             )
-            # NOTE:(seb) adding here capacity to plot the new sparsity constraint!
             losses = [  # {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
@@ -750,7 +747,6 @@ class Plotter:
 
     # need to fix this plot so it works well for multiple variables
 
-    # NOTE:(seb) trying to extend the plot_regions_map function to plot multiple variables
     def plot_regions_map(
         self,
         w_adj,
