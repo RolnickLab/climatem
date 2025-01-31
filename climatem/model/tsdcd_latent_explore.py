@@ -1,7 +1,4 @@
-# NOTE: This code allows for fixed causal graphs.
-# Great, let's use this. The type of it is torch.Tensor, so I can set it to whatever I want,
-# and it needs to have dimensions of the mask, which is (batch size, tau, d_x, d_x) for the latent case,
-# where *d_x is actually the number of latent variables*, and tau is the number of time steps.
+# Adapted from the original code for CDSD, Brouillard et al., 2024.
 
 from collections import OrderedDict
 
@@ -10,7 +7,6 @@ import torch.distributions as distr
 import torch.nn as nn
 
 
-# NOTE:(seb) here I could just specify some fixed output for the mask, as I wish
 class Mask(nn.Module):
     def __init__(
         self,
@@ -98,7 +94,6 @@ class Mask(nn.Module):
                 # I set that in the __init__ function, and I can set it to whatever I want, of the right shape.
                 return self.fixed_output.repeat(b, 1, 1, 1)
 
-    # NOTE:(seb) modified so that we can have a fixed mask and a fixed output.
     def get_proba(self) -> torch.Tensor:
         if not self.fixed:
             return torch.sigmoid(self.param) * self.fixed_mask
@@ -314,7 +309,6 @@ class LatentTSDCD(nn.Module):
 
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
-            # NOTE:(seb) using the noloop version of non-linear here to make it much faster.
             self.autoencoder = NonLinearAutoEncoderUniqueMLP_noloop(
                 d,
                 d_x,
@@ -327,7 +321,6 @@ class LatentTSDCD(nn.Module):
                 gt_w=None,
             )
 
-            # NOTE:(seb) previous non-linear option, with loops.
             # print("Using non-linear mixing, and using the NonLinearAutoEncoderUniqueMLP_noloop autoencoder, which has this embedding dimension.")
             # self.autoencoder = NonLinearAutoEncoderMLPs(d, d_x, d_z,
             #                                            self.num_hidden_mixing,
@@ -345,7 +338,7 @@ class LatentTSDCD(nn.Module):
             #                                            gt_w=None)
 
         else:
-            # print('Using linear mixing')
+            print('Using linear mixing')
             self.autoencoder = LinearAutoEncoder(d, d_x, d_z, tied=tied_w)
 
         if debug_gt_w:
@@ -403,9 +396,7 @@ class LatentTSDCD(nn.Module):
             q_mu, q_logvar = self.autoencoder(y[:, i], i, encode=True)
             q_std = torch.exp(0.5 * q_logvar)
 
-            # NOTE:(seb) just make a quick copy of bits of z that should be affected by x only...
             # e.g. z[:, -2, i]
-            # this is because we are not peeking here, so we should not be able to see the future.
             all_z_except_last = z[:, :-1, i].clone()
             penultimate_z = z[:, -2, i].clone()
 
@@ -428,7 +419,8 @@ class LatentTSDCD(nn.Module):
         mu = torch.zeros(b, self.d, self.d_z)
         std = torch.zeros(b, self.d, self.d_z)
 
-        # NOTE:(seb) here there is conditional variance code?
+        #print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
+
         # learning conditional variance
         # for i in range(self.d):
         #     pz_params = torch.zeros(b, self.d_z, 2)
@@ -439,12 +431,24 @@ class LatentTSDCD(nn.Module):
 
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
+            #print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
             for k in range(self.d_z):
+                #print("Doing the transition, and this is the k at the moment.", k)
+                #print("**************************************************")
+                #print("What is the shape of the mask?", mask.shape)
+                #print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
+                #print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
                 pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
 
+
+            #print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
+            #print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
+            #print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
+
+        #print("This is giving us the pz_mu and pz_std that we use later.")
         return mu, std
 
     def decode(self, z):
@@ -554,23 +558,56 @@ class LatentTSDCD(nn.Module):
         We want to take past time steps and predict the next time step, not to reconstruct the past time steps.
         """
 
-        # NOTE:(seb) I think for the case of non-instantaneous prediction we aren't peeking,
-        # but if we do this for instantaneous connections then we are peeking.
-        # Note the instantaneous case has not been checked thoroughly.
-
         b = x.size(0)
 
-        # NOTE:(seb) keep this for later I think!
-        # with torch.no_grad():
-
-        # NOTE:(seb) we are not using y here. We encode using both x and y,
+        # NOTE: we are not using y here. We encode using both x and y,
         # but then we discard the latents from the y encoding.
 
         z, q_mu_y, q_std_y = self.encode(x, y)
 
-        # NOTE:(seb) this did break when we try to do instantaneous features
-        # Now fixed by adding if else...
-        # get params of the transition model p(z^t | z^{<t})
+        mask = self.mask(b)
+
+        if self.instantaneous:
+            pz_mu, pz_std = self.transition(z.clone(), mask)
+        else:
+            pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+
+        # decode
+        px_mu, px_std = self.decode(pz_mu)
+
+        return px_mu, y, z, pz_mu, pz_std
+    
+    def predict_counterfactual(self, x, y, counterfactual_z_index, counterfactual_z_value):
+
+        # Use no grad to speed it up! But I need to keep the grads if I am going to add to the loss.
+
+        """
+        This is the prediction function for the model.
+
+        We want to take past time steps and predict the next time step, not to reconstruct the past time steps.
+        """
+
+        b = x.size(0)
+
+        z, q_mu_y, q_std_y = self.encode(x, y)
+
+        print("This is the shape of the latents that we are going to intervene on.", z.shape)
+        print("Here is where we are going to intervene on the latents, and the value.", counterfactual_z_index, counterfactual_z_value)
+
+        assert torch.all(z[:, 4, :, :] == z[:, -2, :, :])
+
+        # here we are going to intervene on the latents
+        # BEFORE we pass them through the transition model.
+        # we want to intervene on the final (non-instantaneous) latent variable.
+        # we also intervene on only the first variable
+        # we also intervene on all batch members
+        
+        z[:, -2, 0, counterfactual_z_index] = counterfactual_z_value
+
+        print("This is e.g. the new value of the latents after intervention.", z[0, -2, 0, counterfactual_z_index])
+        assert torch.all(z[:, -2, 0, counterfactual_z_index] == counterfactual_z_value)
+
+
 
         mask = self.mask(b)
 
@@ -630,6 +667,61 @@ class LatentTSDCD(nn.Module):
             for i in range(num_samples):
                 samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
 
+        return samples_from_xs, samples_from_zs, y
+        # return px_mu, y, z, pz_mu, pz_std
+
+    def predict_sample_bayesianfiltering(self, x, y, num_samples, with_zs_logprob:bool = False):
+        """
+        This is a prediction function for the model, but where we take samples from the Gaussians of the latents.
+
+        Note this function also returns the option where we sample from the decoders, but of course these samples are
+        just chequerboards and not very interesting.
+
+        I can use no_grad here, because I am not going to be using the gradients for anything.
+        """
+
+        b = x.size(0)
+
+        with torch.no_grad():
+            # sample Zs (based on X)
+            z, q_mu_y, q_std_y = self.encode(x, y)
+
+            # get params of the transition model p(z^t | z^{<t})
+            mask = self.mask(b)
+
+            if self.instantaneous:
+                pz_mu, pz_std = self.transition(z.clone(), mask)
+            else:
+                pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+
+            # here I am taking the approach of sampling from the Z distributions, and then decoding.
+            samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
+            z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
+            if with_zs_logprob:
+                z_samples_logprob = torch.zeros(num_samples, b, self.d, self.d_z)
+
+            for i in range(num_samples):
+                z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
+                if with_zs_logprob:
+                    z_samples_logprob[i] = self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i])
+                # self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i]) gives log probability
+                samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
+                # some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
+
+                # samples_from_zs[i] = some_decoded_samples_mu
+
+            # decode
+            px_mu, px_std = self.decode(pz_mu)
+
+            # here we decode from pz_mu, and then sample from the distribution over xs.
+            # note this will simply give us chequerboards.
+            samples_from_xs = torch.zeros(num_samples, b, self.d, self.d_x)
+
+            for i in range(num_samples):
+                samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
+
+        if with_zs_logprob:
+            return samples_from_xs, samples_from_zs, y, z_samples_logprob
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
 
@@ -822,8 +914,7 @@ class NonLinearAutoEncoderMLPs(NonLinearAutoEncoder):
             return self.decode(x, i)
 
 
-# NOTE:(seb) this is the old NonLinearAutoEncoderUniqueMLP function, which contains loops and is
-# exceptionally slow. I have replaced this with the NonLinearAutoEncoderUniqueMLP_noloop function below.
+# Replaced this the NonLinearAutoEncoderUniqueMLP_noloop function below.
 class NonLinearAutoEncoderUniqueMLP(NonLinearAutoEncoder):
     def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
         super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
@@ -862,11 +953,6 @@ class NonLinearAutoEncoderUniqueMLP(NonLinearAutoEncoder):
             return self.encode(x, i)
         else:
             return self.decode(x, i)
-
-
-# NOTE:(seb) this removes the loop that is being used above, and speeds up training a lot.
-# NOTE: training seems to work the same as for the NonLinearAutoEncoderUniqueMLP function.
-# This is now the function that is used for most training.
 
 
 class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
@@ -1082,16 +1168,50 @@ class TransitionModel(nn.Module):
         """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
         ..., G_{tau-k} * z_{t-k})"""
 
-        # NOTE:(seb) this is not tested for instantaneous connections...
         # works well for original prediction when we do not do instantaneous! :)
         # e.g.     val_mse, val_smape = prediction_original(trainer, True)
 
         # t_total = torch.max(self.tau, z_past.size(1))  # TODO: find right dim
         # param_z = torch.zeros(z_past.size(0), 2)
+
+        #print("In the forward of the transition model, and trying to ascertain which way the information flows through the mask.")
+        #print("The mask is of size: ", mask.size())
+        #print("The z is of size: ", z.size())
+        
+        # print the unique values and their counts in mask:
+        #print("The unique values of mask are: ", torch.unique(mask))
+        #print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
+
+        # print the first few elements of z
+
         z = z.view(mask.size())
+
+        #print("The z is now, after z.view() of size: ", z.size())
+
+        #print("what is mask * z shape? ", (mask * z).size())
+
         masked_z = (mask * z).view(z.size(0), -1)
 
+        #print("mask * z is of size: ", (mask * z).size())
+        #print("The masked_z is of size: ", masked_z.size())
+
+        # print the first few elements of masked_z
+        #print("The first few elements of masked_z are: ", masked_z[0, :10])
+
+        # print all the unique values of masked_z, and the number of unique values.
+        #print("The unique values of masked_z are: ", torch.unique(masked_z))
+        
+        # count the number of very small values in masked_z
+        #print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
+
+        #print("What is i, self_d_z, k? ", i, self.d_z, k)
+        #print("What is i * self.d_z + k? ", i * self.d_z + k)
+        #print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
+
         param_z = self.nn[i * self.d_z + k](masked_z)
+
+        #print("What is the shape of param_z?", param_z.size())
+
         # param_z = self.nn(masked_z)
 
         return param_z
