@@ -107,6 +107,8 @@ class TrainingLatent:
         self.valid_acyclic_cons_list = []
         self.valid_sparsity_cons_list = []
 
+        self.best_spatial_spectra_score = None
+
         self.plotter = Plotter()
 
         # I think this is just initialising a tensor of zeroes to store results in
@@ -194,7 +196,6 @@ class TrainingLatent:
             dim_gamma=(self.d_z, self.d_z),
         )
 
-        # NOTE:(seb) adding the sparsity constraint here, with different dimensions as sparsity is one dimensional
         self.ALM_sparsity = ALM(
             self.hp.sparsity_mu_init,
             self.hp.sparsity_mu_mult_factor,
@@ -219,7 +220,6 @@ class TrainingLatent:
 
         if self.profiler:
 
-            # NOTE:(seb) profiler here.
             # we should have this function elsewhere. It is rarely used.
             def trace_handler(p):
                 print("Printing profiler key averages from trace handler!")
@@ -227,15 +227,12 @@ class TrainingLatent:
                 output_cuda = p.key_averages().table(sort_by="cuda_time_total", row_limit=20)
                 print(output_cpu)
                 print(output_cuda)
-                p.export_chrome_trace(f"/home/mila/s/sebastian.hickman/scratch/profiling/{str(p.step_num)}.json")
 
             prof = torch.profiler.profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=5, warmup=5, active=1, repeat=1),
                 # using the torch tensorboard handler
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(
-                    "/home/mila/s/sebastian.hickman/scratch/profiling"
-                ),
+                
                 # on_trace_ready=torch.profiler.export_chrome_trace(self.profiler_path),
                 # on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -327,18 +324,15 @@ class TrainingLatent:
 
             if self.logging_iter > 0 and self.iteration % (self.hp.plot_freq) == 0:
                 print(f"Plotting Iteration {self.iteration}")
-                # NOTE:(seb), updated to use plot_sparsity to log the sparsity constraint
                 self.plotter.plot_sparsity(self)
                 # trying to save coords and adjacency matrices
                 self.plotter.save_coordinates_and_adjacency_matrices(self)
-                # NOTE:(seb) also saving the PyTorch model, saving the state dict:
                 torch.save(self.model.state_dict(), f"{self.hp.exp_path}/model.pth")
 
                 # try to use the accelerator.save function here
                 accelerator.save_state(output_dir=self.hp.exp_path)
 
-                # NOTE:(seb) also saving the optimizer state here:
-                # torch.save(self.optimizer.state_dict(), self.hp.exp_path + '/optimizer.pth')
+
 
             if not self.converged:
 
@@ -386,7 +380,6 @@ class TrainingLatent:
                                 self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.hp.lr)
                         self.converged = ortho_converged & acyclic_converged
                     else:
-                        # NOTE:(seb) trying to adapt this to do sparsity too
                         # self.converged = ortho_converged
                         self.converged = ortho_converged & sparsity_converged
             else:
@@ -466,12 +459,13 @@ class TrainingLatent:
         y = y[:, 0]
         z = None
 
-        # NOTE:(seb) note that this makes the reconstruction
+
         nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
 
         # also make the proper prediction, not the reconstruction as we do above
         # we have to take care here to make sure that we have the right tensors with requires_grad
         y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.module.predict(x, y)
+        # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
         px_mu, px_std = self.model.module.predict_pxmu_pxstd(x, y)
 
         # compute regularisations (sparsity and connectivity)
@@ -518,9 +512,10 @@ class TrainingLatent:
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
-        self.optimizer.zero_grad()
+        # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
+        #self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
-        # NOTE:(seb), multi-GPU here we use accelerator
         # loss.backward()
         accelerator.backward(loss)
 
@@ -568,7 +563,7 @@ class TrainingLatent:
             )
 
             # also try the particle filtering approach
-            # final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
+            #final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
 
             self.train_mae_recons = torch.mean(torch.abs(y_original_recons - y_original)).item()
             self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
@@ -578,23 +573,22 @@ class TrainingLatent:
             self.train_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
             self.train_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
 
-            # NOTE:(seb) including some additional metrics
             # include the variance of the predictions
             self.train_var_original = torch.var(y_original)
             self.train_var_recons = torch.var(y_original_recons)
             self.train_var_pred = torch.var(y_original_pred)
 
             # including per variable metrics, for when we train in the 4 variable case.
-            if self.d == 4:
+            if self.d == 3:
                 self.train_mae_recons_1 = torch.mean(torch.abs(y_original_recons[:, 0] - y_original[:, 0])).item()
                 self.train_mae_recons_2 = torch.mean(torch.abs(y_original_recons[:, 1] - y_original[:, 1])).item()
                 self.train_mae_recons_3 = torch.mean(torch.abs(y_original_recons[:, 2] - y_original[:, 2])).item()
-                self.train_mae_recons_4 = torch.mean(torch.abs(y_original_recons[:, 3] - y_original[:, 3])).item()
+                self.train_mae_recons_4 = 0
 
                 self.train_mae_pred_1 = torch.mean(torch.abs(y_original_pred[:, 0] - y_original[:, 0])).item()
                 self.train_mae_pred_2 = torch.mean(torch.abs(y_original_pred[:, 1] - y_original[:, 1])).item()
                 self.train_mae_pred_3 = torch.mean(torch.abs(y_original_pred[:, 2] - y_original[:, 2])).item()
-                self.train_mae_pred_4 = torch.mean(torch.abs(y_original_pred[:, 3] - y_original[:, 3])).item()
+                self.train_mae_pred_4 = 0
             else:
                 self.train_mae_recons_1 = 0
                 self.train_mae_recons_2 = 0
@@ -618,7 +612,6 @@ class TrainingLatent:
 
             # sample = np.random.randint(0, self.batch_size)
 
-            # NOTE:(seb)  these samples have been changed to be different for each plot
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
             if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
@@ -711,7 +704,6 @@ class TrainingLatent:
                 h_acyclic = self.get_acyclicity_violation()
             h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
 
-            # NOTE:(seb) compute sparsity constraint 9/5/2024
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.hp.sparsity_upper_threshold
             )
@@ -733,7 +725,7 @@ class TrainingLatent:
             self.valid_sparsity_reg = sparsity_reg.item()
             self.valid_ortho_cons = h_ortho  # .detach()
             self.valid_connect_reg = connect_reg.item()
-            self.valid_acyclic_cons = h_acyclic  # .item() # NOTE:(seb) errors with .item() as not tensor
+            self.valid_acyclic_cons = h_acyclic  # .item() 
 
             # adding the sparsity constraint to the logs
             self.valid_sparsity_cons = h_sparsity  # .detach()
@@ -761,13 +753,11 @@ class TrainingLatent:
             self.val_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
             self.val_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
 
-            # NOTE:(seb) including some additional metrics
             # include the variance of the predictions
             self.val_var_original = torch.var(y_original)
             self.val_var_recons = torch.var(y_original_recons)
             self.val_var_pred = torch.var(y_original_pred)
 
-            # NOTE:(seb) including some per variable metrics, specifically for the 4 variable case
 
             if self.d == 4:
                 self.val_mae_recons_1 = torch.mean(torch.abs(y_original_recons[:, 0] - y_original[:, 0])).item()
@@ -800,7 +790,6 @@ class TrainingLatent:
             coordinates = np.loadtxt(abs_path_coords)
             coordinates = coordinates[:, 1:]
 
-            # NOTE:(seb) changed to have random selection for each plot
 
             if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
                 self.plotter.plot_compare_predictions_icosahedral(
@@ -900,7 +889,6 @@ class TrainingLatent:
         self.mu_ortho_list.append(self.ALM_ortho.mu)
         self.gamma_ortho_list.append(self.ALM_ortho.gamma)
 
-        # NOTE:(seb) sparsity constraint lists here.
         self.train_sparsity_cons_list.append(self.train_sparsity_cons)
         self.valid_sparsity_cons_list.append(self.valid_sparsity_cons)
 
@@ -930,7 +918,6 @@ class TrainingLatent:
         """Print values of many variable: losses, constraint violation, etc.
         at the frequency self.hp.print_freq"""
 
-        # NOTE:(seb) here plotting the terms that contribute to the loss that I care about.
         # print("****************************************************************************************")
         # print("What is the loss, the NLL, the reconstruction, the KL, the sparsity reg, the connect reg, the ortho cons, the acyclic cons, the sparsity cons?")
         # print("****************************************************************************************")
@@ -1018,7 +1005,6 @@ class TrainingLatent:
             # first get the adj
             adj = self.model.module.get_adj()
 
-            # NOTE:(seb) try p=2
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization
             # print('constraint value, before I subtract a threshold from it:', sum_of_connections)
 
@@ -1036,7 +1022,6 @@ class TrainingLatent:
 
             # print('constraint value, after I subtract a threshold, or whatever:', constraint)
 
-            # NOTE:(seb) - here we implement an inequality constraint rather than a forced equality
             h = torch.max(constraint, torch.tensor([0.0]))
 
         else:
@@ -1092,7 +1077,11 @@ class TrainingLatent:
 
         return crps
 
+<<<<<<< HEAD
+    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=False):
+=======
     def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=True):
+>>>>>>> 451f270fd734ad18f73fc9eb5b0428669f935f5a
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
@@ -1124,7 +1113,6 @@ class TrainingLatent:
             y_recons = torch.reshape(y_recons, (y_recons.size(0), y_recons.size(1), 96, 144))
             y_pred = torch.reshape(y_pred, (y_pred.size(0), y_pred.size(1), 96, 144))
 
-            # NOTE:(seb) here we are doing a zonal spectrum!
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
             fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
@@ -1139,7 +1127,6 @@ class TrainingLatent:
             y_recons = y_recons
             y_pred = y_pred
 
-            # NOTE:(seb) here we are doing a very dodgy spectral loss, since there is no spatial ordering to the unstructured grid and hence array...beware...
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
             fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2)), dim=0)
@@ -1251,7 +1238,6 @@ class TrainingLatent:
     # And also to complete autoregressive rollout every so often...
     # I am going to add this to the train_step and valid_step functions.
 
-    # NOTE:(seb) rewrite so that we make the iters again!
     def autoregress_prediction_original(self, valid: bool = False, timesteps: int = 120):
         """
         Calculate the MSE and SMAPE between X_{t+1} and X_hat_{t+1}. We also do an autoregressive lead out for set
@@ -1266,12 +1252,14 @@ class TrainingLatent:
 
         if not valid:
 
+            # make an empty list to store the predictions
+            predictions = []
+
             # Make the iterator again, since otherwise we have iterated through it already...
             train_dataloader = iter(self.datamodule.train_dataloader())
             x, y = next(train_dataloader)
 
-            # NOTE:(seb) what we had before, 29/5/24:
-            # x, y = next(self.data_loader_train)
+
 
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
@@ -1279,16 +1267,18 @@ class TrainingLatent:
             z = None
 
             # print("First up, I will do the reconstruction effort")
-            # NOTE:(seb) I need to just estimate whether the model is doing better using the nll!
             nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
 
+            # ensure these are correct
             with torch.no_grad():
-                # ensure these are correct
                 y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
 
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
-                samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
+                samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 10)
+
+            # append the first prediction
+            predictions.append(y_pred)
 
             # make a copy of y_pred, which is a tensor
             x_original = x.clone().detach()
@@ -1323,11 +1313,14 @@ class TrainingLatent:
 
                 x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
 
+                # then predict the next timestep
+                # y at this point is pointless!!!
                 with torch.no_grad():
-                    # then predict the next timestep
-                    # y at this point is pointless!!!
                     y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
 
+                # append the prediction
+                predictions.append(y_pred)
+                
                 assert i != 0
 
                 np.save(os.path.join(self.hp.exp_path, f"train_x_ar_{i}.npy"), x.detach().cpu().numpy())
@@ -1340,6 +1333,65 @@ class TrainingLatent:
                 # saving the samples here:
                 # np.save(os.path.join(self.hp.exp_path, f"train_samples_from_xs_{i}.npy"), samples_from_xs.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_samples_from_zs_{i}.npy"), samples_from_zs.detach().cpu().numpy())
+
+            # at the end of this for loop, make the prediction a tensor
+            
+            predictions = torch.stack(predictions, dim=1)
+            # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
+
+            print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
+
+            # then calculate the mean of the predictions along the timesteps
+            y_pred_mean = torch.mean(predictions, dim=1)
+            # calculate the variance of the predictions along the timesteps dimension
+            y_pred_var = torch.var(predictions, dim=1)
+            print("What is the shape of the mean of the predictions?", y_pred_mean.shape)
+            print("What is the shape of the variance of the predictions?", y_pred_var.shape)
+
+            # take the mean of the predictions along the batch and coordinates dimension:
+            print("What is the shape when I try to take the mean across the batch and coordinates:", torch.mean(y_pred_mean, dim=(0, 2)))
+
+            # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
+            # I will do this by calculating the spatial spectra of the true values and the predicted values, and then calculating a score between them.
+            # This is a measure of how well the model is predicting the spatial spectra of the true values.
+
+
+            # here I calculate the spatial spectra across the coordinates, then I average across the batch and across the timesteps
+            fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1))
+
+            # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
+            fft_pred = torch.mean(torch.abs(torch.fft.rfft(predictions[:, :, :, :], dim=3)), dim=(0, 1))
+
+            # calculate the difference between the true and predicted spatial spectra
+            spatial_spectra_score = torch.abs(fft_pred - fft_true)
+            # take the mean across the frequencies, the 1st dimension
+            spatial_spectra_score = torch.mean(spatial_spectra_score, dim=1)
+
+            print('Spatial spectra score, lower is better...should be a spectra for each var', spatial_spectra_score)
+
+            # if this spatial_spectra_score is the lowest we have seen, then save the predictions
+            if self.best_spatial_spectra_score is None:
+                self.best_spatial_spectra_score = spatial_spectra_score
+            
+            # assert that self.best_spatial_spectra_score is not None
+            assert self.best_spatial_spectra_score is not None
+            
+            # check if every element of spatial_spectra_score is less than the best_spatial_spectra_score:
+            print(torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
+
+            print('new score', spatial_spectra_score)
+            print('previous best score', self.best_spatial_spectra_score)
+            
+            if torch.all(spatial_spectra_score < self.best_spatial_spectra_score):
+                print("The spatial spectra score is the best we have seen for all variables, I am in the if.")
+
+                self.best_spatial_spectra_score = spatial_spectra_score
+                print(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
+                
+                # save the model in its current state
+                print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
+                torch.save(self.model.state_dict(), os.path.join(self.hp.exp_path, "best_model_for_average_spectra.pth"))
+
 
         else:
 
@@ -1359,10 +1411,10 @@ class TrainingLatent:
             # print("First up, I will do the reconstruction effort")
             nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
 
+            # swap
             with torch.no_grad():
-                # swap
                 y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
-
+                
                 # predict and take 100 samples too
                 samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
 
@@ -1388,12 +1440,13 @@ class TrainingLatent:
             for i in range(1, timesteps):
 
                 # remove the first timestep, so now we have (tau - 1) timesteps
+                
                 x = x[:, 1:, :, :]
                 x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
 
-                # then predict the next timestep
-                # y at this point is not being updated!!!
+
                 with torch.no_grad():
+                    # then predict the next timestep
                     y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
 
                 np.save(os.path.join(self.hp.exp_path, f"val_x_ar_{i}.npy"), x.detach().cpu().numpy())
@@ -1432,16 +1485,17 @@ class TrainingLatent:
         return mse.item(), smape.item(), y_original, y_original_pred, y_original_recons, x_original
 
     def score_the_samples_for_spatial_spectra(self, y_true, y_pred_samples, num_samples=100):
-        """
-        Calculate the spatial spectra of the true values and the predicted values, and then calculate a score between
-        them. This is a measure of how well the model is predicting the spatial spectra of the true values.
+        '''
+        Calculate the spatial spectra of the true values and the predicted values, 
+        and then calculate a score between them. This is a measure of how well the model is 
+        predicting the spatial spectra of the true values.
 
         Args:
             true_values: torch.Tensor, observed values in a batch
             y_pred: torch.Tensor, a selection of predicted values
             num_samples: int, the number of samples that have been taken from the model
-        """
-
+        '''
+        
         # calculate the average spatial spectra of the true values, averaging across the batch
         print("y_true shape:", y_true.shape)
         fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
@@ -1463,13 +1517,16 @@ class TrainingLatent:
         spatial_spectra_score = 1 - spatial_spectra_score
 
         # score = ...
-
+        
+    
+        
         return spatial_spectra_score
 
     def particle_filter(self, x, y, num_particles, timesteps=120):
-        """Implement a particle filter to make a set of autoregressive predictions, where each created sample is
-        evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive
-        rollout."""
+        '''
+        Implement a particle filter to make a set of autoregressive predictions, where each created sample is 
+        evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
+        '''
 
         particles = torch.randn(num_particles)
         weights = torch.ones(num_particles) / num_particles
@@ -1495,9 +1552,7 @@ class TrainingLatent:
             # weights = torch.ones(num_particles) / num_particles
 
             # store these selected_samples
-            np.save(
-                os.path.join(self.hp.exp_path, f"selected_samples_{_}.npy"), selected_samples.detach().cpu().numpy()
-            )
+            np.save(os.path.join(self.hp.exp_path, f"selected_samples_{_}.npy"), selected_samples.detach().cpu().numpy())
 
             # then we are going to be passing the selected samples to the next timestep, so we need to make the input again
             # first drop the first value of x, then
@@ -1507,5 +1562,7 @@ class TrainingLatent:
             x = torch.cat([x, selected_samples.unsqueeze(1)], dim=1)
 
             # then we are going back to the top of the loop
+
+            
 
         return particles
