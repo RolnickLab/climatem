@@ -243,7 +243,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         scenarios: Union[List[str], str] = ["ssp126", "ssp370", "ssp585"],
         historical_years: Union[Union[int, str], None] = "1850-1900",
-        # NOTE:(seb) here we are trying to implement multiple variables
+        # NOTE:() here we are trying to implement multiple variables
         out_variables: Union[str, List[str]] = "pr",
         in_variables: Union[str, List[str]] = ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"],
         seq_to_seq: bool = True,  # TODO: implement if false
@@ -331,7 +331,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             climate_model=climate_model, num_ensembles=num_ensembles, variables=out_variables, **ds_kwargs
         )
 
-    # NOTE:(seb) changing this so it can deal with with grib files and netcdf files
+    # NOTE:() changing this so it can deal with with grib files and netcdf files
     # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
     def load_into_mem(
         self, paths: List[List[str]], num_vars: int, channels_last=True, seq_to_seq=True
@@ -354,7 +354,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         for vlist in paths:
             print("length_paths_list", len(vlist))
             # print the last three characters of the first element of vlist
-            # NOTE:(seb) assert that they are either .nc or .grib - and print an error!
+            # NOTE:() assert that they are either .nc or .grib - and print an error!
             if vlist[0][-3:] == ".nc":
                 temp_data = xr.open_mfdataset(
                     vlist, concat_dim="time", combine="nested"
@@ -413,7 +413,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 
-    # NOTE:(seb) rewriting this currently to try to use icosahedral code...
+    # NOTE:() rewriting this currently to try to use icosahedral code...
     def load_coordinates_into_mem(self, paths: List[List[str]]) -> np.ndarray:
         """
         Load the coordinates into memory.
@@ -425,11 +425,10 @@ class ClimateDataset(torch.utils.data.Dataset):
             np.ndarray: coordinates
         """
         print("length paths", len(paths))
-        # NOTE:(seb) this is so hacky, change soon
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.loadtxt(
-                "/home/mila/s/sebastian.hickman/work/icosahedral/mappings/vertex_lonlat_mapping.txt"
+                "vertex_lonlat_mapping.txt"
             )
             coordinates = coordinates[:, 1:]
 
@@ -441,7 +440,7 @@ class ClimateDataset(torch.utils.data.Dataset):
                     vlist, concat_dim="time", combine="nested"
                 ).compute()  # .compute is not necessary but eh, doesn't hurt
                 print("self.in_variables:", self.in_variables)
-                # NOTE:(seb) - should this be for all possible variables? Not sure...
+                # NOTE:() - should this be for all possible variables? Not sure...
                 if (
                     "tas" in self.in_variables
                     or "pr" in self.in_variables
@@ -545,7 +544,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
         print(f"Getting causal data [mode={mode}] ...")
 
-        # NOTE:(seb) hack to overwrite the number of years
+        # NOTE:() hack to overwrite the number of years
         num_years = self.length
         print("In get_causal_data, num_years:", num_years)
 
@@ -560,9 +559,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # n = num_scenarios, t = n_years * 12
         # TODO: breaks if not same number of years in each scenario i.e. historical vs ssp
 
-        # HACK:(seb) putting in a similar, but different, hack to before so that we can deal with the icosahedral data here
         try:
-            # NOTE:(seb) this is what we do when we have the regularly gridded data!
             # (years, months, vars, lon, lat) -> (scenrios, years*months, vars, lon, lat)
             # Regular data shape before reshaping: (101, 12, 1, 96, 144)
             # Regular data shape after reshaping: (1, 1212, 1, 96, 144)
@@ -575,21 +572,13 @@ class ClimateDataset(torch.utils.data.Dataset):
             print(
                 "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!"
             )
-            # I need to include the number of years in the reshape here...!
-            # How to access it? As the length of the list of paths?
-            # NOTE: currently hardcoding 101 year long sequences...need to unhack this...
-            # NOTE:(seb) now we hard code that we want to change to num_years*12, like we had before
-            # this -1 should probably be changed to reflect the number of coordinates that we have for the icosahedral grid...
-            # also the .txt file will not be right for different resolutions!!!!
 
-            # NOTE:(seb) changing from num_scenarios to num_ensembles
+
 
             print("Data shape before reshaping:", data.shape)
             print("JUST CHECKING I AM HERE")
             # note that this was returning the wrong shape if we have more than one ensemble member, of course, as it gets stuffed into -1
             # data = data.reshape(num_scenarios, num_years*12, num_vars, -1)
-
-            # NOTE:(seb) here we want to be careful of the num_ensembles if the ensemble members have different numbers of years
             # 26/08/24
             # Now we don't split up the ensemble members
 
@@ -673,7 +662,6 @@ class ClimateDataset(torch.utils.data.Dataset):
 
                 return test
 
-        # NOTE:seb delete commented code
 
         else:
             # TODO create this function and use it -> put it inside the data creation...
@@ -846,20 +834,12 @@ class ClimateDataset(torch.utils.data.Dataset):
         else:
             print("In testing mode, skipping statistics calculations.")
 
-    # NOTE:(seb) these are all very specific to the data with the latitude and longitudes coordinates
-    # HACK: rewriting all the functions below
-    # This is because this is directly from the ClimateSet setup...so I need to rewrite this to be somewhat more general when I no longer have
-    # 96 x 144 as the lat and lon dimensions
-    # I should rewrite this to work better for me...
-
-    # HACK: here I use an if else statement to say depending on the dimension of the array, what we should do:
 
     # make sure we are normalising correctly...
     # loading the coordinates and statistics - make sure these are loaded sensibly!
 
     def get_mean_std(self, data):
         # DATA shape (258, 12, 4, 96, 144) or DATA shape (258, 12, 2, 96, 144)
-        # NOTE:(seb) 13th May, 2024: this is the original of the code:
 
         # Here we are working with ClimateSet data on a regular grid
         if data.ndim == 5:
@@ -906,10 +886,8 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         return vars_min, vars_max
 
-    # NOTE: SH - what is happening here - do we normalise twice? If so how? Are we doing it twice for normalise and then deseasonalise?
     def normalize_data(self, data, stats, type="z-norm"):
 
-        # NOTE:(seb) - here we flip around the data for seemingly absolutely no reason...
 
         # Only implementing z-norm for now
         # z-norm: (data-mean)/(std + eps); eps=1e-9
@@ -920,10 +898,6 @@ class ClimateDataset(torch.utils.data.Dataset):
         norm_data = (data - stats["mean"]) / (stats["std"])
         print("I completed the normalisation of the data.")
 
-        # NOTE:(seb) - what on Earth is this? Why is this shape in [1, 2, 4]? Because emissions?! Seriously...?
-        # NOTE:(seb) - removing this if statement...
-        # if norm_data.shape[0] in [1, 2, 4]: # Also move year axis (258) to 0
-
         norm_data = np.moveaxis(norm_data, 0, 2)  # Switch back to (258, 12, 4, 96, 144)
 
         # Replace NaNs with 0s
@@ -932,7 +906,6 @@ class ClimateDataset(torch.utils.data.Dataset):
         print("Really, I completed the normalisation of the data, just about to return.")
         return norm_data
 
-    # NOTE:(seb) I need to check the axis is correct here?
     def remove_seasonality(self, data):
         """
         Function to remove seasonality from the data There are various different options to do this These are just
@@ -946,14 +919,17 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         or trend removal
         emissions - remove the trend using the emissions data, such as cumulative CO2
-
-        Currently though, this is naughty. We are peeking at validation data.
         """
 
         print("Removing seasonality from the data.")
 
         mean = np.nanmean(data, axis=0)
         std = np.nanstd(data, axis=0)
+
+        # make a numpy array containing the mean and std for each month:
+        remove_season_stats = np.array([mean, std])
+
+        np.save(os.path.join(self.output_save_dir, "remove_season_stats"), remove_season_stats, allow_pickle=True)
 
         print("Just about to return the data after removing seasonality.")
 
@@ -974,7 +950,6 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         return stats_data
 
-    # NOTE:(seb) this looks hacky...why are we doing this?
     def load_dataset_coordinates(self, fname, mode, mips):
         if "train_" in fname:
             fname = fname.replace("train", "train+val")
@@ -1009,7 +984,6 @@ class ClimateDataset(torch.utils.data.Dataset):
         s = f" {self.name} dataset: {self.n_years} years used, with a total size of {len(self)} examples."
         return s
 
-    # NOTE(seb): is this a good way to get the length?
     def __len__(self):
         print("Input4mips", self.input4mips_ds.length, "CMIP6 data", self.cmip6_ds.length)
         assert self.input4mips_ds.length == self.cmip6_ds.length, "Datasets not of same length"
@@ -1076,7 +1050,6 @@ class CMIP6Dataset(ClimateDataset):
             log.warn("Data loader not yet implemented for multiple climate models.")
             raise NotImplementedError
 
-        # NOTE:(seb) we are hard coding a single ensemble member here...already argument for ensemble member
 
         # I am actually going to make this a list to be compatible with the rest of the code
         if num_ensembles == 1:
@@ -1139,7 +1112,6 @@ class CMIP6Dataset(ClimateDataset):
             files_per_var = []
             for var in variables:
 
-                # NOTE:(seb) here we have some historical stuff...why is it separate? Is there any need for this?
                 for exp in scenarios:
                     if exp == "historical":
                         get_years = historical_years
@@ -1148,17 +1120,7 @@ class CMIP6Dataset(ClimateDataset):
                     # print("ensemble_dirs")
                     # print(self.ensemble_dirs)
 
-                    # need to fix this using get_years_list
-                    # print('this is get_years:', get_years)
 
-                    # NOTE: Seb fixing this to easily access CMIP6 directly, maybe need to add historical year
-                    # this might break the full runs?
-
-                    # here this for y in get_years works for the full runs, because we want the year span in the form of 'YYYY-YYYY'
-                    # however, for simply loading the data for plotting in cmip6 visualisation it seems best to have for y in self.get_years_list(get_years, give_list=True)
-
-                    # now years is specific to the ensemble member unfortunately...so we need to loop through the ensemble members first I think?
-                    # this is a bit of a hack, but it should work for now...
 
                     all_ensemble_output_nc_files = []
 
@@ -1226,7 +1188,6 @@ class CMIP6Dataset(ClimateDataset):
 
                 if os.path.isfile(stats_fname):
                     print("Stats file already exists! Loading from memory.")
-                    # seb making a fix:
                     # stats = self.load_statistics_data(stats_fname)
                     stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
 
@@ -1368,7 +1329,6 @@ class Input4MipsDataset(ClimateDataset):
                 print("var", var)
                 output_nc_files = []
 
-                # NOTE:(seb) need to fix this...breaks for psl somehow?
                 for exp in scenarios:  # TODO: implement getting by years! also sub selection for historical years
                     print("exp", exp)
                     if var in NO_OPENBURNING_VARS and exp == "historical":
