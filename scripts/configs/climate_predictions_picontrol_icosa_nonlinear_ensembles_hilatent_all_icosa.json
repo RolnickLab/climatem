@@ -24,7 +24,7 @@
     "lon": 144,
     "lat": 96,
     "num_levels": 1,
-    "data_dir": "/home/mila/s/sebastian.hickman/scratch/data/icosahedral_data/structured/picontrol/24_ni",
+    "data_dir": "/data/icosahedral_data/structured/picontrol/24_ni",
     "tau": 5,
     "d_x": 6250,  
     "d_z": 90,
