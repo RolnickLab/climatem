@@ -10,9 +10,7 @@ import numpy as np
 import torch
 from accelerate import Accelerator
 
-from climatem.climate_data_loader_explore_ensembles_multigpu import (
-    CausalClimateDataModule,
-)
+from climatem.climate_data_loader_explore_ensembles_multigpu import CausalClimateDataModule
 from climatem.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.tsdcd_latent_explore import LatentTSDCD
 from climatem.train_latent_constrain_graph_multigpu import TrainingLatent
@@ -126,7 +124,6 @@ def main(hp):
         # gt_w=data_loader.gt_w,
         # gt_graph=data_loader.gt_graph,
         tied_w=hp.tied_w,
-        # NOTE: seb adding fixed to try to test when we have a fixed graph
         # also
         fixed=hp.fixed,
         fixed_output_fraction=hp.fixed_output_fraction,
@@ -311,7 +308,6 @@ if __name__ == "__main__":
     parser.add_argument("--d-z", type=int, help="if latent, d_z is the number of cluster z")
     parser.add_argument("--d-x", type=int, help="if latent, d_x is the number of gridcells")
 
-    # NOTE:(seb) setting the transition matrix as fixed in different ways as an ablation study, adding a fixed_output parameter
     parser.add_argument("--fixed", action="store_true", help="Keep transition matrix fixed as all ones")
     parser.add_argument("--fixed-output-fraction", type=float, help="Fraction of 1s and 0s in fixed output matrix, ")
 
@@ -386,7 +382,6 @@ if __name__ == "__main__":
         "--ortho-min-iter-convergence", type=int, help="Minimal number of iteration before checking if has converged"
     )
 
-    # NOTE:(seb) adding same for the sparsity constraint
     parser.add_argument("--sparsity-mu-init", type=float, help="initial value of mu for the constraint")
     parser.add_argument(
         "--sparsity-mu-mult-factor",
@@ -402,7 +397,6 @@ if __name__ == "__main__":
         "--sparsity-min-iter-convergence", type=int, help="Minimal number of iteration before checking if has converged"
     )
 
-    # NOTE:(seb) adding an argument for upper threshold of the sparsity constraint
     parser.add_argument("--sparsity-upper-threshold", type=float, help="Upper threshold for the sparsity constraint")
 
     # acyclicity constraint
