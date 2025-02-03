@@ -35,8 +35,6 @@ log = get_logger()
 # from datamodule create one of these per train/test/val
 
 
-# NOTE: SH has changed this to plot a historical series of data from 1850-2014
-# and to save as mp4
 def plot_species(data, coordinates, var, out_dir, num_video):
     """Plot the given species data on a map with a colorbar."""
 
@@ -133,7 +131,6 @@ def plot_species(data, coordinates, var, out_dir, num_video):
     out.release()
 
 
-# NOTE: SH has added this function to plot the anomaly of the data compared to some baseline, often the monthly mean
 def plot_species_anomaly(data, coordinates, var, out_dir, num_video, method="monthly_mean"):
     """
     Plot the given species anomaly data on a map with a colorbar.
@@ -428,7 +425,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.loadtxt(
-                "vertex_lonlat_mapping.txt"
+                "/home/mila/s/sebastian.hickman/work/new_climatem/climatem/climatem/vertex_lonlat_mapping.txt"
             )
             coordinates = coordinates[:, 1:]
 
@@ -1218,7 +1215,6 @@ class CMIP6Dataset(ClimateDataset):
                 )
                 save_file_name = os.path.join(self.output_save_dir, fname)
                 stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
-                # NOTE: SH testing here. How does this normalisation work?
                 self.norm_data = self.normalize_data(self.raw_data, stats)
                 if self.seasonality_removal:
                     self.norm_data = self.remove_seasonality(self.norm_data)
