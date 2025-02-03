@@ -129,6 +129,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+# add new one!
+env_emulator_poetry/
 
 
 # Spyder project settings
