@@ -15,7 +15,9 @@ Environment creation, first make sure you have a python installation, and run fr
 
 
 
-
+1. install poetry as below
+2. poetry install
+3. rename the venv if we wish
 
 
 
