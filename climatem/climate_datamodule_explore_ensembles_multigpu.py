@@ -199,7 +199,6 @@ class ClimateDataModule(LightningDataModule):
 
     def train_dataloader(self):
 
-        # NOTE:(seb), when shuffle=True this seems to fail:
         train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
 
         return DataLoader(
@@ -223,7 +222,6 @@ class ClimateDataModule(LightningDataModule):
             else None
         )
 
-    # NOTE:(seb) this is not used currently
     def test_dataloader(self) -> List[DataLoader]:
 
         test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
