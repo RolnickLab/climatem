@@ -1077,11 +1077,7 @@ class TrainingLatent:
 
         return crps
 
-<<<<<<< HEAD
-    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=False):
-=======
     def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=True):
->>>>>>> 451f270fd734ad18f73fc9eb5b0428669f935f5a
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
