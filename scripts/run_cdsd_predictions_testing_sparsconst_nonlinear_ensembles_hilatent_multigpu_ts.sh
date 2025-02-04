@@ -35,5 +35,5 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/work/new_climatem/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_explore_ensembles_multigpu_accelerate.py --no-gt --tau 5 --gpu --d-z 90 --d-x 6250 --config-exp-path $HOME/work/new_climatem/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa.json --exp-path $HOME/scratch/results/new_climatem_spectral/ --config-path $HOME/work/new_climatem/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent_smash_spectra.json --lr 0.001 --reg-coeff 0.2 --sparsity-upper-threshold 0.5
+    $HOME/work/new_climatem/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_explore_ensembles_multigpu_accelerate.py --no-gt --tau 5 --gpu --d-z 90 --d-x 6250 --config-exp-path $HOME/work/new_climatem/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa.json --exp-path $HOME/scratch/results/new_climatem_spectral/ --config-path $HOME/work/new_climatem/climatem/scripts/params/default_params_testing_sparsconst_sbatch_nl_ensembles_relax_single_hilatent_smash_spectra.json --lr 0.001 --reg-coeff 0.1 --sparsity-upper-threshold 0.5
 
