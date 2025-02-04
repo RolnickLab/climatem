@@ -386,25 +386,24 @@ print("Device:", device)
 
 # Read the coordinates too...
 
-home_dir_path = Path("$HOME")
+home_dir_path = Path("/home/mila/s/sebastian.hickman")
 
 local_folder = home_dir_path / "work"  
 scratch_dir = home_dir_path / "scratch"  # Where large data is stored
 results_dir = scratch_dir / "results"
 os.makedirs(results_dir, exist_ok=True)
-climateem_repo = local_folder / "climatem"
+climatem_repo = local_folder / "new_climatem/climatem/climatem"
 
-coordinates_path = climateem_repo / "vertex_lonlat_mapping.txt"
-
+coordinates_path = climatem_repo / "vertex_lonlat_mapping.txt"
+print("coordinates path:", coordinates_path)
 coordinates = np.loadtxt(coordinates_path)
 coordinates = coordinates[:, 1:]
 
-
 # NOTE: here saving SSP runs...
-results_save_folder = results_dir / "climatem_spectral_picontrol_filtered_100_year_ablation"
+results_save_folder = results_dir / "new_climatem_spectral_filtered_100_year"
 # Make below updated with variables automatically + simpler
 results_save_folder_var = results_save_folder / "logspectraltrain_ablations"
-results_save_folder_var_spectral = results_save_folder_var / "full_model_filtered_val"
+results_save_folder_var_spectral = results_save_folder_var / "full_model_1crps_50spec_5000tspec_filtered_train"
 
 # path to the results directory that I care about
 # Now doing for two models, one where we learned a causal graph (taking the final model) and one where we didn't
@@ -417,8 +416,14 @@ os.makedirs(local_results_dir, exist_ok=True)
 # name_res_ts_novae = "var_[ts]_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
 
 # load a full model
-local_results_dir = results_dir / "climatem_spectral_repeat_1stdec"
-name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1753200128_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
+#local_results_dir = results_dir / "new_climatem_spectral"
+#name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
+
+#local_results_dir = results_dir / "new_climatem_spectral"
+#name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_100_tempspcoef_5000"
+
+local_results_dir = results_dir / "new_climatem_spectral"
+name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
 
 
 results_dir_ts_vae = local_results_dir / name_res_ts_vae
@@ -431,7 +436,7 @@ with open(results_dir_ts_vae / "params.json", "r") as f:
 # overwrite the config_exp_path here:
 # TODO -- update this
 hp["config_exp_path"] = (
-    climateem_repo + "/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_picontrol.json"
+    "/home/mila/s/sebastian.hickman/work/new_climatem/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_1ens.json"
 )
 
 # once I have loaded in the state_dict, I can load it into a model
@@ -453,7 +458,7 @@ print("y_true_fft_std shape:", y_true_fft_std.shape)
 
 # getting the training data in place so that I can forecast using this data.
 # NOTE: check these dataloaders
-train_dataloader = iter(datamodule.val_dataloader())
+train_dataloader = iter(datamodule.train_dataloader())
 # val_dataloader = iter(datamodule.val_dataloader())
 x, y = next(train_dataloader)
 
