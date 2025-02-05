@@ -309,6 +309,8 @@ class LatentTSDCD(nn.Module):
 
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
+            print("NON-LINEAR MIXING")
+            # NOTE:(seb) using the noloop version of non-linear here to make it much faster.
             self.autoencoder = NonLinearAutoEncoderUniqueMLP_noloop(
                 d,
                 d_x,
@@ -338,7 +340,8 @@ class LatentTSDCD(nn.Module):
             #                                            gt_w=None)
 
         else:
-            print('Using linear mixing')
+            # print('Using linear mixing')
+            print("LINEAR MIXING")
             self.autoencoder = LinearAutoEncoder(d, d_x, d_z, tied=tied_w)
 
         if debug_gt_w:
@@ -348,7 +351,7 @@ class LatentTSDCD(nn.Module):
             self.d, self.d_z, self.total_tau, self.num_layers, self.num_hidden, self.num_output
         )
 
-        print("We are setting the Mask here.")
+        #print("We are setting the Mask here.")
         self.mask = Mask(
             d,
             d_z,

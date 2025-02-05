@@ -8,6 +8,7 @@ import warnings
 
 import numpy as np
 import torch
+torch.set_warn_always(False)
 from accelerate import Accelerator
 
 from climatem.climate_data_loader_explore_ensembles_multigpu import CausalClimateDataModule
@@ -129,13 +130,13 @@ def main(hp):
         fixed_output_fraction=hp.fixed_output_fraction,
     )
 
-    name = f"var_{datamodule.hparams.in_var_ids}_scenarios_{datamodule.hparams.train_scenarios[0]}_tau_{hp.tau}_z_{hp.d_z}_lr_{hp.lr}_spreg_{hp.reg_coeff}_ormuinit_{hp.ortho_mu_init}_spmuinit_{hp.sparsity_mu_init}_spthres_{hp.sparsity_upper_threshold}_fixed_{hp.fixed}_num_ensembles_{datamodule.hparams.num_ensembles}_instantaneous_{hp.instantaneous}_crpscoef_{hp.crps_coeff}_spcoef_{hp.spectral_coeff}_tempspcoef_{hp.temporal_spectral_coeff}"
+    name = f"var_{datamodule.hparams.in_var_ids}_scenarios_{datamodule.hparams.train_scenarios[0]}_nonlinear_{hp.nonlinear_mixing}_tau_{hp.tau}_z_{hp.d_z}_lr_{hp.lr}_spreg_{hp.reg_coeff}_ormuinit_{hp.ortho_mu_init}_spmuinit_{hp.sparsity_mu_init}_spthres_{hp.sparsity_upper_threshold}_fixed_{hp.fixed}_num_ensembles_{datamodule.hparams.num_ensembles}_instantaneous_{hp.instantaneous}_crpscoef_{hp.crps_coeff}_spcoef_{hp.spectral_coeff}_tempspcoef_{hp.temporal_spectral_coeff}"
     hp.exp_path = hp.exp_path + name
 
     # create path to exp and save hyperparameters
     save_path = os.path.join(hp.exp_path, "train")
     if not os.path.exists(save_path):
-        os.makedirs(save_path)
+        os.makedirs(save_path, exist_ok=True)
     with open(os.path.join(hp.exp_path, "params.json"), "w") as file:
         json.dump(vars(hp), file, indent=4)
 

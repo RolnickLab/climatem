@@ -17,6 +17,7 @@ from climatem.plot_multigpu import Plotter
 from climatem.prox import monkey_patch_RMSprop
 from climatem.utils import ALM
 
+from climatem import MAPPINGS_DIR
 # Using Accelerator, not wandb now
 # import wandb
 
@@ -600,11 +601,8 @@ class TrainingLatent:
                 self.train_mae_pred_3 = 0
                 self.train_mae_pred_4 = 0
 
-            # Need a better way to do this
-            script_dir = os.path.dirname(__file__)
-            rel_path = "vertex_lonlat_mapping.txt"
-            abs_path_coords = os.path.join(script_dir, rel_path)
-            coordinates = np.loadtxt(abs_path_coords)
+            # Get vertex lonlat mapping
+            coordinates = np.loadtxt(MAPPINGS_DIR / "vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
 
             # choose a random integer in self.batch_size, setting a seed for this
@@ -783,11 +781,8 @@ class TrainingLatent:
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
 
-            # should probably have this somewhere else...
-            script_dir = os.path.dirname(__file__)
-            rel_path = "vertex_lonlat_mapping.txt"
-            abs_path_coords = os.path.join(script_dir, rel_path)
-            coordinates = np.loadtxt(abs_path_coords)
+            # get vertex lonlat mapping
+            coordinates = np.loadtxt(MAPPINGS_DIR / "vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
 
 
