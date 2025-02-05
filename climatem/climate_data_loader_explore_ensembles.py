@@ -1,6 +1,5 @@
 # Here we try to modify the climate_data_loader so that we can use data from multiple ensemble members of a climate model, and indeed across climate models.
 
-import json
 from typing import Optional
 
 import numpy as np
@@ -104,7 +103,6 @@ class CausalClimateDataModule(ClimateDataModule):
                 )
 
             ratio_train = 1 - self.hparams.val_split
-
 
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,
