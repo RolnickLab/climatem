@@ -332,6 +332,7 @@ def particle_filter_weighting_bayesian(
         # new_weights = 1 - normalised_weights  # Here no need to invert! we're already in prob space
 
         # also clip here!
+        new_weights = torch.clamp(new_weights, min=1e-6, max=1.0)
         new_weights = new_weights / torch.sum(new_weights, dim=0)
 
         print("Shape of the new_weights after normalising:", new_weights.shape)
@@ -339,6 +340,17 @@ def particle_filter_weighting_bayesian(
 
         # clip the new_weights to avoid numerical instability
         new_weights = torch.clamp(new_weights, min=1e-8, max=1.0)
+
+        print("What is the shape of the new weights after clipping?", new_weights.shape)
+        print("Are all the values 0?", torch.all(new_weights == 0))
+        print("What is the minimum value of the new weights?", torch.min(new_weights))
+        print("Are there any nans in the new weights?", torch.any(torch.isnan(new_weights)))
+        print("Are there any infs in the new weights?", torch.any(torch.isinf(new_weights)))
+
+        # replace any nans with 1e-8
+        new_weights[torch.isnan(new_weights)] = 1e-8
+
+        print("Are there any nans in the new weights after replacing?", torch.any(torch.isnan(new_weights)))
 
         # REMOVE THIS FOR LOOP IF POSSIBLE
         for i in range(batch_size):
@@ -388,7 +400,7 @@ print("Device:", device)
 
 home_dir_path = Path("/home/mila/s/sebastian.hickman")
 
-local_folder = home_dir_path / "work"  
+local_folder = home_dir_path / "work"
 scratch_dir = home_dir_path / "scratch"  # Where large data is stored
 results_dir = scratch_dir / "results"
 os.makedirs(results_dir, exist_ok=True)
@@ -402,8 +414,8 @@ coordinates = coordinates[:, 1:]
 # NOTE: here saving SSP runs...
 results_save_folder = results_dir / "new_climatem_spectral_filtered_100_year"
 # Make below updated with variables automatically + simpler
-results_save_folder_var = results_save_folder / "logspectraltrain_ablations"
-results_save_folder_var_spectral = results_save_folder_var / "full_model_1crps_50spec_5000tspec_filtered_train"
+results_save_folder_var = results_save_folder / "logspectraltrain_300particles_ablations"
+results_save_folder_var_spectral = results_save_folder_var / "full_model_10crps_500spec_2000tspec_filtered_val"
 
 # path to the results directory that I care about
 # Now doing for two models, one where we learned a causal graph (taking the final model) and one where we didn't
@@ -416,14 +428,27 @@ os.makedirs(local_results_dir, exist_ok=True)
 # name_res_ts_novae = "var_[ts]_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
 
 # load a full model
-#local_results_dir = results_dir / "new_climatem_spectral"
-#name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
+# local_results_dir = results_dir / "new_climatem_spectral"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
 
-#local_results_dir = results_dir / "new_climatem_spectral"
-#name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_100_tempspcoef_5000"
+# local_results_dir = results_dir / "new_climatem_spectral"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_100_tempspcoef_5000"
+
+# local_results_dir = results_dir / "new_climatem_spectral"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
+
+# local_results_dir = results_dir / "new_climatem_spectral"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
+
 
 local_results_dir = results_dir / "new_climatem_spectral"
-name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
+
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_2000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_500_tempspcoef_2000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_20000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_5000_tempspcoef_20000"
+name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_10_spcoef_500_tempspcoef_2000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_100_spcoef_500_tempspcoef_2000"
 
 
 results_dir_ts_vae = local_results_dir / name_res_ts_vae
@@ -458,7 +483,7 @@ print("y_true_fft_std shape:", y_true_fft_std.shape)
 
 # getting the training data in place so that I can forecast using this data.
 # NOTE: check these dataloaders
-train_dataloader = iter(datamodule.train_dataloader())
+train_dataloader = iter(datamodule.val_dataloader())
 # val_dataloader = iter(datamodule.val_dataloader())
 x, y = next(train_dataloader)
 
@@ -518,8 +543,11 @@ model = LatentTSDCD(
 
 
 # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
+# state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=None)
 
-state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=None)
+# if we need to load the model that has been trained on 2 GPUs, I think we need to do this:
+state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=torch.device("cuda:0"))
+
 model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
 
 # Move the model to the GPU
@@ -530,8 +558,8 @@ print("Where is the model?", next(model.parameters()).device)
 # model = model.cuda()
 
 
+batch_size = 32
 
-batch_size = 16
 
 # select 16 random samples from the batch
 def sample_from_tensor_reproducibly(tensor1, tensor2, num_samples, seed=5):
@@ -546,6 +574,7 @@ def sample_from_tensor_reproducibly(tensor1, tensor2, num_samples, seed=5):
 # First call with the seed
 x_samples, y_samples = sample_from_tensor_reproducibly(x, y, batch_size)
 
+os.makedirs(results_save_folder_var_spectral, exist_ok=True)
 np.save(
     results_save_folder_var_spectral / "forpowerspectra_random1_batch_xs_we_start_with.npy",
     x_samples.detach().cpu().numpy(),
@@ -557,12 +586,12 @@ with torch.no_grad():
         y_samples,
         y_true_fft_mean,
         y_true_fft_std,
-        num_particles=500,
-        num_particles_per_particle=20,
+        num_particles=300,
+        num_particles_per_particle=10,
         timesteps=1200,
         score="log_bayesian",
         save_dir=results_save_folder_var_spectral,
         # Make below simpler and automatic
-        save_name="forpowerspectra_bayespfspec_fulldatafft_std_500_particles_20_pp_16_random1_batch_finalvae_best_sample_train_y_pred_ar",
+        save_name="forpowerspectra_bayespfspec_fulldatafft_std_300_particles_10_pp_32_random1_batch_finalvae_best_sample_train_y_pred_ar",
         batch_size=batch_size,
     )
