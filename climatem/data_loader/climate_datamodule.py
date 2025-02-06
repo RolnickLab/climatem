@@ -9,7 +9,7 @@ from climatem.data_loader.climate_dataset import ClimateDataset
 from climatem.constants import DATA_DIR, LAT, LON, NUM_LEVELS, SEQ_LEN_MAPPING, TEMP_RES
 
 # NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
-from climatem.utils import get_logger, random_split
+from climatem.emulator_utils import get_logger, random_split
 
 log = get_logger()
 
