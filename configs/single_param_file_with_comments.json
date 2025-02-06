@@ -1,0 +1,119 @@
+
+{ 
+    "exp_params": {
+        // the following path should be updated according to the params...
+        "exp_path": "/home/mila/j/julien.boussard/scratch/results/climatem_spectral/var_ts_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000",
+        "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",        
+        "d_z": 90,
+        "d_x": 6250,
+        "lon": 144,  // make sure this is not redundant... and what if icosahedral? 
+        "lat": 96,    
+        "tau": 5,
+        "random_seed": 1,
+        "seed": 11,
+        "gpu": true,
+        "float": false,
+        "num_workers":  0,
+        "pin_memory": false, // what is this? 
+        "verbose": true
+    },
+    "data_params": {
+        "data_dir": "/network/scratch/s/sebastian.hickman/data/icosahedral_data/structured/picontrol/24_ni",
+        "icosahedral_coordinates_path": "/home/mila/j/julien.boussard/scratch/data/vertex_lonlat_mapping.txt",
+        "num_levels": 1,
+        "seq_len": 12, //this is fixed number of years? Why do we specify this?
+        "train_historical_years": "1894-2000", 
+        "test_years": "1100-1150",
+        "train_years": "1600-2100", // why train historical + ssp?
+        "train_scenarios": ["piControl"],
+        "test_scenarios": ["piControl"],
+        "train_models":  "NorESM2-LM",
+        "in_var_ids": ["ts"],
+        "out_var_ids": ["ts"],
+        "num_ensembles": 1,    
+        "seq_to_seq": true, // what is this?
+        "data_format": "numpy",
+        "ishdf5": false, // redundant
+        "seasonality_removal": false,
+        "batch_size": 256, // both should be the same 
+        "eval_batch_size": 256,
+        "channels_last": false, // what is this??
+        "val_split": 0.1, // should be the same as below
+        "load_train_into_mem": true, // One for both? 
+        "load_test_into_mem":  true,
+        "num_months_aggregated": [1],
+        "train_val_interval_length": 40 // what is this?
+        }, 
+    "gt_params": {
+        "no_gt": true,
+        "debug_gt_z": false,
+        "debug_gt_w": false,
+        "debug_gt_graph": false
+    },    
+    "train_params": {
+        "ratio_train": 0.9,
+        "ratio_valid": 0.1, // remove this, 1 - train   
+        "batch_size": 6000,
+        "lr": 0.001,
+        "max_iteration": 100000,
+        "patience": 5000,
+        "patience_post_thresh": 50    
+    },
+    "model_params": {
+        "latent": true,
+        "instantaneous": false,
+        "no_w_constraint": false, // no ortho??
+        "tied_w": false,
+        "nonlinear_mixing": true,
+        "num_hidden": 8,
+        "num_layers": 2,
+        "num_output": 2,
+        "num_hidden_mixing": 16,
+        "num_layers_mixing": 2,    
+        "fixed": false,
+        "fixed_output_fraction": null,
+        "tau_neigh": 0,
+        "hard_gumbel": false
+    },
+    "optim_params": {
+        "crps_coeff": 1,
+        "spectral_coeff": 20,
+        "temporal_spectral_coeff": 2000,
+        "coeff_kl": 1,
+
+        "schedule_reg": 0,
+        "schedule_ortho": 0,
+        "schedule_sparsity": 0,    
+
+        "ortho_mu_init": 100000.0,
+        "ortho_mu_mult_factor": 1.2,
+        "ortho_omega_gamma": 0.01,
+        "ortho_omega_mu": 0.9,
+        "ortho_h_threshold": 0.01,
+        "ortho_min_iter_convergence": 1000,
+
+        "sparsity_mu_init": 0.1,
+        "sparsity_mu_mult_factor": 1.2,
+        "sparsity_omega_gamma": 0.01,
+        "sparsity_omega_mu": 0.95,
+        "sparsity_h_threshold": 0.0001,
+        "sparsity_min_iter_convergence": 1000,
+        "sparsity_upper_threshold": 0.5,
+
+        "acyclic_mu_init": 1,
+        "acyclic_mu_mult_factor": 2,
+        "acyclic_omega_gamma": 0.01,
+        "acyclic_omega_mu": 0.9,
+        "acyclic_h_threshold": 1e-08,
+        "acyclic_min_iter_convergence": 1000,
+        "mu_acyclic_init": null,
+        "h_acyclic_threshold": null
+    },
+    "plot_params": {
+        "valid_freq": 5,
+        "plot_freq": 500,
+        "plot_through_time": true,
+        "print_freq": 500
+    }
+}
+

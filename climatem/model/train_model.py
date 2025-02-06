@@ -12,9 +12,9 @@ from accelerate.utils import DistributedDataParallelKwargs
 from geopy import distance
 from torch.profiler import ProfilerActivity
 
-from dag_optim import compute_dag_constraint
+from climatem.model.dag_optim import compute_dag_constraint
 from climatem.plotting.plot_multigpu import Plotter
-from prox import monkey_patch_RMSprop
+from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 
 from climatem import MAPPINGS_DIR
@@ -32,7 +32,7 @@ accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
 
 
 class TrainingLatent:
-    def __init__(self, model, datamodule, hp, best_metrics, d, profiler=False, profiler_path="./log"):
+    def __init__(self, model, datamodule, exp_params, gt_params, model_params, train_params, optim_params, plot_params, best_metrics, save_path, plots_path, d, wandbname="unspecified", profiler=False, profiler_path="./log"):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = accelerator.device
@@ -43,22 +43,29 @@ class TrainingLatent:
         self.data_loader_train = iter(datamodule.train_dataloader())
         self.data_loader_val = iter(datamodule.val_dataloader())
         self.coordinates = datamodule.coordinates
-        self.hp = hp
+        self.exp_params = exp_params
+        self.train_params = train_params
+        self.optim_params = optim_params
+        self.plot_params = plot_params
         self.best_metrics = best_metrics
+        self.save_path = save_path
+        self.plots_path = plots_path
+        self.wandbname = wandbname
 
-        self.latent = hp.latent
-        self.no_gt = hp.no_gt
-        self.debug_gt_z = hp.debug_gt_z
-        self.d_z = hp.d_z
-        self.no_w_constraint = hp.no_w_constraint
+        self.latent = exp_params.latent
+        self.no_gt = gt_params.no_gt
+        self.debug_gt_z = gt_params.debug_gt_z
+        self.d_z = gt_params.d_z
+        self.no_w_constraint = model_params.no_w_constraint
 
         self.d = d
-        self.patience = hp.patience
+        self.patience = train_params.patience
         self.best_valid_loss = np.inf
+        #This needs to be updated
         self.batch_size = datamodule.hparams.batch_size
-        self.tau = hp.tau  # Here, 5 by default in both but we want to pass this as an argument
-        self.d_x = hp.d_x
-        self.instantaneous = hp.instantaneous
+        self.tau = exp_params.tau  # Here, 5 by default in both but we want to pass this as an argument
+        self.d_x = exp_params.d_x
+        self.instantaneous = model_params.instantaneous
 
         self.patience_freq = 50
         self.iteration = 1
@@ -115,14 +122,14 @@ class TrainingLatent:
         # I think this is just initialising a tensor of zeroes to store results in
         if self.instantaneous:
             self.adj_tt = torch.zeros(
-                [int(self.hp.max_iteration / self.hp.valid_freq), self.tau + 1, self.d * self.d_z, self.d * self.d_z]
+                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.tau + 1, self.d * self.d_z, self.d * self.d_z]
             )
         else:
             self.adj_tt = torch.zeros(
-                [int(self.hp.max_iteration / self.hp.valid_freq), self.tau, self.d * self.d_z, self.d * self.d_z]
+                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.tau, self.d * self.d_z, self.d * self.d_z]
             )
         if not self.no_gt:
-            self.adj_w_tt = torch.zeros([int(self.hp.max_iteration / self.hp.valid_freq), self.d, self.d_x, self.d_z])
+            self.adj_w_tt = torch.zeros([int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z])
         self.logvar_encoder_tt = []
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
@@ -130,15 +137,15 @@ class TrainingLatent:
         # self.model.mask.fix(self.gt_dag)
 
         # optimizer
-        if hp.optimizer == "sgd":
-            self.optimizer = torch.optim.SGD(model.parameters(), lr=hp.lr)
-        elif hp.optimizer == "rmsprop":
+        if self.optim_params.optimizer == "sgd":
+            self.optimizer = torch.optim.SGD(model.parameters(), lr=self.train_params.lr)
+        elif self.optim_params.optimizer == "rmsprop":
             monkey_patch_RMSprop(torch.optim.RMSprop)
-            self.optimizer = torch.optim.RMSprop(model.parameters(), lr=hp.lr)
+            self.optimizer = torch.optim.RMSprop(model.parameters(), lr=self.train_params.lr)
         else:
-            raise NotImplementedError(f"optimizer {hp.optimizer} is not implemented")
+            raise NotImplementedError(f"optimizer {self.optim_params.optimizer} is not implemented")
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            self.optimizer, milestones=hp.lr_scheduler_epochs, gamma=hp.lr_scheduler_gamma
+            self.optimizer, milestones=self.train_params.lr_scheduler_epochs, gamma=self.train_params.lr_scheduler_gamma
         )
 
         # prepare the model, optimizer, data loader, and scheduler using Accerate for distributed training
@@ -171,51 +178,51 @@ class TrainingLatent:
         # set the wandb project where this run will be logged
         # please alter this project, and set the name to something appropriate for your experiments
         #    project="test-gpu-code-wandb",
-        #    name=f"var_{self.datamodule.hparams.in_var_ids}_scenarios_{self.datamodule.hparams.train_scenarios}_climatemodel_{self.datamodule.hparams.train_models}_historical_years_{self.datamodule.hparams.train_historical_years}_ssp_years_{self.datamodule.hparams.train_years}_aggregate_{self.datamodule.num_months_aggregated}_tau_{self.tau}_z_{self.d_z}_nonlinearmixing_{self.model.nonlinear_mixing}_batchsize_{self.batch_size}_orthomuinit_{self.hp.ortho_mu_init}_orthoh_{self.hp.ortho_h_threshold}_sparsitymuinit_{self.hp.sparsity_mu_init}_sparsityupperthreshold_{self.hp.sparsity_upper_threshold}_fixed_{self.hp.fixed}_seasonality_removal_{self.datamodule.hparams.seasonality_removal}_num_ensembles_{self.datamodule.hparams.num_ensembles}",
-        # )
+        #    name=...
+        # # )
 
-        config = self.hp
-
+        #TODO: Why config here?
+        # config = self.hp
         accelerator.init_trackers(
-            "test-gpu-code-wandb",
-            config=config,
+            "gpu-code-wandb",
+            # config=config,
             init_kwargs={
                 "wandb": {
-                    "name": f"var_{self.datamodule.hparams.in_var_ids}_scenarios_{self.datamodule.hparams.train_scenarios}_climatemodel_{self.datamodule.hparams.train_models}_historical_years_{self.datamodule.hparams.train_historical_years}_ssp_years_{self.datamodule.hparams.train_years}_aggregate_{self.datamodule.num_months_aggregated}_tau_{self.tau}_z_{self.d_z}_nonlinearmixing_{self.hp.nonlinear_mixing}_batchsize_{self.batch_size}_orthomuinit_{self.hp.ortho_mu_init}_orthoh_{self.hp.ortho_h_threshold}_sparsitymuinit_{self.hp.sparsity_mu_init}_sparsityupperthreshold_{self.hp.sparsity_upper_threshold}_fixed_{self.hp.fixed}_seasonality_removal_{self.datamodule.hparams.seasonality_removal}_num_ensembles_{self.datamodule.hparams.num_ensembles}_crpscoef_{self.hp.crps_coeff}_spcoef_{self.hp.spectral_coeff}_tempspcoef_{self.hp.temporal_spectral_coeff}"
+                    "name": self.wandbname
                 }
             },
         )
 
         # initialize ALM/QPM for orthogonality and acyclicity constraints
         self.ALM_ortho = ALM(
-            self.hp.ortho_mu_init,
-            self.hp.ortho_mu_mult_factor,
-            self.hp.ortho_omega_gamma,
-            self.hp.ortho_omega_mu,
-            self.hp.ortho_h_threshold,
-            self.hp.ortho_min_iter_convergence,
+            self.optim_params.ortho_mu_init,
+            self.optim_params.ortho_mu_mult_factor,
+            self.optim_params.ortho_omega_gamma,
+            self.optim_params.ortho_omega_mu,
+            self.optim_params.ortho_h_threshold,
+            self.optim_params.ortho_min_iter_convergence,
             dim_gamma=(self.d_z, self.d_z),
         )
 
         self.ALM_sparsity = ALM(
-            self.hp.sparsity_mu_init,
-            self.hp.sparsity_mu_mult_factor,
-            self.hp.sparsity_omega_gamma,
-            self.hp.sparsity_omega_mu,
-            self.hp.sparsity_h_threshold,
-            self.hp.sparsity_min_iter_convergence,
+            self.optim_params.sparsity_mu_init,
+            self.optim_params.sparsity_mu_mult_factor,
+            self.optim_params.sparsity_omega_gamma,
+            self.optim_params.sparsity_omega_mu,
+            self.optim_params.sparsity_h_threshold,
+            self.optim_params.sparsity_min_iter_convergence,
             dim_gamma=(1, 1),
         )
 
         if self.instantaneous:
             # here we add the acyclicity constraint if the instantaneous connections are interesting
             self.QPM_acyclic = ALM(
-                self.hp.acyclic_mu_init,
-                self.hp.acyclic_mu_mult_factor,
-                self.hp.acyclic_omega_gamma,
-                self.hp.acyclic_omega_mu,
-                self.hp.acyclic_h_threshold,
-                self.hp.acyclic_min_iter_convergence,
+                self.optim_params.acyclic_mu_init,
+                self.optim_params.acyclic_mu_mult_factor,
+                self.optim_params.acyclic_omega_gamma,
+                self.optim_params.acyclic_omega_mu,
+                self.optim_params.acyclic_h_threshold,
+                self.optim_params.acyclic_min_iter_convergence,
                 dim_gamma=(1, 1),
             )
 
@@ -243,7 +250,7 @@ class TrainingLatent:
             prof.start()
             # print out the output of the profiler
 
-        while self.iteration < self.hp.max_iteration and not self.ended:
+        while self.iteration < self.train_params.max_iteration and not self.ended:
 
             # train and valid step
             self.train_step()
@@ -251,14 +258,14 @@ class TrainingLatent:
             if self.profiler:
                 prof.step()
 
-            if self.iteration % self.hp.valid_freq == 0:
+            if self.iteration % self.train_params.valid_freq == 0:
                 self.logging_iter += 1
                 x, y, y_pred = self.valid_step()
                 self.log_losses()
 
                 # log these metrics to wandb every print_freq...
                 #  multiple metrics here...
-                if self.iteration % (self.hp.print_freq) == 0:
+                if self.iteration % (self.plot_params.print_freq) == 0:
                     # altered to use the accelerator.log function
                     accelerator.log(
                         {
@@ -320,18 +327,20 @@ class TrainingLatent:
                     )
 
                 # print and plot losses
-                if self.iteration % (self.hp.print_freq) == 0:
+                # TODO : the plotting frrequency is hard to control and unintuitive... update the code here
+                if self.iteration % (self.plot_params.print_freq) == 0:
                     self.print_results()
 
-            if self.logging_iter > 0 and self.iteration % (self.hp.plot_freq) == 0:
+            if self.logging_iter > 0 and self.iteration % (self.plot_params.plot_freq) == 0:
                 print(f"Plotting Iteration {self.iteration}")
                 self.plotter.plot_sparsity(self)
                 # trying to save coords and adjacency matrices
+                # Todo propagate the path! 
                 self.plotter.save_coordinates_and_adjacency_matrices(self)
-                torch.save(self.model.state_dict(), f"{self.hp.exp_path}/model.pth")
+                torch.save(self.model.state_dict(), self.save_path / "model.pth")
 
                 # try to use the accelerator.save function here
-                accelerator.save_state(output_dir=self.hp.exp_path)
+                accelerator.save_state(output_dir=self.save_path)
 
 
 
@@ -340,7 +349,7 @@ class TrainingLatent:
                 # train with penalty method
                 # NOTE: here valid_freq is critical for updating the parameters of the ALM method!
                 # this is easy to miss - perhaps we should implement another parameter for this.
-                if self.iteration % self.hp.valid_freq == 0:
+                if self.iteration % self.train_params.valid_freq == 0:
                     self.ALM_ortho.update(self.iteration, self.valid_ortho_vector_cons_list, self.valid_loss_list)
                     # updating ALM_sparsity here
                     self.ALM_sparsity.update(self.iteration, self.valid_sparsity_cons_list, self.valid_loss_list)
@@ -358,27 +367,27 @@ class TrainingLatent:
 
                     # if has_increased_mu then reinitialize the optimizer?
                     if self.ALM_ortho.has_increased_mu:
-                        if self.hp.optimizer == "sgd":
-                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.hp.lr)
-                        elif self.hp.optimizer == "rmsprop":
-                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.hp.lr)
+                        if self.optim_params.optimizer == "sgd":
+                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
+                        elif self.optim_params.optimizer == "rmsprop":
+                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
 
                     # Repeat for sparsity constraint?
                     if self.ALM_sparsity.has_increased_mu:
-                        if self.hp.optimizer == "sgd":
-                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.hp.lr)
-                        elif self.hp.optimizer == "rmsprop":
-                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.hp.lr)
+                        if self.optim_params.optimizer == "sgd":
+                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
+                        elif self.optim_params.optimizer == "rmsprop":
+                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
 
                     if self.instantaneous:
                         self.QPM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
                         acyclic_converged = self.QPM_acyclic.has_converged
                         # TODO: add optimizer reinit
                         if self.QPM_acyclic.has_increased_mu:
-                            if self.hp.optimizer == "sgd":
-                                self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.hp.lr)
-                            elif self.hp.optimizer == "rmsprop":
-                                self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.hp.lr)
+                            if self.optim_params.optimizer == "sgd":
+                                self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
+                            elif self.optim_params.optimizer == "rmsprop":
+                                self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
                         self.converged = ortho_converged & acyclic_converged
                     else:
                         # self.converged = ortho_converged
@@ -387,16 +396,16 @@ class TrainingLatent:
                 # continue training without penalty method
                 if not self.thresholded and self.iteration % self.patience_freq == 0:
                     # self.plotter.plot(self, save=True)
-                    if not self.has_patience(self.hp.patience, self.valid_loss):
+                    if not self.has_patience(self.train_params.patience, self.valid_loss):
                         self.threshold()
-                        self.patience = self.hp.patience_post_thresh
+                        self.patience = self.train_params.patience_post_thresh
                         self.best_valid_loss = np.inf
                         # self.plotter.plot(self, save=True)
                 # continue training after thresholding
                 else:
                     if self.iteration % self.patience_freq == 0:
                         # self.plotter.plot(self, save=True)
-                        if not self.has_patience(self.hp.patience_post_thresh, self.valid_loss):
+                        if not self.has_patience(self.train_params.patience_post_thresh, self.valid_loss):
                             self.ended = True
 
             self.iteration += 1
@@ -405,7 +414,7 @@ class TrainingLatent:
             # if self.profiler:
             #    prof.step()
 
-        if self.iteration >= self.hp.max_iteration:
+        if self.iteration >= self.train_params.max_iteration:
             self.threshold()
 
         # final plotting and printing
@@ -472,7 +481,7 @@ class TrainingLatent:
         # compute regularisations (sparsity and connectivity)
         sparsity_reg = self.get_regularisation()
         connect_reg = torch.tensor([0.0])
-        if self.hp.latent and self.hp.reg_coeff_connect > 0:
+        if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
             # TODO: might be interesting to explore this
             connect_reg = self.connectivity_reg()
 
@@ -480,11 +489,11 @@ class TrainingLatent:
         h_acyclic = torch.tensor([0.0])
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
-        # if self.hp.reg_coeff_connect:
+
         h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
 
         # Compute a sparsity constraint here, with a lower (that doesn't end up being relevant) and upper threshold
-        h_sparsity = self.get_sparsity_violation(lower_threshold=0.05, upper_threshold=self.hp.sparsity_upper_threshold)
+        h_sparsity = self.get_sparsity_violation(lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold)
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
         loss = nll + connect_reg  # + sparsity_reg
@@ -506,9 +515,9 @@ class TrainingLatent:
         # add the spectral loss to the loss
         loss = (
             loss
-            + self.hp.crps_coeff * crps
-            + self.hp.spectral_coeff * spectral_loss
-            + self.hp.temporal_spectral_coeff * temporal_spectral_loss
+            + self.optim_params.crps_coeff * crps
+            + self.optim_params.spectral_coeff * spectral_loss
+            + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
         )
 
         # backprop
@@ -520,7 +529,7 @@ class TrainingLatent:
         # loss.backward()
         accelerator.backward(loss)
 
-        _, _ = self.optimizer.step() if self.hp.optimizer == "rmsprop" else self.optimizer.step(), self.hp.lr
+        _, _ = self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step(), self.train_params.lr
 
         # projection of the gradient for w
         if self.model.module.autoencoder.use_grad_project and not self.no_w_constraint:
@@ -552,11 +561,11 @@ class TrainingLatent:
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
 
-        if self.iteration % self.hp.print_freq == 0:
+        if self.iteration % self.plot_params.print_freq == 0:
 
-            np.save(f"{self.hp.exp_path}/x_true_recons_train.npy", x.cpu().detach().numpy())
-            np.save(f"{self.hp.exp_path}/y_true_recons_train.npy", y.cpu().detach().numpy())
-            np.save(f"{self.hp.exp_path}/y_pred_recons_train.npy", y_pred_recons.cpu().detach().numpy())
+            np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
+            np.save(self.save_path / "y_true_recons_train.npy", y.cpu().detach().numpy())
+            np.save(self.save_path / "y_pred_recons_train.npy", y_pred_recons.cpu().detach().numpy())
 
             # also carry out autoregressive predictions
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
@@ -620,7 +629,7 @@ class TrainingLatent:
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
                     coordinates=self.coordinates,
-                    path=self.hp.exp_path,
+                    path=self.plots_path,
                     iteration=self.iteration,
                     valid=False,
                     plot_through_time=True,
@@ -633,7 +642,7 @@ class TrainingLatent:
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
                     coordinates=coordinates,
-                    path=self.hp.exp_path,
+                    path=self.plots_path,
                     iteration=self.iteration,
                     valid=False,
                     plot_through_time=True,
@@ -646,20 +655,13 @@ class TrainingLatent:
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
                     coordinates=coordinates,
-                    path=self.hp.exp_path,
+                    path=self.plots_path,
                     iteration=self.iteration,
                     valid=False,
                     plot_through_time=True,
                 )
             else:
                 print("Not plotting predictions.")
-                # self.plotter.plot_compare_prediction(x_past=x_original[0, -1, :, :].cpu().detach().numpy(),
-                #                                      x=y_original[0, 0].cpu().detach().numpy(),
-                #                                      #y_recons=y_original_recons.cpu().detach().numpy(),
-                #                                      x_hat=y_original_pred[0, 0].cpu().detach().numpy(),
-                #                                      coordinates=self.coordinates,
-                #                                      path=self.hp.exp_path,
-                #                                      )
 
         # note that this has been changed to y_pred_recons
         return x, y, y_pred_recons
@@ -691,7 +693,7 @@ class TrainingLatent:
             # compute regularisations (sparsity and connectivity)
             sparsity_reg = self.get_regularisation()
             connect_reg = torch.tensor([0.0])
-            if self.hp.latent and self.hp.reg_coeff_connect > 0:
+            if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
                 # what is happening here between connectivity_reg and connectivity_reg_complete? See below.
                 connect_reg = self.connectivity_reg()
 
@@ -703,7 +705,7 @@ class TrainingLatent:
             h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
 
             h_sparsity = self.get_sparsity_violation(
-                lower_threshold=0.05, upper_threshold=self.hp.sparsity_upper_threshold
+                lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
 
             # compute total loss
@@ -731,11 +733,11 @@ class TrainingLatent:
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
 
-        if self.iteration % self.hp.print_freq == 0:
+        if self.iteration % self.plot_params.print_freq == 0:
 
-            np.save(f"{self.hp.exp_path}/x_true_recons_val.npy", x.cpu().detach().numpy())
-            np.save(f"{self.hp.exp_path}/y_true_recons_val.npy", y.cpu().detach().numpy())
-            np.save(f"{self.hp.exp_path}/y_pred_recons_val.npy", y_pred.cpu().detach().numpy())
+            np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
+            np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
+            np.save(self.save_path / "y_pred_recons_val.npy", y_pred.cpu().detach().numpy())
 
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
                 self.autoregress_prediction_original(valid=True, timesteps=10)
@@ -794,7 +796,7 @@ class TrainingLatent:
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
                     coordinates=coordinates,
-                    path=self.hp.exp_path,
+                    path=self.plots_path,
                     iteration=self.iteration,
                     valid=True,
                     plot_through_time=True,
@@ -807,7 +809,7 @@ class TrainingLatent:
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
                     coordinates=coordinates,
-                    path=self.hp.exp_path,
+                    path=self.plots_path,
                     iteration=self.iteration,
                     valid=True,
                     plot_through_time=True,
@@ -820,7 +822,7 @@ class TrainingLatent:
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
                     coordinates=coordinates,
-                    path=self.hp.exp_path,
+                    path=self.plots_path,
                     iteration=self.iteration,
                     valid=True,
                     plot_through_time=True,
@@ -899,10 +901,10 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        self.adj_tt[int(self.iteration / self.hp.valid_freq)] = self.model.module.get_adj()  # .cpu().detach().numpy()
+        self.adj_tt[int(self.iteration / self.plot_params.valid_freq)] = self.model.module.get_adj()  # .cpu().detach().numpy()
         w = self.model.module.autoencoder.get_w_decoder()  # .cpu().detach().numpy()
         if not self.no_gt:
-            self.adj_w_tt[int(self.iteration / self.hp.valid_freq)] = w
+            self.adj_w_tt[int(self.iteration / self.plot_params.valid_freq)] = w
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
         self.logvar_decoder_tt.append(self.model.module.autoencoder.logvar_decoder[0].item())
@@ -911,7 +913,7 @@ class TrainingLatent:
 
     def print_results(self):
         """Print values of many variable: losses, constraint violation, etc.
-        at the frequency self.hp.print_freq"""
+        at the frequency self.plot_params.print_freq"""
 
         # print("****************************************************************************************")
         # print("What is the loss, the NLL, the reconstruction, the KL, the sparsity reg, the connect reg, the ortho cons, the acyclic cons, the sparsity cons?")
@@ -945,9 +947,9 @@ class TrainingLatent:
         return -elbo, recons, kl, pred
 
     def get_regularisation(self) -> float:
-        if self.iteration > self.hp.schedule_reg:
+        if self.iteration > self.optim_params.schedule_reg:
             adj = self.model.module.get_adj()
-            reg = self.hp.reg_coeff * torch.norm(adj, p=1)
+            reg = self.optim_params.reg_coeff * torch.norm(adj, p=1)
             # reg /= adj.numel()
         else:
             reg = torch.tensor([0.0])
@@ -967,7 +969,7 @@ class TrainingLatent:
 
     def get_ortho_violation(self, w: torch.Tensor) -> float:
 
-        if self.iteration > self.hp.schedule_ortho:
+        if self.iteration > self.optim_params.schedule_ortho:
             # constraint = torch.tensor([0.])
             k = w.size(2)
             # for i in range(w.size(0)):
@@ -995,7 +997,7 @@ class TrainingLatent:
 
         Threshold is the fraction of causal links, e.g. 0.1, 0.3
         """
-        if self.iteration > self.hp.schedule_sparsity:
+        if self.iteration > self.optim_params.schedule_sparsity:
 
             # first get the adj
             adj = self.model.module.get_adj()
@@ -1200,7 +1202,7 @@ class TrainingLatent:
         for i in self.d:
             for k in self.d_z:
                 c = c + torch.sum(torch.outer(w[i, :, k], w[i, :, k]) * d)
-        return self.hp.reg_coeff_connect * c
+        return self.optim_params.reg_coeff_connect * c
 
     def connectivity_reg(self, ratio: float = 0.0005):
         """Calculate a connectivity regularisation only on a subsample of the complete data."""
@@ -1223,7 +1225,7 @@ class TrainingLatent:
                         if i > j:
                             dist = distance.geodesic(c1, c2).km
                             c = c + w[d, i, k] * w[d, j, k] * dist
-        return self.hp.reg_coeff_connect * c
+        return self.optim_params.reg_coeff_connect * c
 
     # Here I am going to add some functions which will seek to save predictions and true values
     # And also to complete autoregressive rollout every so often...
@@ -1278,17 +1280,17 @@ class TrainingLatent:
             y_original_recons = y_pred_recons.clone().detach()
 
             # save these original values, x_original, y_orginal, y_original_pred
-            np.save(os.path.join(self.hp.exp_path, "train_x_ar_0.npy"), x_original.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "train_y_ar_0.npy"), y_original.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "train_y_pred_ar_0.npy"), y_original_pred.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "train_y_recons_0.npy"), y_original_recons.detach().cpu().numpy())
+            np.save(self.save_path / "train_x_ar_0.npy", x_original.detach().cpu().numpy())
+            np.save(self.save_path / "train_y_ar_0.npy", y_original.detach().cpu().numpy())
+            np.save(self.save_path / "train_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
+            np.save(self.save_path / "train_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
             # np.save(os.path.join(self.hp.exp_path, "train_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
             # np.save(os.path.join(self.hp.exp_path, "train_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
             # np.save(os.path.join(self.hp.exp_path, "train_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
 
             # saving the samples
-            np.save(os.path.join(self.hp.exp_path, "train_samples_from_xs.npy"), samples_from_xs.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "train_samples_from_zs.npy"), samples_from_zs.detach().cpu().numpy())
+            np.save(self.save_path / "train_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
+            np.save(self.save_path / "train_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
 
             # Now doing the autoregressive rollout...
             # TODO: implement the autoregressive rollout and also take samples
@@ -1314,9 +1316,9 @@ class TrainingLatent:
                 
                 assert i != 0
 
-                np.save(os.path.join(self.hp.exp_path, f"train_x_ar_{i}.npy"), x.detach().cpu().numpy())
-                np.save(os.path.join(self.hp.exp_path, f"train_y_ar_{i}.npy"), y.detach().cpu().numpy())
-                np.save(os.path.join(self.hp.exp_path, f"train_y_pred_ar_{i}.npy"), y_pred.detach().cpu().numpy())
+                np.save(self.save_path / f"train_x_ar_{i}.npy", x.detach().cpu().numpy())
+                np.save(self.save_path / f"train_y_ar_{i}.npy", y.detach().cpu().numpy())
+                np.save(self.save_path / f"train_y_pred_ar_{i}.npy", y_pred.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_encoded_z_ar_{i}.npy"), z.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_pz_mu_ar_{i}.npy"), pz_mu.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_pz_std_ar_{i}.npy"), pz_std.detach().cpu().numpy())
@@ -1381,7 +1383,7 @@ class TrainingLatent:
                 
                 # save the model in its current state
                 print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
-                torch.save(self.model.state_dict(), os.path.join(self.hp.exp_path, "best_model_for_average_spectra.pth"))
+                torch.save(self.model.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
 
 
         else:
@@ -1416,17 +1418,17 @@ class TrainingLatent:
             y_original_recons = y_pred_recons.clone().detach()
 
             # saving these
-            np.save(os.path.join(self.hp.exp_path, "val_x_ar_0.npy"), x_original.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "val_y_ar_0.npy"), y_original.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "val_y_pred_ar_0.npy"), y_original_pred.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "val_y_recons_0.npy"), y_original_recons.detach().cpu().numpy())
+            np.save(self.save_path / "val_x_ar_0.npy", x_original.detach().cpu().numpy())
+            np.save(self.save_path / "val_y_ar_0.npy", y_original.detach().cpu().numpy())
+            np.save(self.save_path / "val_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
+            np.save(self.save_path / "val_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
             # np.save(os.path.join(self.hp.exp_path, "val_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
             # np.save(os.path.join(self.hp.exp_path, "val_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
             # np.save(os.path.join(self.hp.exp_path, "val_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
 
             # saving the samples
-            np.save(os.path.join(self.hp.exp_path, "val_samples_from_xs.npy"), samples_from_xs.detach().cpu().numpy())
-            np.save(os.path.join(self.hp.exp_path, "val_samples_from_zs.npy"), samples_from_zs.detach().cpu().numpy())
+            np.save(self.save_path / "val_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
+            np.save(self.save_path / "val_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
 
             for i in range(1, timesteps):
 
@@ -1440,9 +1442,9 @@ class TrainingLatent:
                     # then predict the next timestep
                     y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
 
-                np.save(os.path.join(self.hp.exp_path, f"val_x_ar_{i}.npy"), x.detach().cpu().numpy())
-                np.save(os.path.join(self.hp.exp_path, f"val_y_ar_{i}.npy"), y.detach().cpu().numpy())
-                np.save(os.path.join(self.hp.exp_path, f"val_y_pred_ar_{i}.npy"), y_pred.detach().cpu().numpy())
+                np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
+                np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())
+                np.save(self.save_path / f"val_y_pred_ar_{i}.npy", y_pred.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"val_encoded_z_ar_{i}.npy"), z.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"val_pz_mu_ar_{i}.npy"), pz_mu.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"val_pz_std_ar_{i}.npy"), pz_std.detach().cpu().numpy())
@@ -1543,7 +1545,7 @@ class TrainingLatent:
             # weights = torch.ones(num_particles) / num_particles
 
             # store these selected_samples
-            np.save(os.path.join(self.hp.exp_path, f"selected_samples_{_}.npy"), selected_samples.detach().cpu().numpy())
+            np.save(self.save_path / f"selected_samples_{_}.npy", selected_samples.detach().cpu().numpy())
 
             # then we are going to be passing the selected samples to the next timestep, so we need to make the input again
             # first drop the first value of x, then

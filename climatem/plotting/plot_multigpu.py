@@ -10,7 +10,7 @@ import seaborn as sns
 import torch
 from mpl_toolkits.basemap import Basemap
 
-from climatem.metrics import mcc_latent
+from climatem.model.metrics import mcc_latent
 
 
 def moving_average(a: np.ndarray, n: int = 10):
@@ -49,27 +49,27 @@ class Plotter:
             # save matrix W of the decoder and encoder
             print("Saving the decoder, encoder and graphs.")
             w_decoder = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-            np.save(os.path.join(learner.hp.exp_path, "w_decoder.npy"), w_decoder)
+            np.save(learner.plots_path / "w_decoder.npy", w_decoder)
             w_encoder = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
-            np.save(os.path.join(learner.hp.exp_path, "w_encoder.npy"), w_encoder)
+            np.save(learner.plots_path / "w_encoder.npy", w_encoder)
 
             # save the graphs G
             adj = learner.model.module.get_adj().cpu().detach().numpy()
-            np.save(os.path.join(learner.hp.exp_path, "graphs.npy"), adj)
+            np.save(learner.plots_path / "graphs.npy", adj)
 
     def load(self, exp_path: str, data_loader):
         # load matrix W of the decoder and encoder
-        self.w = np.load(os.path.join(exp_path, "w_decoder.npy"))
-        self.w_encoder = np.load(os.path.join(exp_path, "w_encoder.npy"))
+        self.w = np.load(exp_path / "w_decoder.npy")
+        self.w_encoder = np.load(exp_path / "w_encoder.npy")
 
         # load adj_tt and adj_w_tt, adjacencies through time
-        self.adj_tt = np.load(os.path.join(exp_path, "adj_tt"))
-        self.adj_w_tt = np.load(os.path.join(exp_path, "adj_w_tt"))
+        self.adj_tt = np.load(exp_path / "adj_tt")
+        self.adj_w_tt = np.load(exp_path, "adj_w_tt")
 
         # load log-variance of encoder and decoder
-        self.logvar_encoder_tt = np.load(os.path.join(exp_path, "logvar_encoder_tt"))
-        self.logvar_decoder_tt = np.load(os.path.join(exp_path, "logvar_decoder_tt"))
-        self.logvar_transition_tt = np.load(os.path.join(exp_path, "logvar_transition_tt"))
+        self.logvar_encoder_tt = np.load(exp_path / "logvar_encoder_tt")
+        self.logvar_decoder_tt = np.load(exp_path / "logvar_decoder_tt")
+        self.logvar_transition_tt = np.load(exp_path / "logvar_transition_tt")
 
         # load losses and penalties
         self.penalties = {}
@@ -79,7 +79,7 @@ class Plotter:
             {"name": "mu ortho", "data": "mu_ortho"},
         ]
         for p in penalties:
-            self.penalties[p["data"]] = np.load(os.path.join(exp_path, p["name"]))
+            self.penalties[p["data"]] = np.load(exp_path / p["name"])
 
         losses = [
             {"name": "tr ELBO", "data": "train_loss"},
@@ -88,7 +88,7 @@ class Plotter:
             {"name": "val ELBO", "data": "valid_loss"},
         ]
         for loss in losses:
-            self.losses[loss["data"]] = np.load(os.path.join(exp_path, loss["name"]))
+            self.losses[loss["data"]] = np.load(exp_path / loss["name"])
 
         # load GT W and graph
         self.gt_w = data_loader.gt_w
@@ -101,7 +101,7 @@ class Plotter:
         Plot the learning curves and if the ground-truth is known the adjacency and adjacency through time.
         """
 
-        np.save(os.path.join(learner.hp.exp_path, "coordinates.npy"), learner.coordinates)
+        np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
         if save:
             self.save(learner)
@@ -122,8 +122,8 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
                 fname="penalties",
                 yaxis_log=True,
             )
@@ -139,8 +139,8 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
                 fname="losses",
             )
             logvar = [
@@ -151,8 +151,8 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=logvar,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
                 fname="logvar",
             )
         else:
@@ -160,8 +160,8 @@ class Plotter:
                 train_loss=learner.train_loss_list,
                 valid_loss=learner.valid_loss_list,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
             )
 
         # plot the adjacency matrix (learned vs ground-truth)
@@ -190,17 +190,17 @@ class Plotter:
                     # adj_w = adj_w[:, :, assignments[1]]
                     # adj_w2 = adj_w2[:, assignments[1], :]
                     adj_w2 = np.swapaxes(adj_w2, 1, 2)
-                self.save_mcc_and_assignement(learner.hp.exp_path)
+                self.save_mcc_and_assignement(learner.plots_path)
 
                 # draw learned mixing fct vs GT
-                if learner.hp.nonlinear_mixing:
-                    self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.hp.exp_path)
+                if learner.model_params.nonlinear_mixing:
+                    self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
 
             else:
                 gt_dag = learner.gt_dag
 
             self.plot_adjacency_through_time(
-                learner.adj_tt, gt_dag, learner.iteration, learner.hp.exp_path, "transition"
+                learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
             )
         else:
             gt_dag = None
@@ -214,33 +214,33 @@ class Plotter:
         self.plot_adjacency_matrix(
             mat1=adj,
             mat2=gt_dag,
-            path=learner.hp.exp_path,
+            path=learner.plots_path,
             name_suffix="transition",
             no_gt=learner.no_gt,
             iteration=learner.iteration,
-            plot_through_time=learner.hp.plot_through_time,
+            plot_through_time=learner.plot_params.plot_through_time,
         )
 
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
         if learner.latent:
             # plot the decoder matrix W
-            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.hp.exp_path, "w", learner.no_gt)
+            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", learner.no_gt)
             # plot the encoder matrix W_2
             # gt_w2 = np.swapaxes(gt_w, 1, 2)
             gt_w2 = gt_w
-            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.hp.exp_path, "encoder_w", learner.no_gt)
+            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", learner.no_gt)
             if not learner.no_gt:
                 self.plot_adjacency_through_time_w(
-                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.hp.exp_path, "w"
+                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
                 )
             else:
                 self.plot_regions_map(
                     adj_w,
                     learner.coordinates,
                     learner.iteration,
-                    learner.hp.plot_through_time,
-                    path=learner.hp.exp_path,
+                    learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
                     one_plot=True,
@@ -250,8 +250,8 @@ class Plotter:
                     adj_w,
                     learner.coordinates,
                     learner.iteration,
-                    learner.hp.plot_through_time,
-                    path=learner.hp.exp_path,
+                    learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
                 )
@@ -263,7 +263,7 @@ class Plotter:
         Plot the learning curves and if the ground-truth is known the adjacency and adjacency through time.
         """
 
-        np.save(os.path.join(learner.hp.exp_path, "coordinates.npy"), learner.coordinates)
+        np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
         if save:
             self.save(learner)
@@ -280,8 +280,8 @@ class Plotter:
                 valid_kl=learner.valid_kl_list,
                 best_metrics=learner.best_metrics,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
             )
             losses = [  # {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
@@ -296,8 +296,8 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
                 fname="penalties",
                 yaxis_log=True,
             )
@@ -313,8 +313,8 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
                 fname="losses",
             )
             logvar = [
@@ -325,8 +325,8 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=logvar,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
                 fname="logvar",
             )
         else:
@@ -334,8 +334,8 @@ class Plotter:
                 train_loss=learner.train_loss_list,
                 valid_loss=learner.valid_loss_list,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
-                path=learner.hp.exp_path,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
             )
 
         # TODO: plot the prediction vs gt
@@ -367,17 +367,17 @@ class Plotter:
                     # adj_w = adj_w[:, :, assignments[1]]
                     # adj_w2 = adj_w2[:, assignments[1], :]
                     adj_w2 = np.swapaxes(adj_w2, 1, 2)
-                self.save_mcc_and_assignement(learner.hp.exp_path)
+                self.save_mcc_and_assignement(learner.plots_path)
 
                 # draw learned mixing fct vs GT
-                if learner.hp.nonlinear_mixing:
-                    self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.hp.exp_path)
+                if learner.model_params.nonlinear_mixing:
+                    self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
 
             else:
                 gt_dag = learner.gt_dag
 
             self.plot_adjacency_through_time(
-                learner.adj_tt, gt_dag, learner.iteration, learner.hp.exp_path, "transition"
+                learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
             )
         else:
             gt_dag = None
@@ -391,32 +391,32 @@ class Plotter:
         self.plot_adjacency_matrix(
             mat1=adj,
             mat2=gt_dag,
-            path=learner.hp.exp_path,
+            path=learner.plots_path,
             name_suffix="transition",
             no_gt=learner.no_gt,
             iteration=learner.iteration,
-            plot_through_time=learner.hp.plot_through_time,
+            plot_through_time=learner.plot_params.plot_through_time,
         )
 
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
         if learner.latent:
             # plot the decoder matrix W
-            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.hp.exp_path, "w", learner.no_gt)
+            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", learner.no_gt)
             # plot the encoder matrix W_2
             gt_w2 = gt_w
-            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.hp.exp_path, "encoder_w", learner.no_gt)
+            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", learner.no_gt)
             if not learner.no_gt:
                 self.plot_adjacency_through_time_w(
-                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.hp.exp_path, "w"
+                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
                 )
             else:
                 self.plot_regions_map(
                     adj_w,
                     learner.coordinates,
                     learner.iteration,
-                    learner.hp.plot_through_time,
-                    path=learner.hp.exp_path,
+                    learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
                 )
@@ -440,7 +440,7 @@ class Plotter:
             axes[1].scatter(z[:, j], x[:, 0, i], s=2)
             axes[1].set_title(f"GT mixing. j={j}, val={gt_w[0, i, j]:.2f}")
 
-            plt.savefig(os.path.join(path, f"learned_mixing_x{i}.png"))
+            plt.savefig(path / f"learned_mixing_x{i}.png")
             plt.close()
 
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path: str):
@@ -485,7 +485,7 @@ class Plotter:
             map.contourf(X, Y, Z, latlon=True)
 
         # plt.colorbar()
-        plt.savefig(os.path.join(path, "prediction.png"), format="png")
+        plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
     def plot_compare_predictions_regular_grid(
@@ -604,7 +604,7 @@ class Plotter:
                 fname = "compare_predictions_valid.png"
 
         plt.suptitle("Ground truth last timestep, Ground truth, Reconstruction, and Prediction", fontsize=24)
-        plt.savefig(os.path.join(path, fname), format="png")
+        plt.savefig(path / fname, format="png")
         plt.close()
 
     # This plot should allow the plotting of multiple variables now.
@@ -739,7 +739,7 @@ class Plotter:
 
         plt.suptitle("Ground truth last timestep, Ground truth, Reconstruction, and Prediction", fontsize=24)
         # plt.legend()
-        plt.savefig(os.path.join(path, fname), format="png")
+        plt.savefig(path / fname, format="png")
         plt.close()
 
     def plot_compare_regions():
@@ -829,7 +829,7 @@ class Plotter:
         else:
             fname = "spatial_aggregation.png"
 
-        plt.savefig(os.path.join(path, fname), format="png")
+        plt.savefig(path / fname, format="png")
         plt.close()
 
     def get_centroid(self, xs, ys):
@@ -959,7 +959,7 @@ class Plotter:
 
         plt.title("Learning curves")
         plt.legend()
-        plt.savefig(os.path.join(path, fname), format="png")
+        plt.savefig(path / fname, format="png")
         plt.close()
 
     def save_coordinates_and_adjacency_matrices(self, learner):
@@ -972,13 +972,13 @@ class Plotter:
             adj_w: adjacency matrix between Z and X
         """
         # if the coordinates file does not exist, save it
-        if not os.path.exists(os.path.join(learner.hp.exp_path, "coordinates.npy")):
-            np.save(os.path.join(learner.hp.exp_path, "coordinates.npy"), learner.coordinates)
+        if not os.path.exists(learner.plots_path / "coordinates.npy"):
+            np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
         adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
         adj_encoder_w = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
-        np.save(os.path.join(learner.hp.exp_path, f"adj_encoder_w_{learner.iteration}.npy"), adj_encoder_w)
-        np.save(os.path.join(learner.hp.exp_path, f"adj_w_{learner.iteration}.npy"), adj_w)
+        np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
+        np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 
     # SH: edited to do plot through time, without changing the function name
     # simply follow the lead of the function above, and try to plot through time.
@@ -1106,7 +1106,7 @@ class Plotter:
 
         # updated this from before - see jb_causal_emulator branch (27/03/24) if problem:
         # plt.savefig(os.path.join(path, f'adjacency_{name_suffix}.png'), format="png")
-        plt.savefig(os.path.join(path, fname), format="png")
+        plt.savefig(path / fname, format="png")
         plt.close()
 
     def plot_adjacency_matrix_w(
@@ -1219,7 +1219,7 @@ class Plotter:
                             yticklabels=False,
                         )
 
-        plt.savefig(os.path.join(path, f"adjacency_{name_suffix}.png"), format="png")
+        plt.savefig(path / f"adjacency_{name_suffix}.png", format="png")
         plt.close()
 
     def plot_adjacency_through_time(self, w_adj: np.ndarray, gt_dag: np.ndarray, t: int, path: str, name_suffix: str):
@@ -1249,7 +1249,7 @@ class Plotter:
                         zorder = 1
                     ax1.plot(range(1, t), w_adj[1:t, tau, i, j], color, linewidth=1, zorder=zorder)
         fig.suptitle("Learned adjacencies through time")
-        fig.savefig(os.path.join(path, f"adjacency_time_{name_suffix}.png"), format="png")
+        fig.savefig(path / f"adjacency_time_{name_suffix}.png", format="png")
         fig.clf()
 
     def plot_adjacency_through_time_w(self, w_adj: np.ndarray, gt_dag: np.ndarray, t: int, path: str, name_suffix: str):
@@ -1272,15 +1272,15 @@ class Plotter:
                 for k in range(dk):
                     ax1.plot(range(1, t), np.abs(w_adj[1:t, i, j, k] - gt_dag[i, j, k]), linewidth=1)
         fig.suptitle("Learned adjacencies through time")
-        fig.savefig(os.path.join(path, f"adjacency_time_{name_suffix}.png"), format="png")
+        fig.savefig(path / f"adjacency_time_{name_suffix}.png", format="png")
         fig.clf()
 
     def save_mcc_and_assignement(self, exp_path):
-        np.save(os.path.join(exp_path, "mcc"), np.array(self.mcc))
-        np.save(os.path.join(exp_path, "assignments"), np.array(self.assignments))
+        np.save(exp_path / "mcc.npy", np.array(self.mcc))
+        np.save(exp_path / "assignments.npy", np.array(self.assignments))
         if len(self.mcc) > 1:
             fig = plt.figure()
             plt.plot(self.mcc)
             plt.title("MCC score through time")
-            fig.savefig(os.path.join(exp_path, "mcc.png"))
+            fig.savefig(exp_path / "mcc.png")
             fig.clf()

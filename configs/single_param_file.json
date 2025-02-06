@@ -1,0 +1,124 @@
+{ 
+    "exp_params": {
+        "exp_path": "/home/mila/j/julien.boussard/scratch/results/climatem_spectral/var_ts_picontrol",
+        "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
+        "latent": true,      
+        "d_z": 90,
+        "d_x": 6250,
+        "lon": 144, 
+        "lat": 96,    
+        "tau": 5,
+        "random_seed": 1,
+        "seed": 11,
+        "gpu": true,
+        "float": false,
+        "num_workers":  0,
+        "pin_memory": false,
+        "verbose": true
+    },
+    "data_params": {
+        "data_dir": "/network/scratch/s/sebastian.hickman/data/icosahedral_data/structured/picontrol/24_ni",
+        "icosahedral_coordinates_path": "/home/mila/j/julien.boussard/scratch/data/vertex_lonlat_mapping.txt",
+        "num_levels": 1,
+        "seq_len": 12,
+        "train_historical_years": "1894-2000", 
+        "test_years": "1100-1150",
+        "train_years": "1600-2100",    
+        "train_scenarios": ["piControl"],
+        "test_scenarios": ["piControl"],
+        "train_models":  "NorESM2-LM",
+        "num_ensembles": 1,    
+        "seq_to_seq": true, 
+        "data_format": "numpy",
+        "ishdf5": false,
+        "in_var_ids": ["ts"],
+        "out_var_ids": ["ts"],
+        "seasonality_removal": false,
+        "batch_size": 256,
+        "eval_batch_size": 256,
+        "channels_last": false,
+        "val_split": 0.1,
+        "load_train_into_mem": true,
+        "load_test_into_mem":  true,
+        "num_months_aggregated": [1],
+        "train_val_interval_length": 40
+        }, 
+    "gt_params": {
+        "no_gt": true,
+        "debug_gt_z": false,
+        "debug_gt_w": false,
+        "debug_gt_graph": false
+    },    
+    "train_params": {
+        "ratio_train": 0.9,
+        "batch_size": 6000,
+        "lr": 0.001,
+        "lr_scheduler_epochs": [10000, 20000],
+        "lr_scheduler_gamma": 1,    
+        "max_iteration": 100000,
+        "patience": 5000,
+        "patience_post_thresh": 50,
+        "valid_freq": 5
+    },
+    "model_params": {
+        "instantaneous": false,
+        "no_w_constraint": false,
+        "tied_w": false,
+        "nonlinear_mixing": true,
+        "num_hidden": 8,
+        "num_layers": 2,
+        "num_output": 2,
+        "num_hidden_mixing": 16,
+        "num_layers_mixing": 2,    
+        "fixed": false,
+        "fixed_output_fraction": null,
+        "tau_neigh": 0,
+        "hard_gumbel": false
+    },
+    "optim_params": {
+        "optimizer": "rmsprop",
+
+        "crps_coeff": 1,
+        "spectral_coeff": 20,
+        "temporal_spectral_coeff": 2000,
+        "coeff_kl": 1,
+
+        "reg_coeff": 0.01,
+        "reg_coeff_connect": 0,
+    
+        "schedule_reg": 0,
+        "schedule_ortho": 0,
+        "schedule_sparsity": 0,    
+
+        "ortho_mu_init": 1e5,
+        "ortho_mu_mult_factor": 1.2,
+        "ortho_omega_gamma": 0.01,
+        "ortho_omega_mu": 0.9,
+        "ortho_h_threshold": 0.01,
+        "ortho_min_iter_convergence": 1000,
+
+        "sparsity_mu_init": 0.1,
+        "sparsity_mu_mult_factor": 1.2,
+        "sparsity_omega_gamma": 0.01,
+        "sparsity_omega_mu": 0.95,
+        "sparsity_h_threshold": 0.0001,
+        "sparsity_min_iter_convergence": 1000,
+        "sparsity_upper_threshold": 0.5,
+
+        "acyclic_mu_init": 1,
+        "acyclic_mu_mult_factor": 2,
+        "acyclic_omega_gamma": 0.01,
+        "acyclic_omega_mu": 0.9,
+        "acyclic_h_threshold": 1e-08,
+        "acyclic_min_iter_convergence": 1000,
+        "mu_acyclic_init": null,
+        "h_acyclic_threshold": null
+    },
+    "plot_params": {
+        "plot_freq": 500,
+        "plot_through_time": true,
+        "print_freq": 500
+    }
+
+}
+
