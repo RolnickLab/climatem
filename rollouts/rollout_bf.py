@@ -17,8 +17,10 @@ import json
 import numpy as np
 import torch
 
-from climatem.climate_data_loader_explore_ensembles import CausalClimateDataModule
-from climatem.model.tsdcd_latent_explore import LatentTSDCD
+from climatem.data_loader.causal_datamodule import CausalClimateDataModule
+# Why not gpu here? 
+# from climatem.data_loader.to_delete_climate_data_loader_explore_ensembles.py import CausalClimateDataModule
+from climatem.model.tsdcd_latent import LatentTSDCD
 
 # import climatem.climate_dataset_explore_ensembles as climate_dataset
 

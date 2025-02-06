@@ -12,10 +12,10 @@ from accelerate.utils import DistributedDataParallelKwargs
 from geopy import distance
 from torch.profiler import ProfilerActivity
 
-from climatem.dag_optim import compute_dag_constraint
-from climatem.plot_multigpu import Plotter
-from climatem.prox import monkey_patch_RMSprop
-from climatem.utils import ALM
+from dag_optim import compute_dag_constraint
+from climatem.plotting.plot_multigpu import Plotter
+from prox import monkey_patch_RMSprop
+from climatem.model.utils import ALM
 
 from climatem import MAPPINGS_DIR
 # Using Accelerator, not wandb now

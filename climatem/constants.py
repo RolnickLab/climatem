@@ -2,6 +2,12 @@ import os
 from pathlib import Path
 
 # Data constants
+# These should be things that will NEVER change ("constants")
+# params should be params
+# For example, not lat/lon, but fire type is ok
+
+# JB: These are also input to the json files, twice... 
+# It needs to be input and not a constants
 LON = 96 # TODO JK commenting: LON and LAT must be swapped...
 LAT = 144
 NUM_LEVELS = 1
@@ -14,6 +20,10 @@ CMIP6_NOM_RES = "250_km"  # TODO: not allow different resolutions
 SEQ_LEN_MAPPING = {"mon": 12}
 
 # TODO JK commenting: this should be done via the __init__.py
+# JB: This should be input to the json or params file, and 
+# we should verify each time that it corresponds to the correct data, 
+# This has led to a lot of confusion in the past. 
+# TBD but I think putting paths in the init or constants file is a bad idea 
 DATA_DIR = os.path.join(
     Path(__file__).absolute().parent.parent, "Climateset_DATA"
 )  # os.path.join(os.getcwd(), 'Climateset_DATA') # set path to local data

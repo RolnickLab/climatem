@@ -11,10 +11,10 @@ import torch
 torch.set_warn_always(False)
 from accelerate import Accelerator
 
-from climatem.climate_data_loader_explore_ensembles_multigpu import CausalClimateDataModule
-from climatem.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
-from climatem.model.tsdcd_latent_explore import LatentTSDCD
-from climatem.train_latent_constrain_graph_multigpu import TrainingLatent
+from climatem.data_loader.causal_datamodule import CausalClimateDataModule
+from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
+from climatem.model.tsdcd_latent import LatentTSDCD
+from climatem.model.train_model import TrainingLatent
 
 accelerator = Accelerator()
 

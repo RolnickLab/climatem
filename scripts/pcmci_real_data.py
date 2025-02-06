@@ -35,7 +35,6 @@ from pathlib import Path
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
 # Why not gpu here? 
 # from climatem.data_loader.to_delete_climate_data_loader_explore_ensembles.py import CausalClimateDataModule
-# from climatem.climate_data_loader_explore_ensembles import CausalClimateDataModule
 from climatem.model.tsdcd_latent import LatentTSDCD
 
 def compute_next_step(initial_5, varimax_rotation, n_modes, adj_matrix_inferred, regressions, tau=5):
@@ -177,9 +176,16 @@ def particle_filter_weighting_bayesian(
         # Then fft_true shape after repeating: torch.Size([K*L, batch size, 1, 3126]
         scores_spatial_spectra = logscore_the_samples_for_spatial_spectra_bayesian(y_true_fft_mean, y_true_fft_std, observations_particles, coords=coordinates, 
                                                                                     num_particles=num_particles*num_particles_per_particle, batch_size=batch_size)
+#         print(f"spatial_spectra shape {scores_spatial_spectra.shape}")
+#         print(f"spatial_spectra {scores_spatial_spectra}")
+#         print(f"log_scores {log_scores}")
+        # This is [K*L, batch size]
         new_weights = log_scores + scores_spatial_spectra
+#             new_weights = torch.exp(new_weights) # Here we might be able to sample directly from the log probabilities in torch to avoid taking the exp
+
         # normalise the weights along the first dimension
 
+        # TODO below this!!
         max_weight = np.max(new_weights, axis=0)
         new_weights -= max_weight 
         new_weights = np.exp(new_weights)
@@ -189,6 +195,19 @@ def particle_filter_weighting_bayesian(
         new_weights =  new_weights / np.sum(new_weights, axis=0) 
 
         resampled_indices_array = np.random.choice(np.arange(num_particles*num_particles_per_particle), p=new_weights, size=num_particles, replace=True)
+            # append these resampled indices to n array so we get an output of shape (5, batch_size)
+#             if i == 0:
+#                 resampled_indices_array = resampled_indices
+#             else:
+#                 resampled_indices_array = torch.cat([resampled_indices_array, resampled_indices], dim=1)
+
+
+        # Use list comprehension to collect resampled indices for each column
+        #resampled_indices_array2 = torch.stack([torch.multinomial(new_weights[:, i], num_particles, replacement=True) for i in range(256)], dim=1)
+
+        # assert that the two resampled indices are the same
+        #assert torch.all(resampled_indices_array == resampled_indices_array2)
+
 
         particles = particles[resampled_indices_array]
 
@@ -199,6 +218,9 @@ def particle_filter_weighting_bayesian(
         x = x[:, 1:, :]
 
         # now we just need to unsqueeze the selected samples, so that we can concatenate them to x
+
+#         print("What is the shape of x, just before we concatenate?", x.shape)
+#         print("What is the shape of the selected samples, just before we concatenate?", particles.shape)
         inverse_varimax_particles = dot(particles, np.linalg.pinv(varimax_rotation))
         #N samples * lon*lat
         observations_particles = pca_model.inverse_transform(inverse_varimax_particles)
@@ -262,10 +284,12 @@ else:
 if __name__ == "__main__":
 
     print("Loading PiControl data")
-    with open("$HOME/scripts/configs/data_loading.json", "r") as f:
+    with open("/home/mila/j/julien.boussard/causal_model/climatem/scripts/configs/params_data_loading.json", "r") as f:
         hp = json.load(f)
-    coordinates = np.loadtxt("$HOME/vertex_lonlat_mapping.txt")
-    hp["config_exp_path"] = ("$HOME/scripts/configs/params.json")
+
+    coordinates = np.loadtxt("/home/mila/j/julien.boussard/scratch/data/vertex_lonlat_mapping.txt")
+
+    hp["config_exp_path"] = ("/home/mila/j/julien.boussard/causal_model/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_picontrol_1ens.json")
 
     config_fname = hp["config_exp_path"]
     with open(config_fname) as f:
@@ -274,11 +298,11 @@ if __name__ == "__main__":
     datamodule = CausalClimateDataModule(**data_params)  # ...
     datamodule.setup()
 
+
     train_dataloader = iter(datamodule.train_dataloader())
 
-    n_batches = 18 # number of data loader batches
-
-    for i in range(n_batches):#, batch in enumerate(train_dataloader):
+    for i in range(18):#, batch in enumerate(train_dataloader):
+        print(i)
         if i==0:
             x, y = next(train_dataloader)
             x = torch.nan_to_num(x)
@@ -291,6 +315,11 @@ if __name__ == "__main__":
             y_bis = y_bis[:, 0]
             x = torch.cat((x, x_bis))
             y = torch.cat((y, y_bis))
+
+    print("Where is the data?", x.device, y.device)
+    print(f"mean/std {x.mean(), x.std()}")
+    print(x.shape)
+    print(y.shape)
 
     y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, number_of_batches=18)
 
@@ -306,6 +335,8 @@ if __name__ == "__main__":
 
     tau = 5
     n_modes = 90
+    time_len = 10_000
+    length_training = 8000 #Train on first 8000 and test on last 2000 
     var_names = []
     for k in range(n_modes):
         var_names.append(fr'$X^{k}$')
@@ -314,12 +345,15 @@ if __name__ == "__main__":
     n_desired_links = sparsity_value*n_modes*n_modes*tau
 
     pca_model = PCA(n_modes)
+#     pca_model.components_ = np.load("pca_components.npy")
+#     pca_model.mean_ = np.load("pca_mean.npy")
     pca_model.fit(train_data.T)
     latent_train_data = pca_model.transform(train_data.T)
+    # Get the varimax_rotation matrix for reconstructing observations
     varimaxpcs_train, varimax_rotation = varimax(latent_train_data)
     adj_matrix_inferred = np.load("pcmci_inferred_graph.npy")
 
-    length_training = varimaxpcs_train.shape[1]-tau
+    length_training = 4603
 
     indices = np.zeros((tau, length_training))
     for k in range(tau):
@@ -340,44 +374,49 @@ if __name__ == "__main__":
         estimated_Y = reg.predict(varimaxpcs_X_reg)
         stds_ar.append((estimated_Y - varimaxpcs_Y[:, mode]).std())
 
-    print("Loading SSP data")
-    # This json file needs to correspond to the test scenario 
-    with open("$HOME/scripts/configs/params_data_loading_ssp370.json", "r") as f:
-        hp = json.load(f)
+    # print("Loading SSP data")
+    # with open("/home/mila/j/julien.boussard/causal_model/climatem/scripts/configs/params_data_loading_ssp370.json", "r") as f:
+    #     hp = json.load(f)
 
-    hp["config_exp_path"] = ("$HOME/scripts/configs/params.json")
+    # # coordinates = np.loadtxt("/home/mila/j/julien.boussard/scratch/data/vertex_lonlat_mapping.txt")
+    # hp["config_exp_path"] = ("/home/mila/j/julien.boussard/causal_model/climatem/scripts/configs/climate_predictions_picontrol_icosa_nonlinear_ensembles_hilatent_all_icosa_ssp370.json")
     
-    config_fname = hp["config_exp_path"]
-    with open(config_fname) as f:
-        data_params = json.load(f)
+    # config_fname = hp["config_exp_path"]
+    # with open(config_fname) as f:
+    #     data_params = json.load(f)
 
-    datamodule = CausalClimateDataModule(**data_params)  # ...
-    datamodule.setup()
+    # datamodule = CausalClimateDataModule(**data_params)  # ...
+    # datamodule.setup()
 
-    train_dataloader = iter(datamodule.train_dataloader())
+    test_dataloader = iter(datamodule.val_dataloader())
+    # train_dataloader = iter(datamodule.train_dataloader())
 
-    n_batches = 2
-    for i in range(n_batches):
-        print(i)
-        if i==0:
-            x, y = next(train_dataloader)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
-            y = y[:, 0]
-        if i>0:
-            x_bis, y_bis = next(train_dataloader)
-            x_bis = torch.nan_to_num(x_bis)
-            y_bis = torch.nan_to_num(y_bis)
-            y_bis = y_bis[:, 0]
-            x = torch.cat((x, x_bis))
-            y = torch.cat((y, y_bis))
+    # for i in range(2):#, batch in enumerate(train_dataloader):
+    #     print(i)
+    #     if i==0:
+    #         x, y = next(train_dataloader)
+    #         x = torch.nan_to_num(x)
+    #         y = torch.nan_to_num(y)
+    #         y = y[:, 0]
+    #     if i>0:
+    #         x_bis, y_bis = next(train_dataloader)
+    #         x_bis = torch.nan_to_num(x_bis)
+    #         y_bis = torch.nan_to_num(y_bis)
+    #         y_bis = y_bis[:, 0]
+    #         x = torch.cat((x, x_bis))
+    #         y = torch.cat((y, y_bis))
 
-    y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, number_of_batches=2)
+    # print("Where is the data?", x.device, y.device)
+    # print(f"mean/std {x.mean(), x.std()}")
+    # print(x.shape)
+    # print(y.shape)
 
-    y_true_fft_mean = y_true_fft_mean.cpu().numpy()[0]
-    y_true_fft_std = y_true_fft_std.cpu().numpy()[0]
+    # y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, number_of_batches=2)
+
+    # y_true_fft_mean = y_true_fft_mean.cpu().numpy()[0]
+    # y_true_fft_std = y_true_fft_std.cpu().numpy()[0]
     
-    x_test, y_test = next(train_dataloader)
+    x_test, y_test = next(test_dataloader)
     x_test = torch.nan_to_num(x_test)
     y_test = torch.nan_to_num(y_test)
     y_test = y_test[:, 0]
@@ -385,13 +424,48 @@ if __name__ == "__main__":
     x_test = x_test.cpu().numpy()
     y_test = y_test.cpu().numpy()
     
-    fname_dir_results = "predicted_trajectories_pcmci_SSP"
-    save_dir = Path(f"$DATA/{fname_dir_results}")
+    save_dir = Path("/network/scratch/s/sebastian.hickman/data/icosahedral_data/structured/picontrol/24_ni/outputs/CMIP6/NorESM2-LM/predicted_trajectories_pcmci_picontrol")
+
+    n_initial_conditions = 50
+    timestep_total = 1
+    arr_cond_indices = np.arange(256)
+    # these are already done
+    # arr_cond_indices = np.delete(arr_cond_indices, [126, 138, 143, 165, 180, 185, 195, 1, 201, 233, 239, 244, 247, 67, 57, 68, 77])
+    all_initial_cond = np.random.choice(arr_cond_indices, 50, replace = False)
+
+    for j, initcond in enumerate(arr_cond_indices):
+        print(f"Initial condition {j}")
+        inferred_observations = particle_filter_weighting_bayesian(
+            x_test[initcond],
+            y_true_fft_mean,
+            y_true_fft_std,
+            varimax_rotation, n_modes, adj_matrix_inferred, regressions, stds_ar,
+            tau=tau,
+            num_particles = 1, 
+            num_particles_per_particle = 1000, 
+            timesteps=timestep_total, 
+            save_dir = save_dir, 
+            save_name = f"trajectory_init_cond_{initcond}.npy", 
+        )
+        
+""""
+    test_dataloader = iter(datamodule.val_dataloader())
+    x_test, y_test = next(test_dataloader)
+    x_test = torch.nan_to_num(x_test)
+    y_test = torch.nan_to_num(y_test)
+    y_test = y_test[:, 0]
+    x_test = x_test[:, :, 0]
+    x_test = x_test.cpu().numpy()
+    y_test = y_test.cpu().numpy()
+
+    save_dir = Path("/network/scratch/s/sebastian.hickman/data/icosahedral_data/structured/picontrol/24_ni/outputs/CMIP6/NorESM2-LM/predicted_trajectories_pcmci_ssp_370")
 
     n_initial_conditions = 50
     timestep_total = 600
     arr_cond_indices = np.arange(256)
-    all_initial_cond = np.random.choice(arr_cond_indices, n_initial_conditions, replace = False)
+    # these are already done
+    # arr_cond_indices = np.delete(arr_cond_indices, [126, 138, 143, 165, 180, 185, 195, 1, 201, 233, 239, 244, 247, 67, 57, 68, 77])
+    all_initial_cond = np.random.choice(arr_cond_indices, 50, replace = False)
 
     for j, initcond in enumerate(all_initial_cond):
         print(f"Initial condition {j}")
@@ -407,4 +481,4 @@ if __name__ == "__main__":
             save_dir = save_dir, 
             save_name = f"trajectory_init_cond_{initcond}.npy", 
         )
-        
+"""

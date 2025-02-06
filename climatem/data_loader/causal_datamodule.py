@@ -7,8 +7,8 @@ import numpy as np
 import torch
 
 # import relevant data loading modules
-from climatem.climate_datamodule_explore_ensembles_multigpu import ClimateDataModule
-from climatem.climate_dataset_explore_ensembles import CMIP6Dataset, Input4MipsDataset
+from climatem.data_loader.climate_datamodule import ClimateDataModule
+from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
 from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPPING
 
 

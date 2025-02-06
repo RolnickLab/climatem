@@ -15,8 +15,9 @@ import xarray as xr
 
 # JK: consider using the __init__.py for path handling
 # feel free to move this to the constants instead for consistency!
+# This should be changed somewhere
+# Also non constants things (lat/lon) should not be in constants
 from climatem import MAPPINGS_DIR
-
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     AVAILABLE_MODELS_FIRETYPE,
     CMIP6_NOM_RES,
@@ -28,7 +29,7 @@ from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     OPENBURNING_MODEL_MAPPING,
     SEQ_LEN,
 )
-from climatem.emulator_utils import get_logger
+from climatem.utils import get_logger
 
 log = get_logger()
 
