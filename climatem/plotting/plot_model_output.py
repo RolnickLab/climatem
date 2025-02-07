@@ -499,7 +499,7 @@ class Plotter:
         y_hat: np.ndarray,
         sample: int,
         coordinates: np.ndarray,
-        path: str,
+        path,
         iteration: int,
         valid: str = False,
         plot_through_time: bool = True,
@@ -619,7 +619,7 @@ class Plotter:
         y_hat: np.ndarray,
         sample: int,
         coordinates: np.ndarray,
-        path: str,
+        path,
         iteration: int,
         valid: str = False,
         plot_through_time: bool = True,
@@ -757,7 +757,7 @@ class Plotter:
         coordinates: np.ndarray,
         iteration: int,
         plot_through_time: bool,
-        path: str,
+        path,
         idx_region: int = None,
         annotate: bool = False,
         one_plot: bool = False,
@@ -875,7 +875,7 @@ class Plotter:
         best_metrics: dict = None,
         iteration: int = 0,
         plot_through_time: bool = False,
-        path: str = "",
+        path = "",
     ):
         """Plot the training and validation loss through time
         Args:
@@ -932,7 +932,7 @@ class Plotter:
         losses: list,
         iteration: int = 0,
         plot_through_time: bool = False,
-        path: str = "",
+        path = "",
         fname="loss_detailed",
         yaxis_log: bool = False,
     ):
@@ -990,7 +990,7 @@ class Plotter:
         self,
         mat1: np.ndarray,
         mat2: np.ndarray,
-        path: str,
+        path,
         name_suffix: str,
         no_gt: bool = False,
         iteration: int = 0,
@@ -1114,7 +1114,7 @@ class Plotter:
         plt.close()
 
     def plot_adjacency_matrix_w(
-        self, mat1: np.ndarray, mat2: np.ndarray, path: str, name_suffix: str, no_gt: bool = False
+        self, mat1: np.ndarray, mat2: np.ndarray, path, name_suffix: str, no_gt: bool = False
     ):
         """Plot the adjacency matrices learned and compare it to the ground truth,
         the first dimension of the matrix should be the features (d)
@@ -1226,7 +1226,7 @@ class Plotter:
         plt.savefig(path / f"adjacency_{name_suffix}.png", format="png")
         plt.close()
 
-    def plot_adjacency_through_time(self, w_adj: np.ndarray, gt_dag: np.ndarray, t: int, path: str, name_suffix: str):
+    def plot_adjacency_through_time(self, w_adj: np.ndarray, gt_dag: np.ndarray, t: int, path, name_suffix: str):
         """Plot the probability of each edges through time up to timestep t
         Args:
           w_adj: weight of edges
@@ -1256,7 +1256,7 @@ class Plotter:
         fig.savefig(path / f"adjacency_time_{name_suffix}.png", format="png")
         fig.clf()
 
-    def plot_adjacency_through_time_w(self, w_adj: np.ndarray, gt_dag: np.ndarray, t: int, path: str, name_suffix: str):
+    def plot_adjacency_through_time_w(self, w_adj: np.ndarray, gt_dag: np.ndarray, t: int, path, name_suffix: str):
         """Plot the probability of each edges through time up to timestep t
         Args:
           w_adj: weight of edges

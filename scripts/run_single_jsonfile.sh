@@ -9,8 +9,7 @@
 #SBATCH --ntasks-per-node=1                                              # Ask for 2 CPUs
 #SBATCH --nodes=1                                                        # Ask for 2 CPUs
 #SBATCH --mem=80G                                                       # Ask for 10 GB of RAM
-#SBATCH --time=2:00:00                                                  # The job will run for 10 hours
-#SBATCH -o /network/scratch/j/julien.boussard/slurm_logs/slurm-%j.out  # Write the log on scratch
+#SBATCH --time=2:00:00                                                  # The job will run for 2 hours
 
 # 0. Clear the environment
 module purge

@@ -32,7 +32,7 @@ MULTI_GPU=False
 
 
 class TrainingLatent:
-    def __init__(self, model, datamodule, exp_params, gt_params, model_params, train_params, optim_params, plot_params, best_metrics, save_path, plots_path, d, wandbname="unspecified", profiler=False, profiler_path="./log"):
+    def __init__(self, model, datamodule, exp_params, gt_params, model_params, train_params, optim_params, plot_params, save_path, plots_path, best_metrics, d, wandbname="unspecified", profiler=False, profiler_path="./log"):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = accelerator.device
