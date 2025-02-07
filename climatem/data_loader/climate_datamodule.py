@@ -1,15 +1,20 @@
 from typing import List, Optional, Union
-
+import os
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from climatem.data_loader.climate_dataset import ClimateDataset
-from climatem.constants import DATA_DIR, LAT, LON, NUM_LEVELS, SEQ_LEN_MAPPING, TEMP_RES
 
 # NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
-from climatem.emulator_utils import get_logger, random_split
+from climatem.utils import get_logger, random_split
+# import torch.distributed as dist
+# def setup_ddp(rank=1, world_size=1):
+#     # os.environ['MASTER_ADDR'] = 'localhost'
+#     # os.environ['MASTER_PORT'] = '12355'
+#     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
 
 log = get_logger()
 
@@ -53,12 +58,14 @@ class ClimateDataModule(LightningDataModule):
         load_test_into_mem: bool = True,
         verbose: bool = True,
         seed: int = 11,
-        seq_len: int = SEQ_LEN_MAPPING[TEMP_RES],
-        output_save_dir: Optional[str] = DATA_DIR,
+        seq_len: int = 12,
+        data_dir: Optional[str] = "Climateset_DATA", # Change this
+        output_save_dir: Optional[str] = "Climateset_DATA",
+        reload_climate_set_data = True,
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
-        lon: int = LON,
-        lat: int = LAT,
-        num_levels: int = NUM_LEVELS,
+        lon: int = 144,
+        lat: int = 96,
+        num_levels: int = 1,
         # input_transform: Optional[AbstractTransform] = None,
         # normalizer: Optional[Normalizer] = None,
     ):
@@ -122,10 +129,6 @@ class ClimateDataModule(LightningDataModule):
             in_variables=self.hparams.in_var_ids,
             channels_last=self.hparams.channels_last,
             seq_to_seq=self.hparams.seq_to_seq,
-            # input_transform = None, # TODO: implement
-            # input_normalization = None, #TODO: implement
-            # output_transform = None,
-            # output_normalization = None,
         )
         # create datasets
         # assign to vars
@@ -199,24 +202,28 @@ class ClimateDataModule(LightningDataModule):
 
     def train_dataloader(self):
 
-        train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
+        # setup_ddp()
+        # train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
 
         return DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
             shuffle=False,
             drop_last=True,
-            sampler=train_sampler,
+            # sampler=train_sampler,
             **self._shared_dataloader_kwargs(),
         )
 
     def val_dataloader(self):
 
-        valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        # setup_ddp()
+        # valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return (
             DataLoader(
-                dataset=self._data_val, drop_last=True, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs()
+                dataset=self._data_val, drop_last=True, 
+                # sampler=valid_sampler, 
+                **self._shared_eval_dataloader_kwargs()
             )
             if self._data_val is not None
             else None
@@ -224,20 +231,26 @@ class ClimateDataModule(LightningDataModule):
 
     def test_dataloader(self) -> List[DataLoader]:
 
-        test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
+        # setup_ddp()
+        # test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
 
         return [
-            DataLoader(dataset=ds_test, sampler=test_sampler, **self._shared_eval_dataloader_kwargs())
+            DataLoader(dataset=ds_test, 
+                    #    sampler=test_sampler, 
+                       **self._shared_eval_dataloader_kwargs())
             for ds_test in self._data_test
         ]
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
 
-        valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        # setup_ddp()
+        # valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return [
             (
-                DataLoader(dataset=self._data_val, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs())
+                DataLoader(dataset=self._data_val, 
+                        #    sampler=valid_sampler,
+                           **self._shared_eval_dataloader_kwargs())
                 if self._data_val is not None
                 else None
             )

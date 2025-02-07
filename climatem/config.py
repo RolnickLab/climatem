@@ -1,4 +1,5 @@
 from typing import List, Optional, Union
+from climatem.constants import SEQ_LEN_MAPPING
 
 class expParams:
     def __init__(self, 
@@ -11,7 +12,7 @@ class expParams:
                  lat: int = 96,    
                  tau: int = 5,
                  random_seed: int = 1,
-                 seed: int = 11, 
+                #  seed: int = 11, 
                  gpu: bool = True,
                  float: bool = False,
                  num_workers: int = 0,
@@ -27,7 +28,7 @@ class expParams:
         self.lat = lat
         self.tau = tau
         self.random_seed = random_seed
-        self.seed = seed
+        # self.seed = seed
         self.gpu = gpu
         self.float = float
         self.num_workers = num_workers
@@ -37,6 +38,8 @@ class expParams:
 class dataParams:
     def __init__(self, 
                  data_dir,
+                 climateset_data,
+                 reload_climate_set_data,
                  icosahedral_coordinates_path,
                  train_historical_years, 
                  test_years,
@@ -44,14 +47,15 @@ class dataParams:
                  train_scenarios,
                  test_scenarios,
                  train_models,
+                #  test_models, TODO: enable training and testing on two different models
                  in_var_ids,
                  out_var_ids,
                  num_ensembles: int = 1, 
                  num_levels: int = 1, 
-                 seq_len: int = 12,
+                 temp_res: str = "mon",
                  batch_size: int = 256,    
                  eval_batch_size: int = 256,
-                 val_split: float = 0.1,
+                #  val_split: float = 0.1,
                  seasonality_removal: bool = False,
                  channels_last: bool = False,
                  ishdf5: bool = False,
@@ -63,6 +67,8 @@ class dataParams:
                  num_months_aggregated: List[int] = [1],
                 ):
         self.data_dir = data_dir
+        self.climateset_data = climateset_data
+        self.reload_climate_set_data = reload_climate_set_data
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
         self.train_historical_years = train_historical_years
         self.test_years = test_years
@@ -70,14 +76,18 @@ class dataParams:
         self.train_scenarios = train_scenarios
         self.test_scenarios = test_scenarios
         self.train_models = train_models
+        # self.test_models = test_models
         self.in_var_ids = in_var_ids
         self.out_var_ids = out_var_ids
         self.num_ensembles = num_ensembles
         self.num_levels = num_levels
-        self.seq_len = seq_len
+        try:
+            self.seq_len = SEQ_LEN_MAPPING[temp_res]
+        except ValueError as ve:
+            print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
-        self.val_split = val_split
+        # self.val_split = val_split
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
         self.ishdf5 = ishdf5

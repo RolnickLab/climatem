@@ -8,13 +8,12 @@ from pathlib import Path
 
 # JB: These are also input to the json files, twice... 
 # It needs to be input and not a constants
-LON = 96 # TODO JK commenting: LON and LAT must be swapped...
-LAT = 144
-NUM_LEVELS = 1
-SEQ_LEN = 12
+# LON = 144 # TODO JK commenting: LON and LAT must be swapped...
+# LAT = 96
+# NUM_LEVELS = 1
+# SEQ_LEN = 12
 INPUT4MIPS_TEMP_RES = "mon"
 CMIP6_TEMP_RES = "mon"
-TEMP_RES = "mon"
 INPUT4MIPS_NOM_RES = "map_250_km"
 CMIP6_NOM_RES = "250_km"  # TODO: not allow different resolutions
 SEQ_LEN_MAPPING = {"mon": 12}
@@ -24,9 +23,9 @@ SEQ_LEN_MAPPING = {"mon": 12}
 # we should verify each time that it corresponds to the correct data, 
 # This has led to a lot of confusion in the past. 
 # TBD but I think putting paths in the init or constants file is a bad idea 
-DATA_DIR = os.path.join(
-    Path(__file__).absolute().parent.parent, "Climateset_DATA"
-)  # os.path.join(os.getcwd(), 'Climateset_DATA') # set path to local data
+# DATA_DIR = os.path.join(
+#     Path(__file__).absolute().parent.parent, "Climateset_DATA"
+# )  # os.path.join(os.getcwd(), 'Climateset_DATA') # set path to local data
 # Model : (historical_obe_files, future_obe_files)
 
 # Available models

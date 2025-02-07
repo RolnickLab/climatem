@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -21,14 +20,11 @@ from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     AVAILABLE_MODELS_FIRETYPE,
     CMIP6_NOM_RES,
     CMIP6_TEMP_RES,
-    DATA_DIR,
-    LAT,
-    LON,
     NO_OPENBURNING_VARS,
     OPENBURNING_MODEL_MAPPING,
-    SEQ_LEN,
 )
-from utils import get_logger
+# from climatem.plotting.plot_data import plot_species, plot_species_anomaly
+from climatem.utils import get_logger
 
 log = get_logger()
 
@@ -39,207 +35,12 @@ log = get_logger()
 # from datamodule create one of these per train/test/val
 
 
-def plot_species(data, coordinates, var, out_dir, num_video):
-    """Plot the given species data on a map with a colorbar."""
-
-    #print("plotting")
-    # min_temp = np.floor(100 * data.min()) / 100
-    # max_temp = np.ceil(100 * data.max()) / 100
-
-    # can't use ceiling for precipitation due to units...
-    if var == "tas":
-        min_temp = np.floor(data.min())
-        max_temp = np.ceil(data.max())
-    elif var == "pr":
-        min_temp = data.min()
-        max_temp = data.max()
-    else:
-        print("Variable not recognized, please choose 'tas' or 'pr'")
-
-    longitudes, latitudes = np.unique(coordinates[:, 1]), np.unique(coordinates[:, 0])
-
-    for y in range(65):
-        year = 1850 + y
-        #print(year)
-        for m in range(12):
-            if num_video == "after_causal":
-                data_ym = data[y * 12 + m].reshape((96, 144))
-            else:
-                data_ym = data[y, m].reshape((96, 144))
-            # Create a figure with specified size and axis with a map projection
-            fig, ax = plt.subplots(subplot_kw={"projection": ccrs.PlateCarree()}, figsize=(12, 8))
-            ax.coastlines()
-
-            vmin, vmax = min_temp, max_temp  # Minimum and maximum values for colorbar
-
-            # Define number of color levels (adjust based on your colormap)
-            num_levels = 16
-            levels = np.linspace(vmin, vmax, num_levels + 1)
-
-            # NOTE: I should probably set the cmap here to be better, and maybe to depend on the variable
-            # Add filled contours of the emissions data to the map (extend='both') is an option to extend colorbar in both directions
-            # c = ax.contourf(longitudes, latitudes, data_ym, transform=ccrs.PlateCarree(), cmap='RdBu_r', vmin=min_temp, vmax=max_temp)
-            c = ax.contourf(longitudes, latitudes, data_ym, transform=ccrs.PlateCarree(), cmap="RdBu_r", levels=levels)
-
-            # do I really want this to be a contourf plot?
-
-            # Add a colorbar to the map
-            cbar = fig.colorbar(c, ax=ax, orientation="vertical", fraction=0.04, pad=0.05)
-
-            if var == "tas":
-                cbar.set_label("Temperature", rotation=270, labelpad=15)
-            elif var == "pr":
-                cbar.set_label("Precipitation", rotation=270, labelpad=15)
-            else:
-                # Need to make this better.
-                cbar.set_label("Variable?", rotation=270, labelpad=15)
-
-            # Add some map features for context
-            ax.add_feature(cfeature.BORDERS, linestyle=":")
-            ax.add_feature(cfeature.COASTLINE)
-            ax.add_feature(cfeature.LAND, edgecolor="black")
-
-            # Label the axes with latitude and longitude values
-            ax.set_xticks(np.arange(-180, 181, 30), crs=ccrs.PlateCarree())
-            ax.set_yticks(np.arange(-90, 91, 30), crs=ccrs.PlateCarree())
-            ax.set_xticklabels(np.arange(-180, 181, 30))
-            ax.set_yticklabels(np.arange(-90, 91, 30))
-            ax.gridlines(draw_labels=False)
-
-            # Set the title
-            # ax.set_title(f"{var} averaged over {years}")
-
-            fname = f"{out_dir}/{var}_{year}_{m}_plot.png"
-            plt.title(f"YEAR : {year}, MONTH: {m}")
-            plt.savefig(fname)
-            plt.close()
-
-    img_array = []
-
-    for y in range(65):
-        year = 1850 + y
-        #print(year)
-        # for j, month in enumerate(months_list):
-        for m in range(12):
-            filename = f"{out_dir}/{var}_{year}_{m}_plot.png"
-            # filename = f"{out_dir}/plot_{i}.png"
-            img = cv2.imread(filename)
-            height, width, layers = img.shape
-            size = (width, height)
-            img_array.append(img)
-
-    out = cv2.VideoWriter(f"{out_dir}/video_{num_video}.mp4", cv2.VideoWriter_fourcc(*"DIVX"), 15, size)
-
-    for i in range(len(img_array)):
-        out.write(img_array[i])
-    out.release()
-
-
-def plot_species_anomaly(data, coordinates, var, out_dir, num_video, method="monthly_mean"):
-    """
-    Plot the given species anomaly data on a map with a colorbar.
-
-    The anomaly is the monthly anomaly from the monthly mean for the whole time period of the data.
-    """
-
-    #print("plotting")
-
-    longitudes, latitudes = np.unique(coordinates[:, 1]), np.unique(coordinates[:, 0])
-
-    # compute the monthly anomaly here, but simply subtracting the monthly mean
-    if method == "monthly_mean":
-        data = data - np.mean(data, axis=0)
-
-    # also possible to compute the monthly anomaly scaled by the standard dev. of the data for that month
-    elif method == "monthly_scaled":
-        data = (data - np.mean(data, axis=0)) / np.std(data, axis=0)
-
-    else:
-        print("Method not recognized, please choose 'monthly_mean' or 'monthly_scaled'")
-    # also compute the monthly anomaly adjusted for the effect of emissions
-    # detrended_data = data - co2_sum * coefficient
-
-    # possible option for min and max values, they are simply for the colorbar
-    # min_temp = np.floor(100 * data.min()) / 100
-    # max_temp = np.ceil(100 * data.max()) / 100
-    min_temp = np.floor(data.min())
-    max_temp = np.ceil(data.max())
-
-    for y in range(100):
-        year = 1850 + y
-        #print(year)
-        for m in range(12):
-            if num_video == "after_causal":
-                data_ym = data[y * 12 + m].reshape((96, 144))
-            else:
-                data_ym = data[y, m].reshape((96, 144))
-            # Create a figure with specified size and axis with a map projection
-            fig, ax = plt.subplots(subplot_kw={"projection": ccrs.PlateCarree()}, figsize=(12, 8))
-            ax.coastlines()
-
-            vmin, vmax = min_temp, max_temp  # Minimum and maximum values for colorbar
-
-            # Define number of color levels (adjust based on your colormap)
-            num_levels = 16
-            levels = np.linspace(vmin, vmax, num_levels + 1)
-
-            # Add filled contours of the emissions data to the map
-            # c = ax.contourf(longitudes, latitudes, data_ym, transform=ccrs.PlateCarree(), cmap='RdBu_r', vmin=min_temp, vmax=max_temp)
-            c = ax.contourf(longitudes, latitudes, data_ym, transform=ccrs.PlateCarree(), cmap="RdBu_r", levels=levels)
-
-            # do I really want this to be a contourf plot?
-
-            # Add a colorbar to the map
-            cbar = fig.colorbar(c, ax=ax, orientation="vertical", fraction=0.04, pad=0.05)
-            cbar.set_label("Temperature", rotation=270, labelpad=15)
-
-            # Add some map features for context
-            ax.add_feature(cfeature.BORDERS, linestyle=":")
-            ax.add_feature(cfeature.COASTLINE)
-            ax.add_feature(cfeature.LAND, edgecolor="black")
-
-            # Label the axes with latitude and longitude values
-            ax.set_xticks(np.arange(-180, 181, 30), crs=ccrs.PlateCarree())
-            ax.set_yticks(np.arange(-90, 91, 30), crs=ccrs.PlateCarree())
-            ax.set_xticklabels(np.arange(-180, 181, 30))
-            ax.set_yticklabels(np.arange(-90, 91, 30))
-            ax.gridlines(draw_labels=False)
-
-            # Set the title
-            # ax.set_title(f"{var} averaged over {years}")
-
-            fname = f"{out_dir}/{var}_{year}_{m}_plot.png"
-            plt.title(f"YEAR : {year}, MONTH: {m}")
-            plt.savefig(fname)
-            plt.close()
-
-    img_array = []
-
-    for y in range(100):
-        year = 1850 + y
-        #print(year)
-        # for j, month in enumerate(months_list):
-        for m in range(12):
-            filename = f"{out_dir}/{var}_{year}_{m}_plot.png"
-            # filename = f"{out_dir}/plot_{i}.png"
-            img = cv2.imread(filename)
-            height, width, layers = img.shape
-            size = (width, height)
-            img_array.append(img)
-
-    out = cv2.VideoWriter(f"{out_dir}/video_{num_video}.mp4", cv2.VideoWriter_fourcc(*"DIVX"), 15, size)
-
-    for i in range(len(img_array)):
-        out.write(img_array[i])
-    out.release()
-
-
 class ClimateDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         years: Union[int, str] = "2015-2020",
         mode: str = "train",  # Train or test maybe # deprecated
-        output_save_dir: Optional[str] = DATA_DIR,
+        output_save_dir: Optional[str] = "Climateset_DATA",
         climate_model: str = "NorESM2-LM",  # implementing single model only for now
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         scenarios: Union[List[str], str] = ["ssp126", "ssp370", "ssp585"],
@@ -250,10 +51,13 @@ class ClimateDataset(torch.utils.data.Dataset):
         seq_to_seq: bool = True,  # TODO: implement if false
         channels_last: bool = False,
         load_data_into_mem: bool = True,  # Keeping this true be default for now
-        input_transform=None,  # TODO: implement
-        input_normalization="z-norm",  # TODO: implement
-        output_transform=None,
-        output_normalization="z-norm",
+        seq_len: int = 12,
+        lat: int = 96,
+        lon: int = 144,
+        # input_transform=None,  # TODO: implement
+        # input_normalization="z-norm",  # TODO: implement
+        # output_transform=None,
+        # output_normalization="z-norm",
         seasonality_removal: bool = True,
         *args,
         **kwargs,
@@ -275,6 +79,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         super().__init__()
         self.test_dir = output_save_dir
         self.output_save_dir = output_save_dir
+        #Here need to propagate argument data_params.reload_climate_set_data
 
         self.channels_last = channels_last
         self.load_data_into_mem = load_data_into_mem
@@ -323,6 +128,9 @@ class ClimateDataset(torch.utils.data.Dataset):
             seq_to_seq=seq_to_seq,
             seasonality_removal=self.seasonality_removal,
         )
+        self.seq_len = seq_len
+        self.lat = lat
+        self.lon = lon
         # creates on cmip and on input4mip dataset
         #print("creating input4mips")
         self.input4mips_ds = Input4MipsDataset(variables=in_variables, **ds_kwargs)
@@ -382,17 +190,15 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         #print("Temp data shape after concatenation:", temp_data.shape)
 
-        #print("SEQ_LEN:", SEQ_LEN)
-
         # this is not very neat, but it calc
         if paths[0][0][-5:] == ".grib":
             years = len(paths[0])
-            temp_data = temp_data.reshape(num_vars, years, SEQ_LEN, -1)
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
             #print("temp data shape", temp_data.shape)
 
         else:
             years = len(paths[0])
-            temp_data = temp_data.reshape(num_vars, years, SEQ_LEN, LON, LAT)
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, self.lon, self.lat)
             #print("temp data shape", temp_data.shape)
 
         # create a new array with the first 3 columns, and then tuple(lon, lat)
@@ -567,7 +373,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             #print("Trying to regrid to lon, lat if we have regular data...")
             # data = data.reshape(num_scenarios, num_years, num_vars, LON, LAT)
 
-            data = data.reshape(num_scenarios, num_years * 12, num_vars, LON, LAT)
+            data = data.reshape(num_scenarios, num_years * 12, num_vars, self.lon, self.lat)
 
         except ValueError:
             print(
@@ -1004,7 +810,7 @@ class CMIP6Dataset(ClimateDataset):
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
-        data_dir: Optional[str] = DATA_DIR,
+        data_dir: Optional[str] = "Climateset_DATA",
         climate_model: str = "NorESM2-LM",
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
@@ -1014,6 +820,9 @@ class CMIP6Dataset(ClimateDataset):
         channels_last: bool = True,
         seq_to_seq: bool = True,
         seasonality_removal: bool = True,
+        seq_len: int = 12,
+        lat: int = 96,
+        lon: int = 144,
         *args,
         **kwargs,
     ):
@@ -1026,6 +835,9 @@ class CMIP6Dataset(ClimateDataset):
         self.output_nc_files = []
         self.in_variables = variables
         self.seasonality_removal = seasonality_removal
+        self.seq_len = seq_len
+        self.lon = lon
+        self.lat = lat
 
         fname_kwargs = dict(
             climate_model=climate_model,
@@ -1253,7 +1065,7 @@ class Input4MipsDataset(ClimateDataset):
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
-        data_dir: Optional[str] = DATA_DIR,
+        data_dir: Optional[str] = "Climateset_DATA",
         variables: List[str] = ["BC_sum"],
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
         channels_last: bool = False,
@@ -1261,6 +1073,9 @@ class Input4MipsDataset(ClimateDataset):
         mode: str = "train",
         output_save_dir: str = "",
         seasonality_removal: bool = True,
+        seq_len: int = 12,
+        lat: int = 96,
+        lon: int = 144,
         *args,
         **kwargs,
     ):
@@ -1274,6 +1089,9 @@ class Input4MipsDataset(ClimateDataset):
         self.output_nc_files = []
         self.seasonality_removal = seasonality_removal
         self.in_variables = variables
+        self.seq_len = seq_len
+        self.lon = lon
+        self.lat = lat
 
         if len(historical_years) == 0:
             historical_years_str = "no_historical"

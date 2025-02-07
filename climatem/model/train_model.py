@@ -13,7 +13,7 @@ from geopy import distance
 from torch.profiler import ProfilerActivity
 
 from climatem.model.dag_optim import compute_dag_constraint
-from climatem.plotting.plot_multigpu import Plotter
+from climatem.plotting.plot_model_output import Plotter
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 
@@ -26,7 +26,7 @@ from climatem import MAPPINGS_DIR
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
-
+MULTI_GPU=False
 
 # set profiler manually for now
 
@@ -55,7 +55,7 @@ class TrainingLatent:
         self.latent = exp_params.latent
         self.no_gt = gt_params.no_gt
         self.debug_gt_z = gt_params.debug_gt_z
-        self.d_z = gt_params.d_z
+        self.d_z = exp_params.d_z
         self.no_w_constraint = model_params.no_w_constraint
 
         self.d = d
@@ -163,6 +163,11 @@ class TrainingLatent:
             if self.latent:
                 self.ortho_normalization = self.d_x * self.d_z
                 self.sparsity_normalization = self.tau * self.d_z * self.d_z
+
+        if not MULTI_GPU: 
+            self.mod = self.model
+        else:
+            self.mod = self.model.module
 
     def train_with_QPM(self):
         """
@@ -474,9 +479,9 @@ class TrainingLatent:
 
         # also make the proper prediction, not the reconstruction as we do above
         # we have to take care here to make sure that we have the right tensors with requires_grad
-        y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.module.predict(x, y)
+        y_pred, y_spare, z_spare, pz_mu, pz_std = self.mod.predict(x, y)
         # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
-        px_mu, px_std = self.model.module.predict_pxmu_pxstd(x, y)
+        px_mu, px_std = self.mod.predict_pxmu_pxstd(x, y)
 
         # compute regularisations (sparsity and connectivity)
         sparsity_reg = self.get_regularisation()
@@ -490,7 +495,7 @@ class TrainingLatent:
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
 
-        h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
+        h_ortho = self.get_ortho_violation(self.mod.autoencoder.get_w_decoder())
 
         # Compute a sparsity constraint here, with a lower (that doesn't end up being relevant) and upper threshold
         h_sparsity = self.get_sparsity_violation(lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold)
@@ -532,10 +537,10 @@ class TrainingLatent:
         _, _ = self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step(), self.train_params.lr
 
         # projection of the gradient for w
-        if self.model.module.autoencoder.use_grad_project and not self.no_w_constraint:
+        if self.mod.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
-                self.model.module.autoencoder.get_w_decoder().clamp_(min=0.0)
-            assert torch.min(self.model.module.autoencoder.get_w_decoder()) >= 0.0
+                self.mod.autoencoder.get_w_decoder().clamp_(min=0.0)
+            assert torch.min(self.mod.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -702,7 +707,7 @@ class TrainingLatent:
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
-            h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
+            h_ortho = self.get_ortho_violation(self.mod.autoencoder.get_w_decoder())
 
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
@@ -850,8 +855,8 @@ class TrainingLatent:
         Convert it to a binary graph and fix it.
         """
         with torch.no_grad():
-            thresholded_adj = (self.model.module.get_adj() > 0.5).type(torch.Tensor)
-            self.model.module.mask.fix(thresholded_adj)
+            thresholded_adj = (self.mod.get_adj() > 0.5).type(torch.Tensor)
+            self.mod.mask.fix(thresholded_adj)
         self.thresholded = True
         print("Thresholding ================")
 
@@ -901,15 +906,15 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        self.adj_tt[int(self.iteration / self.plot_params.valid_freq)] = self.model.module.get_adj()  # .cpu().detach().numpy()
-        w = self.model.module.autoencoder.get_w_decoder()  # .cpu().detach().numpy()
+        self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.mod.get_adj()  # .cpu().detach().numpy()
+        w = self.mod.autoencoder.get_w_decoder()  # .cpu().detach().numpy()
         if not self.no_gt:
-            self.adj_w_tt[int(self.iteration / self.plot_params.valid_freq)] = w
+            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
-        self.logvar_decoder_tt.append(self.model.module.autoencoder.logvar_decoder[0].item())
-        self.logvar_encoder_tt.append(self.model.module.autoencoder.logvar_encoder[0].item())
-        self.logvar_transition_tt.append(self.model.module.transition_model.logvar[0, 0].item())
+        self.logvar_decoder_tt.append(self.mod.autoencoder.logvar_decoder[0].item())
+        self.logvar_encoder_tt.append(self.mod.autoencoder.logvar_encoder[0].item())
+        self.logvar_transition_tt.append(self.mod.transition_model.logvar[0, 0].item())
 
     def print_results(self):
         """Print values of many variable: losses, constraint violation, etc.
@@ -948,7 +953,7 @@ class TrainingLatent:
 
     def get_regularisation(self) -> float:
         if self.iteration > self.optim_params.schedule_reg:
-            adj = self.model.module.get_adj()
+            adj = self.mod.get_adj()
             reg = self.optim_params.reg_coeff * torch.norm(adj, p=1)
             # reg /= adj.numel()
         else:
@@ -958,7 +963,7 @@ class TrainingLatent:
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
-            adj = self.model.module.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
+            adj = self.mod.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
             h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
         else:
             h = torch.tensor([0.0])
@@ -1000,7 +1005,7 @@ class TrainingLatent:
         if self.iteration > self.optim_params.schedule_sparsity:
 
             # first get the adj
-            adj = self.model.module.get_adj()
+            adj = self.mod.get_adj()
 
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization
             # print('constraint value, before I subtract a threshold from it:', sum_of_connections)
@@ -1197,7 +1202,7 @@ class TrainingLatent:
         Not used yet - could be interesting :)
         """
         c = torch.tensor([0.0])
-        w = self.model.module.autoencoder.get_w_encoder()
+        w = self.mod.autoencoder.get_w_encoder()
         d = self.data.distances
         for i in self.d:
             for k in self.d_z:
@@ -1207,7 +1212,7 @@ class TrainingLatent:
     def connectivity_reg(self, ratio: float = 0.0005):
         """Calculate a connectivity regularisation only on a subsample of the complete data."""
         c = torch.tensor([0.0])
-        w = self.model.module.autoencoder.get_w_encoder()
+        w = self.mod.autoencoder.get_w_encoder()
         n = int(self.d_x * ratio)
         points = np.random.choice(np.arange(self.d_x), n)
 
@@ -1264,11 +1269,11 @@ class TrainingLatent:
 
             # ensure these are correct
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std = self.mod.predict(x, y)
 
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
-                samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 10)
+                samples_from_xs, samples_from_zs, y = self.mod.predict_sample(x, y, 10)
 
             # append the first prediction
             predictions.append(y_pred)
@@ -1309,7 +1314,7 @@ class TrainingLatent:
                 # then predict the next timestep
                 # y at this point is pointless!!!
                 with torch.no_grad():
-                    y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std = self.mod.predict(x, y)
 
                 # append the prediction
                 predictions.append(y_pred)
@@ -1406,10 +1411,10 @@ class TrainingLatent:
 
             # swap
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std = self.mod.predict(x, y)
                 
                 # predict and take 100 samples too
-                samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
+                samples_from_xs, samples_from_zs, y = self.mod.predict_sample(x, y, 100)
 
             # make a copy of y_pred, which is a tensor
             x_original = x.clone().detach()
@@ -1440,7 +1445,7 @@ class TrainingLatent:
 
                 with torch.no_grad():
                     # then predict the next timestep
-                    y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std = self.mod.predict(x, y)
 
                 np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
                 np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())
@@ -1527,7 +1532,7 @@ class TrainingLatent:
         for _ in range(timesteps):
             # Prediction
             # make all the new predictions, taking samples from the latents
-            _, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
+            _, samples_from_zs, y = self.mod.predict_sample(x, y, 100)
 
             # then calculate the score of each of the samples
             # Update the weights, where we want the weights to increase as the score improves

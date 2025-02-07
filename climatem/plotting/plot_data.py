@@ -4,6 +4,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 # NOTE: SH has changed this to plot a historical series of data from 1850-2014
 # and to save as mp4
 def plot_species(data, coordinates, var, out_dir, num_video):

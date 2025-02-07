@@ -2,7 +2,7 @@
 
 import json
 from typing import Optional
-
+import os
 import numpy as np
 import torch
 
@@ -34,7 +34,10 @@ class CausalClimateDataModule(ClimateDataModule):
     def __init__(self, tau=5, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
         super().__init__(self)
 
-        self.hparams.test_models = None if self.hparams.test_models else self.hparams.train_models
+        # WHat is this line? We cannot have different test vs train models
+        # self.hparams.test_models = None if self.hparams.test_models else self.hparams.train_models
+        self.hparams.test_models = self.hparams.train_models
+
 
         self.tau = tau
         self.num_months_aggregated = num_months_aggregated
@@ -70,6 +73,8 @@ class CausalClimateDataModule(ClimateDataModule):
             train_years = self.years_to_list(self.hparams.train_years)
             train_historical_years = self.years_to_list(self.hparams.train_historical_years)
 
+            os.makedirs(self.hparams.output_save_dir, exist_ok = True)
+            # Later propagate "reload argument here"
             if (
                 "tas" in self.hparams.in_var_ids
                 or "pr" in self.hparams.in_var_ids
@@ -89,6 +94,8 @@ class CausalClimateDataModule(ClimateDataModule):
                     openburning_specs=openburning_specs,
                     mode="train+val",
                     output_save_dir=self.hparams.output_save_dir,
+                    lon=self.hparams.lon,
+                    lat=self.hparams.lat,
                 )
             else:
                 train_val_input4mips = Input4MipsDataset(
@@ -101,6 +108,8 @@ class CausalClimateDataModule(ClimateDataModule):
                     openburning_specs=openburning_specs,
                     mode="train+val",
                     output_save_dir=self.hparams.output_save_dir,
+                    lon=self.hparams.lon,
+                    lat=self.hparams.lat,
                 )
 
             ratio_train = 1 - self.hparams.val_split

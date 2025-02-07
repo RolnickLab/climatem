@@ -58,15 +58,21 @@ def main(
     # Use GPU
     # TODO: Make everything Double instead of FLoat on GPU
     if experiment_params.gpu:
-        if experiment_params.float:
-            torch.set_default_tensor_type("torch.cuda.FloatTensor")
-        else:
-            torch.set_default_tensor_type("torch.cuda.FloatTensor")
+        torch.set_default_tensor_type("torch.cuda.FloatTensor")
     else:
-        if experiment_params.float:
-            torch.set_default_tensor_type("torch.FloatTensor")
-        else:
-            torch.set_default_tensor_type("torch.FloatTensor")
+        torch.set_default_tensor_type("torch.FloatTensor")
+
+    # What if not experiment_params.float? Then we should use double? 
+    # Maybe remove this from params
+    #     if experiment_params.float:
+    #         torch.set_default_tensor_type("torch.cuda.FloatTensor")
+    #     else:
+    #         torch.set_default_tensor_type("torch.cuda.FloatTensor")
+    # else:
+    #     if experiment_params.float:
+    #         torch.set_default_tensor_type("torch.FloatTensor")
+    #     else:
+    #         torch.set_default_tensor_type("torch.FloatTensor")
 
     # Create folder
     # args.exp_path = os.path.join(args.exp_path, f"exp{args.exp_id}")
@@ -84,10 +90,38 @@ def main(
         return
     else:
         datamodule = CausalClimateDataModule(
-            # Update this function 
-            data_params, 
-            experiment_params, 
-        )  # ...
+            tau=experiment_params.tau, 
+            num_months_aggregated=data_params.num_months_aggregated, 
+            train_val_interval_length=data_params.train_val_interval_length,
+            in_var_ids = data_params.in_var_ids,
+            out_var_ids = data_params.out_var_ids,
+            train_years = data_params.train_years,
+            train_historical_years = data_params.train_historical_years,
+            test_years = data_params.test_years,  # do we want to implement keeping only certain years for testing?
+            val_split = 1-train_params.ratio_train,  # fraction of testing to split for valdation
+            seq_to_seq = data_params.seq_to_seq,  # if true maps from T->T else from T->1
+            channels_last = data_params.channels_last,  # wheather variables come last our after sequence lenght
+            train_scenarios = data_params.train_scenarios,
+            test_scenarios = data_params.test_scenarios,
+            train_models = data_params.train_models,
+            # test_models = data_params.test_models,
+            batch_size = data_params.batch_size,
+            eval_batch_size = data_params.eval_batch_size,
+            num_workers = experiment_params.num_workers,
+            pin_memory = experiment_params.pin_memory,
+            load_train_into_mem = data_params.load_train_into_mem,
+            load_test_into_mem = data_params.load_test_into_mem,
+            verbose = experiment_params.verbose,
+            seed = experiment_params.random_seed,
+            seq_len = data_params.seq_len,
+            data_dir = data_params.data_dir,
+            output_save_dir = data_params.climateset_data,
+            reload_climate_set_data = data_params.reload_climate_set_data,
+            num_ensembles = data_params.num_ensembles,  # 1 for first ensemble, -1 for all
+            lon = experiment_params.lon,
+            lat = experiment_params.lon,
+            num_levels = data_params.num_levels,
+        ) 
         datamodule.setup()
 
     train_dataloader = iter(datamodule.train_dataloader())
@@ -112,7 +146,7 @@ def main(
         num_layers=model_params.num_layers,
         num_hidden=model_params.num_hidden,
         num_input=num_input,
-        num_output=2,
+        num_output=2, #This should be parameterized somewhere? 
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
         coeff_kl=optim_params.coeff_kl,
@@ -124,7 +158,6 @@ def main(
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
-
         instantaneous=model_params.instantaneous,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,
@@ -143,16 +176,16 @@ def main(
     # Make folder to save run results
     # TODO: Simplify name, since params are stored, although might be fine, maybe refactor this so it's the correct params
     exp_path = Path(experiment_params.exp_path)
-    os.makedirs(exp_path, exists_ok = True)
+    os.makedirs(exp_path, exist_ok = True)
     name = f"var_{data_params.in_var_ids}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
-    os.makedirs(exp_path, exists_ok = True)
+    os.makedirs(exp_path, exist_ok = True)
 
     # create path to exp and save hyperparameters
     save_path = exp_path / "training_results"
-    os.makedirs(save_path, exists_ok=True)
+    os.makedirs(save_path, exist_ok=True)
     plots_path = exp_path / "plots"
-    os.makedirs(plots_path, exists_ok=True)
+    os.makedirs(plots_path, exist_ok=True)
     # Here could maybe implement a "save()" function inside each class 
     hp = {}
     hp["exp_params"] = experiment_params.__dict__
@@ -162,7 +195,7 @@ def main(
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
     with open(exp_path / "params.json", "w") as file:
-        json.dump(vars(hp), file, indent=4)
+        json.dump(hp, file, indent=4)
 
     # # load the best metrics
     # with open(os.path.join(hp.data_path, "best_metrics.json"), 'r') as f:
