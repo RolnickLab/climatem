@@ -3,7 +3,6 @@
         "exp_path": "/home/mila/j/julien.boussard/scratch/results/climatem_spectral/var_ts_picontrol",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
-
         "d_z": 90,
         "d_x": 6250,
         "lon": 144, 
@@ -11,7 +10,6 @@
         "tau": 5,
         "random_seed": 1,
         "gpu": true,
-        "float": false,
         "num_workers":  0,
         "pin_memory": false,
         "verbose": true
@@ -19,7 +17,7 @@
     "data_params": {
         "data_dir": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni",
         "climateset_data": "/network/scratch/j/julien.boussard/data/Climateset_DATA_TEST", 
-        "reload_climate_set_data": true,
+        "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "/network/scratch/j/julien.boussard/data/vertex_lonlat_mapping.txt",
         "num_levels": 1,
         "temp_res": "mon",

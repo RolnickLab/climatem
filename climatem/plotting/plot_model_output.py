@@ -48,13 +48,13 @@ class Plotter:
         if learner.latent:
             # save matrix W of the decoder and encoder
             print("Saving the decoder, encoder and graphs.")
-            w_decoder = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+            w_decoder = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_decoder.npy", w_decoder)
-            w_encoder = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+            w_encoder = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_encoder.npy", w_encoder)
 
             # save the graphs G
-            adj = learner.model.module.get_adj().cpu().detach().numpy()
+            adj = learner.model.get_adj().cpu().detach().numpy()
             np.save(learner.plots_path / "graphs.npy", adj)
 
     def load(self, exp_path, data_loader):
@@ -124,7 +124,7 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="penalties",
                 yaxis_log=True,
@@ -141,7 +141,7 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="losses",
             )
@@ -153,7 +153,7 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=logvar,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="logvar",
             )
@@ -162,17 +162,17 @@ class Plotter:
                 train_loss=learner.train_loss_list,
                 valid_loss=learner.valid_loss_list,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
             )
 
         # plot the adjacency matrix (learned vs ground-truth)
-        adj = learner.model.module.get_adj().cpu().detach().numpy()
+        adj = learner.model.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag
@@ -195,7 +195,7 @@ class Plotter:
                 self.save_mcc_and_assignement(learner.plots_path)
 
                 # draw learned mixing fct vs GT
-                if learner.hp.nonlinear_mixing:
+                if learner.model_params.nonlinear_mixing:
                     self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
 
             else:
@@ -209,8 +209,8 @@ class Plotter:
             gt_w = None
 
             # for latent models, find the right permutation of the latent
-            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+            adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+            adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
         self.plot_adjacency_matrix(
@@ -220,7 +220,7 @@ class Plotter:
             name_suffix="transition",
             no_gt=learner.no_gt,
             iteration=learner.iteration,
-            plot_through_time=learner.hp.plot_through_time,
+            plot_through_time=learner.plot_params.plot_through_time,
         )
 
         # plot the weights W for latent models (between the latent Z and the X)
@@ -241,7 +241,7 @@ class Plotter:
                     adj_w,
                     learner.coordinates,
                     learner.iteration,
-                    learner.hp.plot_through_time,
+                    learner.plot_params.plot_through_time,
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
@@ -252,7 +252,7 @@ class Plotter:
                     adj_w,
                     learner.coordinates,
                     learner.iteration,
-                    learner.hp.plot_through_time,
+                    learner.plot_params.plot_through_time,
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
@@ -282,7 +282,7 @@ class Plotter:
                 valid_kl=learner.valid_kl_list,
                 best_metrics=learner.best_metrics,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
             )
             # NOTE:(seb) adding here capacity to plot the new sparsity constraint!
@@ -299,7 +299,7 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="penalties",
                 yaxis_log=True,
@@ -316,7 +316,7 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=losses,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="losses",
             )
@@ -328,7 +328,7 @@ class Plotter:
             self.plot_learning_curves2(
                 losses=logvar,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="logvar",
             )
@@ -337,7 +337,7 @@ class Plotter:
                 train_loss=learner.train_loss_list,
                 valid_loss=learner.valid_loss_list,
                 iteration=learner.iteration,
-                plot_through_time=learner.hp.plot_through_time,
+                plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
             )
 
@@ -345,12 +345,12 @@ class Plotter:
         # plot_compare_prediction(x, x_hat)
 
         # plot the adjacency matrix (learned vs ground-truth)
-        adj = learner.model.module.get_adj().cpu().detach().numpy()
+        adj = learner.model.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag
@@ -373,7 +373,7 @@ class Plotter:
                 self.save_mcc_and_assignement(learner.plots_path)
 
                 # draw learned mixing fct vs GT
-                if learner.hp.nonlinear_mixing:
+                if learner.model_params.nonlinear_mixing:
                     self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
 
             else:
@@ -387,8 +387,8 @@ class Plotter:
             gt_w = None
 
             # for latent models, find the right permutation of the latent
-            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+            adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+            adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
         self.plot_adjacency_matrix(
@@ -398,7 +398,7 @@ class Plotter:
             name_suffix="transition",
             no_gt=learner.no_gt,
             iteration=learner.iteration,
-            plot_through_time=learner.hp.plot_through_time,
+            plot_through_time=learner.plot_params.plot_through_time,
         )
 
         # plot the weights W for latent models (between the latent Z and the X)
@@ -418,7 +418,7 @@ class Plotter:
                     adj_w,
                     learner.coordinates,
                     learner.iteration,
-                    learner.hp.plot_through_time,
+                    learner.plot_params.plot_through_time,
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
@@ -979,8 +979,8 @@ class Plotter:
         if not os.path.exists(learner.plots_path / "coordinates.npy"):
             np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
-        adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-        adj_encoder_w = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_encoder_w = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
         np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
         np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 

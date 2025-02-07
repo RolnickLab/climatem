@@ -14,7 +14,6 @@ class expParams:
                  random_seed: int = 1,
                 #  seed: int = 11, 
                  gpu: bool = True,
-                 float: bool = False,
                  num_workers: int = 0,
                  pin_memory: bool = False,
                  verbose: bool = True
@@ -30,7 +29,6 @@ class expParams:
         self.random_seed = random_seed
         # self.seed = seed
         self.gpu = gpu
-        self.float = float
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.verbose = verbose

@@ -2,14 +2,14 @@
 
 #SBATCH --job-name=run_single
 #SBATCH --output=run_single_output.txt
-#SBATCH --error=run_single_error.txt
-#SBATCH --partition=long                                                 # Ask for long job
+#SBATCH --error=run_single_error.txt                                    # Ask for long job
 #SBATCH --gpus-per-task=1                                                # Ask for 1 GPU
-#SBATCH --cpus-per-task=16                                               # Ask for 2 CPUs
+#SBATCH --cpus-per-task=4                                               # Ask for 2 CPUs
 #SBATCH --ntasks-per-node=1                                              # Ask for 2 CPUs
 #SBATCH --nodes=1                                                        # Ask for 2 CPUs
-#SBATCH --mem=80G                                                       # Ask for 10 GB of RAM
-#SBATCH --time=2:00:00                                                  # The job will run for 2 hours
+#SBATCH --mem=32G                                                       # Ask for 10 GB of RAM
+#SBATCH --time=20:00                                                  # The job will run for 2 hours
+#SBATCH --partition=main
 
 # 0. Clear the environment
 module purge

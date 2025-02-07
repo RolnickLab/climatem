@@ -41,6 +41,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         years: Union[int, str] = "2015-2020",
         mode: str = "train",  # Train or test maybe # deprecated
         output_save_dir: Optional[str] = "Climateset_DATA",
+        reload_climate_set_data: Optional[bool] = True,
         climate_model: str = "NorESM2-LM",  # implementing single model only for now
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         scenarios: Union[List[str], str] = ["ssp126", "ssp370", "ssp585"],
@@ -79,6 +80,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         super().__init__()
         self.test_dir = output_save_dir
         self.output_save_dir = output_save_dir
+        self.reload_climate_set_data = reload_climate_set_data
         #Here need to propagate argument data_params.reload_climate_set_data
 
         self.channels_last = channels_last
@@ -125,6 +127,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             openburning_specs=openburning_specs,
             mode=mode,
             output_save_dir=output_save_dir,
+            reload_climate_set_data=self.reload_climate_set_data,
             seq_to_seq=seq_to_seq,
             seasonality_removal=self.seasonality_removal,
         )
@@ -817,6 +820,7 @@ class CMIP6Dataset(ClimateDataset):
         variables: List[str] = ["pr"],
         mode: str = "train",
         output_save_dir: str = "",
+        reload_climate_set_data: bool = True,
         channels_last: bool = True,
         seq_to_seq: bool = True,
         seasonality_removal: bool = True,
@@ -829,8 +833,8 @@ class CMIP6Dataset(ClimateDataset):
 
         self.mode = mode
         self.output_save_dir = output_save_dir
+        self.reload_climate_set_data = reload_climate_set_data
         self.root_dir = os.path.join(data_dir, "outputs/CMIP6")
-        # self.output_save_dir = output_save_dir
         self.input_nc_files = []
         self.output_nc_files = []
         self.in_variables = variables
@@ -893,7 +897,7 @@ class CMIP6Dataset(ClimateDataset):
         fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=fname_kwargs)
 
         # here we reload files if they exist
-        if os.path.isfile(os.path.join(output_save_dir, fname)):  # we first need to get the name here to test that...
+        if os.path.isfile(os.path.join(output_save_dir, fname)) and self.reload_climate_set_data:  # we first need to get the name here to test that...
 
             self.data_path = os.path.join(output_save_dir, fname)
             #print("path exists, reloading")
@@ -1072,6 +1076,7 @@ class Input4MipsDataset(ClimateDataset):
         openburning_specs: Tuple[str] = ("no_fires", "no_fires"),
         mode: str = "train",
         output_save_dir: str = "",
+        reload_climate_set_data: bool = True,
         seasonality_removal: bool = True,
         seq_len: int = 12,
         lat: int = 96,
@@ -1085,6 +1090,7 @@ class Input4MipsDataset(ClimateDataset):
         self.mode = mode
         self.root_dir = os.path.join(data_dir, "inputs/input4mips")
         self.output_save_dir = output_save_dir
+        self.reload_climate_set_data = reload_climate_set_data
         self.input_nc_files = []
         self.output_nc_files = []
         self.seasonality_removal = seasonality_removal
@@ -1120,7 +1126,7 @@ class Input4MipsDataset(ClimateDataset):
         # Check here if os.path.isfile(data.npz) exists #TODO: check if exists on slurm
         # if it does, use self._reload data(path)
 
-        if os.path.isfile(os.path.join(output_save_dir, fname)):  # we first need to get the name here to test that...
+        if os.path.isfile(os.path.join(output_save_dir, fname)) and self.reload_climate_set_data:  # we first need to get the name here to test that...
             self.data_path = os.path.join(output_save_dir, fname)
             #print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)

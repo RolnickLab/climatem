@@ -1,15 +1,18 @@
 from typing import List, Optional, Union
 import os
+import torch
+import torch.distributed as dist
+
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from climatem.data_loader.climate_dataset import ClimateDataset
-
-# NOTE: this comes from the causalpaca github installation in the requirements_env_emulator.txt, but can be removed
 from climatem.utils import get_logger, random_split
-# import torch.distributed as dist
+
+MULTI_GPU=torch.cuda.device_count()>1
+
 # def setup_ddp(rank=1, world_size=1):
 #     # os.environ['MASTER_ADDR'] = 'localhost'
 #     # os.environ['MASTER_PORT'] = '12355'
@@ -124,6 +127,7 @@ class ClimateDataModule(LightningDataModule):
         # shared for all
         dataset_kwargs = dict(
             output_save_dir=self.hparams.output_save_dir,
+            reload_climate_set_data=self.hparams.reload_climate_set_data,
             num_ensembles=self.hparams.num_ensembles,
             out_variables=self.hparams.out_var_ids,
             in_variables=self.hparams.in_var_ids,
@@ -200,58 +204,72 @@ class ClimateDataModule(LightningDataModule):
     # x: (batch_size, sequence_length, lon, lat, in_vars) if channels_last else (batch_size, sequence_lenght, in_vars, lon, lat)
     # y: (batch_size, sequence_length, lon, lat, out_vars) if channels_last else (batch_size, sequence_lenght, out_vars, lon, lat)
 
+    # Below can have a single function (only the dataset changes)
     def train_dataloader(self):
 
-        # setup_ddp()
-        # train_sampler = DistributedSampler(dataset=self._data_train, shuffle=False)
+        train_sampler = None
+        if MULTI_GPU:
+            # setup_ddp()
+            train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
 
         return DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
             shuffle=False,
             drop_last=True,
-            # sampler=train_sampler,
+            sampler=train_sampler,
             **self._shared_dataloader_kwargs(),
         )
+         
 
     def val_dataloader(self):
 
-        # setup_ddp()
-        # valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        valid_sampler=None
+
+        if MULTI_GPU:
+            # setup_ddp()
+            valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return (
             DataLoader(
                 dataset=self._data_val, drop_last=True, 
-                # sampler=valid_sampler, 
+                sampler=valid_sampler, 
                 **self._shared_eval_dataloader_kwargs()
             )
             if self._data_val is not None
             else None
         )
 
+
     def test_dataloader(self) -> List[DataLoader]:
 
-        # setup_ddp()
-        # test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
+        test_sampler = None
+        if MULTI_GPU:
+            # setup_ddp()
+            test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
 
         return [
             DataLoader(dataset=ds_test, 
-                    #    sampler=test_sampler, 
-                       **self._shared_eval_dataloader_kwargs())
+                    sampler=test_sampler, 
+                    **self._shared_eval_dataloader_kwargs())
             for ds_test in self._data_test
         ]
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
 
-        # setup_ddp()
-        # valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        valid_sampler = None
+        if MULTI_GPU:
+            # setup_ddp()
+            valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return [
             (
                 DataLoader(dataset=self._data_val, 
-                        #    sampler=valid_sampler,
-                           **self._shared_eval_dataloader_kwargs())
+                        sampler=valid_sampler,
+                        **self._shared_eval_dataloader_kwargs())
                 if self._data_val is not None
                 else None
             )
         ]
+        
+            
