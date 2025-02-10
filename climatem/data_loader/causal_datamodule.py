@@ -9,6 +9,7 @@ import torch
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
 from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
+from climatem.data_loader.savar_dataset import SavarDataset
 from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPPING
 
 
@@ -34,11 +35,10 @@ class CausalClimateDataModule(ClimateDataModule):
     def __init__(self, tau=5, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
         super().__init__(self)
 
+        # kwargs are initialized as self.hparams by the Lightning module 
         # WHat is this line? We cannot have different test vs train models
         # self.hparams.test_models = None if self.hparams.test_models else self.hparams.train_models
         self.hparams.test_models = self.hparams.train_models
-
-
         self.tau = tau
         self.num_months_aggregated = num_months_aggregated
         self.train_val_interval_length = train_val_interval_length
@@ -74,13 +74,34 @@ class CausalClimateDataModule(ClimateDataModule):
             train_historical_years = self.years_to_list(self.hparams.train_historical_years)
 
             os.makedirs(self.hparams.output_save_dir, exist_ok = True)
-            # Later propagate "reload argument here"
-            if (
-                "tas" in self.hparams.in_var_ids
-                or "pr" in self.hparams.in_var_ids
-                or "psl" in self.hparams.in_var_ids
-                or "ts" in self.hparams.in_var_ids
-            ):
+            # Here add an option for SAVAR dataset
+
+            # TODO: propagate "reload argument here"
+            # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
+            if "savar" in self.hparams.in_var_ids:
+                train_val_input4mips = SavarDataset(
+                    #Make sure these arguments are propagated
+                    output_save_dir=self.hparams.output_save_dir,
+                    lat=self.hparams.lat,
+                    lon=self.hparams.lon,
+                    seasonality_removal=self.hparams.seasonality_removal,
+                    reload_climate_set_data=self.hparams.reload_climate_set_data,
+                    time_len=self.hparams.time_len,
+                    comp_size=self.hparams.comp_size,
+                    noise_val=self.hparams.noise_val,
+                    n_per_col=self.hparams.n_per_col,
+                    difficulty=self.hparams.difficulty,
+                    seasonality=self.hparams.seasonality,
+                    overlap=self.hparams.overlap,
+                    is_forced=self.hparams.is_forced,
+                    plot_original_data=self.hparams.plot_original_data
+                )
+            elif (
+                    "tas" in self.hparams.in_var_ids
+                    or "pr" in self.hparams.in_var_ids
+                    or "psl" in self.hparams.in_var_ids
+                    or "ts" in self.hparams.in_var_ids
+                ):
                 print(self.hparams.train_scenarios)
                 train_val_input4mips = CMIP6Dataset(
                     years=train_years,
@@ -96,6 +117,9 @@ class CausalClimateDataModule(ClimateDataModule):
                     output_save_dir=self.hparams.output_save_dir,
                     lon=self.hparams.lon,
                     lat=self.hparams.lat,
+                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                    seasonality_removal=self.hparams.seasonality_removal,
+                    reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
             else:
                 train_val_input4mips = Input4MipsDataset(
@@ -110,6 +134,9 @@ class CausalClimateDataModule(ClimateDataModule):
                     output_save_dir=self.hparams.output_save_dir,
                     lon=self.hparams.lon,
                     lat=self.hparams.lat,
+                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                    seasonality_removal=self.hparams.seasonality_removal,
+                    reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
 
             ratio_train = 1 - self.hparams.val_split

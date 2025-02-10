@@ -12,7 +12,6 @@ class expParams:
                  lat: int = 96,    
                  tau: int = 5,
                  random_seed: int = 1,
-                #  seed: int = 11, 
                  gpu: bool = True,
                  num_workers: int = 0,
                  pin_memory: bool = False,
@@ -27,7 +26,6 @@ class expParams:
         self.lat = lat
         self.tau = tau
         self.random_seed = random_seed
-        # self.seed = seed
         self.gpu = gpu
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -53,7 +51,6 @@ class dataParams:
                  temp_res: str = "mon",
                  batch_size: int = 256,    
                  eval_batch_size: int = 256,
-                #  val_split: float = 0.1,
                  seasonality_removal: bool = False,
                  channels_last: bool = False,
                  ishdf5: bool = False,
@@ -85,7 +82,6 @@ class dataParams:
             print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
-        # self.val_split = val_split
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
         self.ishdf5 = ishdf5
@@ -246,3 +242,24 @@ class plotParams:
         self.plot_through_time = plot_through_time
         self.print_freq = print_freq
 
+class savarParams:
+    def __init__(self, 
+                 time_len: int = 10_000,
+                 comp_size: int = 10,
+                 noise_val: float = 0.2,
+                 n_per_col: int = 2,
+                 difficulty: str = "easy",
+                 seasonality: bool = False,
+                 overlap: bool = False,
+                 is_forced: bool = False,
+                 plot_original_data: bool = True,
+                ):
+        self.time_len = time_len
+        self.comp_size = comp_size
+        self.noise_val = noise_val
+        self.n_per_col = n_per_col
+        self.difficulty = difficulty
+        self.seasonality = seasonality
+        self.overlap = overlap
+        self.is_forced = is_forced
+        self.plot_original_data = plot_original_data

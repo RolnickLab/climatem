@@ -65,12 +65,24 @@ class ClimateDataModule(LightningDataModule):
         data_dir: Optional[str] = "Climateset_DATA", # Change this
         output_save_dir: Optional[str] = "Climateset_DATA",
         reload_climate_set_data = True,
+        seasonality_removal = True,
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
-        lon: int = 144,
-        lat: int = 96,
+        lon: int = 125,
+        lat: int = 125,
+        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy",
         num_levels: int = 1,
         # input_transform: Optional[AbstractTransform] = None,
         # normalizer: Optional[Normalizer] = None,
+        #Below SAVAR data arguments
+        time_len: int = 10_000,
+        comp_size: int = 10,
+        noise_val: float = 0.2,
+        n_per_col: int = 2,
+        difficulty: str = "easy",
+        seasonality: bool = False,
+        overlap: bool = False,
+        is_forced: bool = False,
+        plot_original_data: bool = True,
     ):
         """
         Args:

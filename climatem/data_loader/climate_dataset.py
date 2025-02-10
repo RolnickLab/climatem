@@ -4,17 +4,13 @@ import glob
 import os
 import zipfile
 from typing import Dict, List, Optional, Tuple, Union
-
+from pathlib import Path
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import xarray as xr
-
-# JK: consider using the __init__.py for path handling
-# feel free to move this to the constants instead for consistency!
-from climatem import MAPPINGS_DIR
 
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     AVAILABLE_MODELS_FIRETYPE,
@@ -55,6 +51,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
+        icosahedral_coordinates_path = "vertex_lonlat_mapping.npy", 
         # input_transform=None,  # TODO: implement
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,
@@ -134,6 +131,9 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.seq_len = seq_len
         self.lat = lat
         self.lon = lon
+        self.icosahedral_coordinates_path = icosahedral_coordinates_path
+
+        #TODO: is that needed? 
         # creates on cmip and on input4mip dataset
         #print("creating input4mips")
         self.input4mips_ds = Input4MipsDataset(variables=in_variables, **ds_kwargs)
@@ -237,11 +237,9 @@ class ClimateDataset(torch.utils.data.Dataset):
         print("length paths", len(paths))
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
-            coordinates = np.loadtxt(
-                MAPPINGS_DIR / "vertex_lonlat_mapping.txt"
+            coordinates = np.load(
+                self.icosahedral_coordinates_path
             )
-            coordinates = coordinates[:, 1:]
-
         else:
             for vlist in [paths[0]]:
                 #print("I am in the else of load_coordinates_into_mem")
@@ -464,7 +462,7 @@ class ClimateDataset(torch.utils.data.Dataset):
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
                     mode="train+val", file="statistics", kwargs=self.fname_kwargs, causal=True
                 )
-                stats_fname = os.path.join(self.output_save_dir, stats_fname)
+                stats_fname = self.output_save_dir / stats_fname
                 stats = np.load(stats_fname, allow_pickle=True)
                 stats_x, stats_y = stats
                 test = test_x, test_y
@@ -552,8 +550,8 @@ class ClimateDataset(torch.utils.data.Dataset):
 
     def save_data_into_disk(self, data: np.ndarray, fname: str, output_save_dir: str) -> str:
 
-        np.savez(os.path.join(output_save_dir, fname), data=data)
-        return os.path.join(output_save_dir, fname)
+        np.savez(output_save_dir / fname, data=data)
+        return output_save_dir / fname
 
     def get_save_name_from_kwargs(self, mode: str, file: str, kwargs: Dict, causal: Optional[bool] = False):
         fname = ""
@@ -739,7 +737,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # make a numpy array containing the mean and std for each month:
         remove_season_stats = np.array([mean, std])
 
-        np.save(os.path.join(self.output_save_dir, "remove_season_stats"), remove_season_stats, allow_pickle=True)
+        np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
 
         print("Just about to return the data after removing seasonality.")
 
@@ -747,8 +745,8 @@ class ClimateDataset(torch.utils.data.Dataset):
 
     def write_dataset_statistics(self, fname, stats):
         #            fname = fname.replace('.npz.npy', '.npy')
-        np.save(os.path.join(self.output_save_dir, fname), stats, allow_pickle=True)
-        return os.path.join(self.output_save_dir, fname)
+        np.save(self.output_save_dir / fname, stats, allow_pickle=True)
+        return self.output_save_dir / fname
 
     def load_dataset_statistics(self, fname, mode, mips):
         if "train_" in fname:
@@ -756,7 +754,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         elif "test" in fname:
             fname = fname.replace("test", "train+val")
 
-        stats_data = np.load(os.path.join(self.output_save_dir, fname), allow_pickle=True).item()
+        stats_data = np.load(self.output_save_dir / fname, allow_pickle=True).item()
 
         return stats_data
 
@@ -766,7 +764,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         elif "test" in fname:
             fname = fname.replace("test", "train+val")
 
-        coordinates_data = np.load(os.path.join(self.output_save_dir, fname), allow_pickle=True)
+        coordinates_data = np.load(self.output_save_dir / fname, allow_pickle=True)
 
         return coordinates_data
 
@@ -775,7 +773,6 @@ class ClimateDataset(torch.utils.data.Dataset):
         # access data in input4mips and cmip6 datasets
         raw_Xs = self.input4mips_ds[index]
         raw_Ys = self.cmip6_ds[index]
-        # raw_Ys = self.cmip6_ds[index]
         if not self.load_data_into_mem:
             X = raw_Xs
             Y = raw_Ys
@@ -827,14 +824,15 @@ class CMIP6Dataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
+        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy", 
         *args,
         **kwargs,
     ):
 
         self.mode = mode
-        self.output_save_dir = output_save_dir
+        self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
-        self.root_dir = os.path.join(data_dir, "outputs/CMIP6")
+        self.root_dir = Path(data_dir) / "outputs/CMIP6"
         self.input_nc_files = []
         self.output_nc_files = []
         self.in_variables = variables
@@ -842,6 +840,7 @@ class CMIP6Dataset(ClimateDataset):
         self.seq_len = seq_len
         self.lon = lon
         self.lat = lat
+        self.icosahedral_coordinates_path = icosahedral_coordinates_path
 
         fname_kwargs = dict(
             climate_model=climate_model,
@@ -861,7 +860,7 @@ class CMIP6Dataset(ClimateDataset):
         #print("IN CMIP6!!!")
 
         if isinstance(climate_model, str):
-            self.root_dir = os.path.join(self.root_dir, climate_model)
+            self.root_dir = self.root_dir / climate_model
         else:
             # Logic for multiple climate models, not sure how to load/create dataset yet
             log.warn("Data loader not yet implemented for multiple climate models.")
@@ -875,10 +874,10 @@ class CMIP6Dataset(ClimateDataset):
             if len(ensemble) == 1:
                 #print("ensemble:", ensemble)
                 #print("This often makes a mistake because it does not know if it wants to be a list or not")
-                self.ensemble_dirs = [os.path.join(self.root_dir, ensemble[0])]
+                self.ensemble_dirs = [self.root_dir / ensemble[0]]
             else:  # we are just going to select the first ensemble member here
                 self.ensemble_dirs = [
-                    os.path.join(self.root_dir, ensemble[0])
+                    self.root_dir / ensemble[0]
                 ]  # THIS USED TO BE THE CASE: Taking specific ensemble member (#TODO: only this ensemble member has historical data...)
         else:
             log.warn(
@@ -889,7 +888,7 @@ class CMIP6Dataset(ClimateDataset):
             ensembles = os.listdir(self.root_dir)
             #print("Ensemble members present for this model:", ensembles)
             # Now make a list, which consists of the paths to the ensemble members
-            self.ensemble_dirs = [os.path.join(self.root_dir, ensemble) for ensemble in ensembles]
+            self.ensemble_dirs = [self.root_dir / ensemble for ensemble in ensembles]
 
             #print("Ensemble directories:", self.ensemble_dirs)
             #print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
@@ -897,9 +896,9 @@ class CMIP6Dataset(ClimateDataset):
         fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=fname_kwargs)
 
         # here we reload files if they exist
-        if os.path.isfile(os.path.join(output_save_dir, fname)) and self.reload_climate_set_data:  # we first need to get the name here to test that...
+        if os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data:  # we first need to get the name here to test that...
 
-            self.data_path = os.path.join(output_save_dir, fname)
+            self.data_path = output_save_dir / fname
             #print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
 
@@ -908,10 +907,11 @@ class CMIP6Dataset(ClimateDataset):
                 mode=mode, file="statistics", kwargs=fname_kwargs
             )
             stats = self.load_dataset_statistics(
-                os.path.join(self.output_save_dir, stats_fname), mode=self.mode, mips="cmip6"
+                self.output_save_dir / stats_fname, mode=self.mode, mips="cmip6"
             )
+            #TODO: Make sure the coordinates are passed correctly here 
             self.coordinates = self.load_dataset_coordinates(
-                os.path.join(self.output_save_dir, coordinates_fname), mode=self.mode, mips="cmip6"
+                self.output_save_dir / coordinates_fname, mode=self.mode, mips="cmip6"
             )
             self.Data = self.normalize_data(self.raw_data, stats)
             if self.seasonality_removal:
@@ -962,7 +962,7 @@ class CMIP6Dataset(ClimateDataset):
                             # for y in self.get_years_list(get_years, give_list=True):
                             # print('y is this:', y)
                             # print('here is exp:', exp)
-                            var_dir = os.path.join(ensemble_dir, exp, var, f"{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}")
+                            var_dir = ensemble_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
                             files = glob.glob(f"{var_dir}/*.nc", recursive=True)
                             if len(files) == 0:
                                 # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
@@ -1033,7 +1033,7 @@ class CMIP6Dataset(ClimateDataset):
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
                     mode="train+val", file="statistics", kwargs=fname_kwargs
                 )
-                save_file_name = os.path.join(self.output_save_dir, fname)
+                save_file_name = self.output_save_dir / fname
                 stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
                 self.norm_data = self.normalize_data(self.raw_data, stats)
                 if self.seasonality_removal:
@@ -1063,13 +1063,16 @@ class CMIP6Dataset(ClimateDataset):
 
 
 class Input4MipsDataset(ClimateDataset):
-    """Loads all scenarios for a given var / for all vars."""
+    """
+    Loads all scenarios for a given var / for all vars.
+    TODO: Are coordinates correct here? Rather than reloading, should use the vertez mapping .npy file
+    """
 
     def __init__(  # inherits all the stuff from Base
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
-        data_dir: Optional[str] = "Climateset_DATA",
+        data_dir: Optional[str] = "Climateset_DAxTA",
         variables: List[str] = ["BC_sum"],
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
         channels_last: bool = False,
@@ -1081,6 +1084,7 @@ class Input4MipsDataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
+        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy", 
         *args,
         **kwargs,
     ):
@@ -1088,7 +1092,7 @@ class Input4MipsDataset(ClimateDataset):
         self.channels_last = channels_last
 
         self.mode = mode
-        self.root_dir = os.path.join(data_dir, "inputs/input4mips")
+        self.root_dir = data_dir / "inputs/input4mips"
         self.output_save_dir = output_save_dir
         self.reload_climate_set_data = reload_climate_set_data
         self.input_nc_files = []
@@ -1098,6 +1102,7 @@ class Input4MipsDataset(ClimateDataset):
         self.seq_len = seq_len
         self.lon = lon
         self.lat = lat
+        self.icosahedral_coordinates_path = icosahedral_coordinates_path
 
         if len(historical_years) == 0:
             historical_years_str = "no_historical"
@@ -1126,8 +1131,8 @@ class Input4MipsDataset(ClimateDataset):
         # Check here if os.path.isfile(data.npz) exists #TODO: check if exists on slurm
         # if it does, use self._reload data(path)
 
-        if os.path.isfile(os.path.join(output_save_dir, fname)) and self.reload_climate_set_data:  # we first need to get the name here to test that...
-            self.data_path = os.path.join(output_save_dir, fname)
+        if os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data:  # we first need to get the name here to test that...
+            self.data_path = output_save_dir / fname
             #print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
 
@@ -1136,10 +1141,10 @@ class Input4MipsDataset(ClimateDataset):
                 mode=mode, file="statistics", kwargs=fname_kwargs
             )
             stats = self.load_dataset_statistics(
-                os.path.join(self.output_save_dir, stats_fname), mode=self.mode, mips="input4mips"
+                self.output_save_dir / stats_fname, mode=self.mode, mips="input4mips"
             )
             self.coordinates = self.load_dataset_coordinates(
-                os.path.join(self.output_save_dir, coordinates_fname), mode=self.mode, mips="input4mips"
+                self.output_save_dir / coordinates_fname, mode=self.mode, mips="input4mips"
             )
             self.Data = self.normalize_data(self.raw_data, stats)
             if self.seasonality_removal:
@@ -1173,8 +1178,8 @@ class Input4MipsDataset(ClimateDataset):
 
                     for y in get_years:
                         # print('Input4mips y:', y )
-                        var_dir = os.path.join(self.root_dir, exp, var, f"{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}")
-                        files = glob.glob(f"{var_dir}/**/*{filter_path_by}*.nc", recursive=True)
+                        var_dir = self.root_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+                        files = var_dir.glob(f"/**/*{filter_path_by}*.nc", recursive=True)
                         # print('files in input4mips', files)
                         output_nc_files += files
                 files_per_var.append(output_nc_files)

@@ -44,7 +44,8 @@ def main(
         train_params, 
         model_params, 
         optim_params, 
-        plot_params
+        plot_params,
+        savar_params
 ):
     """
     :param hp: object containing hyperparameter values
@@ -102,13 +103,24 @@ def main(
             verbose = experiment_params.verbose,
             seed = experiment_params.random_seed,
             seq_len = data_params.seq_len,
-            data_dir = data_params.data_dir,
-            output_save_dir = data_params.climateset_data,
-            reload_climate_set_data = data_params.reload_climate_set_data,
+            data_dir = data_params.climateset_data,
+            output_save_dir = data_params.data_dir,
             num_ensembles = data_params.num_ensembles,  # 1 for first ensemble, -1 for all
             lon = experiment_params.lon,
             lat = experiment_params.lon,
             num_levels = data_params.num_levels,
+            seasonality_removal = data_params.seasonality_removal,
+            reload_climate_set_data = data_params.reload_climate_set_data,
+            #Below SAVAR data arguments
+            time_len = savar_params.time_len,
+            comp_size = savar_params.comp_size,
+            noise_val = savar_params.noise_val,
+            n_per_col = savar_params.n_per_col,
+            difficulty = savar_params.difficulty,
+            seasonality = savar_params.seasonality,
+            overlap = savar_params.overlap,
+            is_forced = savar_params.is_forced,
+            plot_original_data = savar_params.plot_original_data,
         ) 
         datamodule.setup()
 
@@ -287,7 +299,7 @@ def assert_args(
             f"This optimizer type ({optim_params.optimizer}) is not \
                          supported. Supported types are: {supported_optimizer}"
         )
-
+    
     # warnings, strange choice of args combination
     if not experiment_params.latent and gt_params.debug_gt_z:
         warnings.warn("Are you sure you want to use gt_z even if you don't have latents")
@@ -319,6 +331,15 @@ if __name__ == "__main__":
     model_params = modelParams(**params["model_params"])
     optim_params = optimParams(**params["optim_params"])
     plot_params = plotParams(**params["plot_params"])
+    savar_params =savarParams(**params["savar_params"])
+
+    if "savar" in data_params.in_var_ids:
+        experiment_params.lat = int(savar_params.comp_size * savar_params.n_per_col)
+        experiment_params.lon = int(savar_params.comp_size * savar_params.n_per_col)
+        experiment_params.d_x = int(experiment_params.lat * experiment_params.lon)
+        plot_params.savar = True
+    else:
+        plot_params.savar = False
 
     assert_args(
             experiment_params,
@@ -334,7 +355,8 @@ if __name__ == "__main__":
         train_params, 
         model_params, 
         optim_params, 
-        plot_params
+        plot_params,
+        savar_params
     )
 
     # Experiment parameters

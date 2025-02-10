@@ -65,6 +65,8 @@ class TrainingLatent:
         self.batch_size = datamodule.hparams.batch_size
         self.tau = exp_params.tau  # Here, 5 by default in both but we want to pass this as an argument
         self.d_x = exp_params.d_x
+        self.lat = exp_params.lat
+        self.lon = exp_params.lon
         self.instantaneous = model_params.instantaneous
 
         self.patience_freq = 50
@@ -341,7 +343,8 @@ class TrainingLatent:
                 self.plotter.plot_sparsity(self)
                 # trying to save coords and adjacency matrices
                 # Todo propagate the path! 
-                self.plotter.save_coordinates_and_adjacency_matrices(self)
+                if not self.plot_params.savar:
+                    self.plotter.save_coordinates_and_adjacency_matrices(self)
                 torch.save(self.model.state_dict(), self.save_path / "model.pth")
 
                 # try to use the accelerator.save function here
@@ -626,7 +629,7 @@ class TrainingLatent:
 
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
-            if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
+            if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
                 self.plotter.plot_compare_predictions_icosahedral(
                     x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                     y_true=y_original.cpu().detach().numpy(),
@@ -793,7 +796,7 @@ class TrainingLatent:
             coordinates = coordinates[:, 1:]
 
 
-            if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
+            if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
                 self.plotter.plot_compare_predictions_icosahedral(
                     x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                     y_true=y_original.cpu().detach().numpy(),
@@ -1105,11 +1108,11 @@ class TrainingLatent:
         assert y_recons.dim() == 3
         assert y_pred.dim() == 3
 
-        if y_true.size(-1) == 96 * 144:
+        if y_true.size(-1) == self.lat * self.lon:
 
-            y_true = torch.reshape(y_true, (y_true.size(0), y_true.size(1), 96, 144))
-            y_recons = torch.reshape(y_recons, (y_recons.size(0), y_recons.size(1), 96, 144))
-            y_pred = torch.reshape(y_pred, (y_pred.size(0), y_pred.size(1), 96, 144))
+            y_true = torch.reshape(y_true, (y_true.size(0), y_true.size(1), self.lat, self.lon))
+            y_recons = torch.reshape(y_recons, (y_recons.size(0), y_recons.size(1), self.lat, self.lon))
+            y_pred = torch.reshape(y_pred, (y_pred.size(0), y_pred.size(1), self.lat, self.lon))
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
@@ -1119,7 +1122,7 @@ class TrainingLatent:
             # calculate the spectra of the predicted values
             fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred[:, :, :], dim=3)), dim=0)
 
-        elif y_true.size(-1) == 6250:
+        elif y_true.size(-1) == self.d_x:
 
             y_true = y_true
             y_recons = y_recons
@@ -1163,7 +1166,7 @@ class TrainingLatent:
         """
 
         # unsqueeze y_true and y_pred along the time axis, so that they go from (batch_size, num_vars, coords) to (batch_size, 1, num_vars, coords)
-        # where coords can be 6250, icosahedral, or 96, 144 in the case where we still have regular data
+        # where coords can be self.d_x, icosahedral, or self.lat, self.lon in the case where we still have regular data
         y_true = y_true.unsqueeze(1)
         y_recons = y_recons.unsqueeze(1)
         y_pred = y_pred.unsqueeze(1)
