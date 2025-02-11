@@ -51,6 +51,7 @@ class dataParams:
                  temp_res: str = "mon",
                  batch_size: int = 256,    
                  eval_batch_size: int = 256,
+                 global_normalization: bool = True,
                  seasonality_removal: bool = False,
                  channels_last: bool = False,
                  ishdf5: bool = False,
@@ -82,6 +83,7 @@ class dataParams:
             print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
+        self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
         self.ishdf5 = ishdf5
@@ -160,6 +162,7 @@ class modelParams:
 class optimParams:
     def __init__(self, 
                  optimizer: str = "rmsprop",
+                 use_sparsity_constraint: bool = True,
                  crps_coeff: float = 1, 
                  spectral_coeff: float = 20, 
                  temporal_spectral_coeff: float = 2000,
@@ -197,6 +200,7 @@ class optimParams:
                  h_acyclic_threshold: float = 0,
                 ):
         self.optimizer = optimizer
+        self.use_sparsity_constraint = use_sparsity_constraint
         self.crps_coeff = crps_coeff
         self.spectral_coeff = spectral_coeff
         self.temporal_spectral_coeff = temporal_spectral_coeff

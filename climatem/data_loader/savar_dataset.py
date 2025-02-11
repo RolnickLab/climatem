@@ -13,6 +13,7 @@ class SavarDataset(torch.utils.data.Dataset):
         output_save_dir: Optional[str] = "Savar_DATA",
         lat: int = 125,
         lon: int = 125,
+        global_normalization: bool = True,
         seasonality_removal: bool = True,
         reload_climate_set_data: Optional[bool] = True,
         time_len: int = 10_000,
@@ -30,6 +31,7 @@ class SavarDataset(torch.utils.data.Dataset):
         self.savar_name = f"modes_{n_per_col**2}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
         self.savar_path = self.output_save_dir / f"{self.savar_name}.npy"
 
+        self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.reload_climate_set_data = reload_climate_set_data
 
@@ -154,8 +156,10 @@ class SavarDataset(torch.utils.data.Dataset):
             data = data.T.reshape((time_steps, self.lat, self.lon))
 
         data = data.astype("float32")
-        #TODO: if normalize + save stats and in test reload statistics --> Very important 
-        data = (data - data.mean())/data.std()
+        #TODO: normalize by saveing std/mean from train data and then normalize test by reloading 
+        # Very important to avoid normalizing differently test and train data 
+        if self.global_normalization:
+            data = (data - data.mean())/data.std()
         if self.seasonality_removal:
             self.norm_data = self.remove_seasonality(self.norm_data)
 

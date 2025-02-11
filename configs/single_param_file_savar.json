@@ -1,12 +1,12 @@
 { 
     "exp_params": {
-        "exp_path": "/home/mila/j/julien.boussard/scratch/results/climatem_spectral/var_ts_picontrol",
+        "exp_path": "/home/mila/j/julien.boussard/scratch/results/SAVAR_DATA_TEST",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
-        "d_z": 90,
-        "d_x": 6250,
-        "lon": 144, 
-        "lat": 96,    
+        "d_z": 4,
+        "d_x": 400,
+        "lon": 20, 
+        "lat": 20,    
         "tau": 5,
         "random_seed": 1,
         "gpu": true,
@@ -15,12 +15,12 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "/network/scratch/j/julien.boussard/data/Climateset_DATA_TEST", 
+        "data_dir": "/network/scratch/j/julien.boussard/data/SAVAR_DATA_TEST", 
         "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni", 
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "/network/scratch/j/julien.boussard/data/vertex_lonlat_mapping.npy",
-        "in_var_ids": ["tas"],
-        "out_var_ids": ["tas"],
+        "in_var_ids": ["savar"],
+        "out_var_ids": ["savar"],
         "num_levels": 1,
         "temp_res": "mon",
         "train_historical_years": "1894-2000", 
@@ -64,11 +64,11 @@
         "instantaneous": false,
         "no_w_constraint": false,
         "tied_w": false,
-        "nonlinear_mixing": true,
-        "num_hidden": 8,
-        "num_layers": 2,
+        "nonlinear_mixing": false,
+        "num_hidden": 0,
+        "num_layers": 0,
         "num_output": 2,
-        "num_hidden_mixing": 16,
+        "num_hidden_mixing": 0,
         "num_layers_mixing": 2,    
         "fixed": false,
         "fixed_output_fraction": null,
@@ -77,14 +77,14 @@
     },
     "optim_params": {
         "optimizer": "rmsprop",
-        
+
         "use_sparsity_constraint": true,
         "crps_coeff": 1,
         "spectral_coeff": 20,
         "temporal_spectral_coeff": 2000,
         "coeff_kl": 1,
 
-        "reg_coeff": 0.01,
+        "reg_coeff": 0,
         "reg_coeff_connect": 0,
     
         "schedule_reg": 0,
@@ -122,7 +122,7 @@
     },
     "savar_params": {
         "time_len": 10000,
-        "comp_size": 10,
+        "comp_size": 25,
         "noise_val": 0.2,
         "n_per_col": 2,
         "difficulty": "easy",

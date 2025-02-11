@@ -109,6 +109,7 @@ def main(
             lon = experiment_params.lon,
             lat = experiment_params.lon,
             num_levels = data_params.num_levels,
+            global_normalization = data_params.global_normalization,
             seasonality_removal = data_params.seasonality_removal,
             reload_climate_set_data = data_params.reload_climate_set_data,
             #Below SAVAR data arguments

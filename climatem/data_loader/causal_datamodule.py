@@ -84,6 +84,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     output_save_dir=self.hparams.output_save_dir,
                     lat=self.hparams.lat,
                     lon=self.hparams.lon,
+                    global_normalization=self.hparams.global_normalization,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                     time_len=self.hparams.time_len,
@@ -118,6 +119,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     lon=self.hparams.lon,
                     lat=self.hparams.lat,
                     icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                    global_normalization=self.hparams.global_normalization,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
@@ -135,6 +137,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     lon=self.hparams.lon,
                     lat=self.hparams.lat,
                     icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                    global_normalization=self.hparams.global_normalization,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )

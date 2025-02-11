@@ -486,8 +486,12 @@ class TrainingLatent:
         # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
         px_mu, px_std = self.model.predict_pxmu_pxstd(x, y)
 
-        # compute regularisations (sparsity and connectivity)
-        sparsity_reg = self.get_regularisation()
+        # compute regularisations constraints/penalties (sparsity and connectivity)
+        if self.optim_params.use_sparsity_constraint:
+            h_sparsity = self.get_sparsity_violation(lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold)
+            sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
+        else:
+            sparsity_reg = self.get_regularisation()
         connect_reg = torch.tensor([0.0])
         if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
             # TODO: might be interesting to explore this
@@ -497,23 +501,14 @@ class TrainingLatent:
         h_acyclic = torch.tensor([0.0])
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
-
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
-        # Compute a sparsity constraint here, with a lower (that doesn't end up being relevant) and upper threshold
-        h_sparsity = self.get_sparsity_violation(lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold)
-
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
-        loss = nll + connect_reg  # + sparsity_reg
-
-        # Here we add the constraints to the loss.
+        loss = nll + connect_reg + sparsity_reg
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
-
-        # Add sparsity constraint.
-        loss = loss + self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
 
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         crps = self.get_crps_loss(y, px_mu, px_std)

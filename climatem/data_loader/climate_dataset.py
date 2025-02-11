@@ -56,6 +56,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,
         # output_normalization="z-norm",
+        global_normalization: bool = True,
         seasonality_removal: bool = True,
         *args,
         **kwargs,
@@ -109,6 +110,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             )  # Can use this to split data into train/val eg. 2015-2080 train. 2080-2100 val.
         self.n_years = len(self.years) + len(self.historical_years)
 
+        self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
 
         if climate_model in AVAILABLE_MODELS_FIRETYPE:
@@ -126,6 +128,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             output_save_dir=output_save_dir,
             reload_climate_set_data=self.reload_climate_set_data,
             seq_to_seq=seq_to_seq,
+            global_normalization=self.global_normalization,
             seasonality_removal=self.seasonality_removal,
         )
         self.seq_len = seq_len
@@ -820,6 +823,7 @@ class CMIP6Dataset(ClimateDataset):
         reload_climate_set_data: bool = True,
         channels_last: bool = True,
         seq_to_seq: bool = True,
+        global_normalization: bool = True,
         seasonality_removal: bool = True,
         seq_len: int = 12,
         lat: int = 96,
@@ -836,6 +840,7 @@ class CMIP6Dataset(ClimateDataset):
         self.input_nc_files = []
         self.output_nc_files = []
         self.in_variables = variables
+        self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.seq_len = seq_len
         self.lon = lon
@@ -901,19 +906,21 @@ class CMIP6Dataset(ClimateDataset):
             self.data_path = output_save_dir / fname
             #print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
-
-            # Load stats and normalize
-            stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                mode=mode, file="statistics", kwargs=fname_kwargs
-            )
-            stats = self.load_dataset_statistics(
-                self.output_save_dir / stats_fname, mode=self.mode, mips="cmip6"
-            )
-            #TODO: Make sure the coordinates are passed correctly here 
             self.coordinates = self.load_dataset_coordinates(
                 self.output_save_dir / coordinates_fname, mode=self.mode, mips="cmip6"
-            )
-            self.Data = self.normalize_data(self.raw_data, stats)
+            )            
+            
+            if self.global_normalization:
+                # Load stats and normalize
+                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                    mode=mode, file="statistics", kwargs=fname_kwargs
+                )
+                stats = self.load_dataset_statistics(
+                    self.output_save_dir / stats_fname, mode=self.mode, mips="cmip6"
+                )
+                self.Data = self.normalize_data(self.raw_data, stats)
+            else:
+                self.Data = self.raw_data
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
 
@@ -1003,39 +1010,34 @@ class CMIP6Dataset(ClimateDataset):
                 #print(stats_fname)
                 #print(coordinates_fname)
 
-                if os.path.isfile(stats_fname):
+                if os.path.isfile(stats_fname) and self.global_normalization:
                     print("Stats file already exists! Loading from memory.")
-                    # stats = self.load_statistics_data(stats_fname)
                     stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
-
                     self.norm_data = self.normalize_data(self.raw_data, stats)
-                    if self.seasonality_removal:
-                        self.norm_data = self.remove_seasonality(self.norm_data)
-
-                else:
+                elif self.global_normalization:
                     stat1, stat2 = self.get_dataset_statistics(self.raw_data, self.mode, mips="cmip6")
                     stats = {"mean": stat1, "std": stat2}
                     self.norm_data = self.normalize_data(self.raw_data, stats)
-                    if self.seasonality_removal:
-                        self.norm_data = self.remove_seasonality(self.norm_data)
-                    # plot_species(self.norm_data[:, :, 0, :, :], self.coordinates, variables, "../../TEST_REPO", "before_causal")
-                    # print("SPECIES PLOTTED")
-                    # #
-                    # stats_fname = self.get_save_name_from_kwargs(mode=mode, file='statistics', kwargs=fname_kwargs)
                     save_file_name = self.write_dataset_statistics(stats_fname, stats)
                     print("WROTE STATISTICS", save_file_name)
                     save_file_name = self.write_dataset_statistics(coordinates_fname, self.coordinates)
                     print("WROTE COORDINATES", save_file_name)
-
+                else:
+                    self.norm_data = self.raw_data
+                if self.seasonality_removal:
+                    self.norm_data = self.remove_seasonality(self.norm_data)
                 # self.norm_data = self.normalize_data(self.raw_data, stats)
 
             elif self.mode == "test":
-                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                    mode="train+val", file="statistics", kwargs=fname_kwargs
-                )
-                save_file_name = self.output_save_dir / fname
-                stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
-                self.norm_data = self.normalize_data(self.raw_data, stats)
+                if self.global_normalization:
+                    stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                        mode="train+val", file="statistics", kwargs=fname_kwargs
+                    )
+                    save_file_name = self.output_save_dir / fname
+                    stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
+                    self.norm_data = self.normalize_data(self.raw_data, stats)
+                else:
+                    self.norm_data = self.raw_data
                 if self.seasonality_removal:
                     self.norm_data = self.remove_seasonality(self.norm_data)
 
@@ -1080,6 +1082,7 @@ class Input4MipsDataset(ClimateDataset):
         mode: str = "train",
         output_save_dir: str = "",
         reload_climate_set_data: bool = True,
+        global_normalization: bool = True,
         seasonality_removal: bool = True,
         seq_len: int = 12,
         lat: int = 96,
@@ -1097,6 +1100,7 @@ class Input4MipsDataset(ClimateDataset):
         self.reload_climate_set_data = reload_climate_set_data
         self.input_nc_files = []
         self.output_nc_files = []
+        self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.in_variables = variables
         self.seq_len = seq_len
@@ -1135,18 +1139,21 @@ class Input4MipsDataset(ClimateDataset):
             self.data_path = output_save_dir / fname
             #print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
-
-            # Load stats and normalize
-            stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                mode=mode, file="statistics", kwargs=fname_kwargs
-            )
-            stats = self.load_dataset_statistics(
-                self.output_save_dir / stats_fname, mode=self.mode, mips="input4mips"
-            )
             self.coordinates = self.load_dataset_coordinates(
                 self.output_save_dir / coordinates_fname, mode=self.mode, mips="input4mips"
             )
-            self.Data = self.normalize_data(self.raw_data, stats)
+
+            # Load stats and normalize
+            if self.global_normalization:
+                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                    mode=mode, file="statistics", kwargs=fname_kwargs
+                )
+                stats = self.load_dataset_statistics(
+                    self.output_save_dir / stats_fname, mode=self.mode, mips="input4mips"
+                )
+                self.Data = self.normalize_data(self.raw_data, stats)
+            else:
+                self.Data = self.raw_data
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
 
@@ -1194,32 +1201,32 @@ class Input4MipsDataset(ClimateDataset):
                     mode=mode, file="statistics", kwargs=fname_kwargs
                 )
 
-                if os.path.isfile(stats_fname):
+                if os.path.isfile(stats_fname) and self.global_normalization:
                     print("Stats file already exists! Loading from memory.")
                     stats = self.load_statistics_data(stats_fname)
-
                     self.norm_data = self.normalize_data(self.raw_data, stats)
-                    if self.seasonality_removal:
-                        self.norm_data = self.remove_seasonality(self.norm_data)
-
-                else:
+                elif self.global_normalization:
                     stat1, stat2 = self.get_dataset_statistics(self.raw_data, self.mode, mips="cmip6")
                     stats = {"mean": stat1, "std": stat2}
                     self.norm_data = self.normalize_data(self.raw_data, stats)
-                    if self.seasonality_removal:
-                        self.norm_data = self.remove_seasonality(self.norm_data)
-
                     save_file_name = self.write_dataset_statistics(stats_fname, stats)
                     save_file_name = self.write_dataset_statistics(coordinates_fname, self.coordinates)
+                else:
+                    self.norm_data = self.raw_data
+                if self.seasonality_removal:
+                    self.norm_data = self.remove_seasonality(self.norm_data)
 
                 # self.norm_data = self.normalize_data(self.raw_data, stats)
 
             elif self.mode == "test":
-                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                    mode="train+val", file="statistics", kwargs=fname_kwargs
-                )  # Load train stats cause we don't calculcate norm stats for test.
-                stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="input4mips")
-                self.norm_data = self.normalize_data(self.raw_data, stats)
+                if self.global_normalization:
+                    stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                        mode="train+val", file="statistics", kwargs=fname_kwargs
+                    )  # Load train stats cause we don't calculcate norm stats for test.
+                    stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="input4mips")
+                    self.norm_data = self.normalize_data(self.raw_data, stats)
+                else:
+                    self.norm_data = self.raw_data
                 if self.seasonality_removal:
                     self.norm_data = self.remove_seasonality(self.norm_data)
 
