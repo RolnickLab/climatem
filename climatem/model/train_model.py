@@ -1,24 +1,21 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
-
-import os
-
 import numpy as np
 import torch
 import torch.distributions as dist
-from torch.nn.parallel import DistributedDataParallel as DDP 
 
 # we use accelerate for distributed training
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 from geopy import distance
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import ProfilerActivity
 
+from climatem import MAPPINGS_DIR
 from climatem.model.dag_optim import compute_dag_constraint
-from climatem.plotting.plot_model_output import Plotter
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
+from climatem.plotting.plot_model_output import Plotter
 
-from climatem import MAPPINGS_DIR
 # Using Accelerator, not wandb now
 # import wandb
 
@@ -27,13 +24,30 @@ from climatem import MAPPINGS_DIR
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
-MULTI_GPU=torch.cuda.device_count()>1
+MULTI_GPU = torch.cuda.device_count() > 1
 
 # set profiler manually for now
 
 
 class TrainingLatent:
-    def __init__(self, model, datamodule, exp_params, gt_params, model_params, train_params, optim_params, plot_params, save_path, plots_path, best_metrics, d, wandbname="unspecified", profiler=False, profiler_path="./log"):
+    def __init__(
+        self,
+        model,
+        datamodule,
+        exp_params,
+        gt_params,
+        model_params,
+        train_params,
+        optim_params,
+        plot_params,
+        save_path,
+        plots_path,
+        best_metrics,
+        d,
+        wandbname="unspecified",
+        profiler=False,
+        profiler_path="./log",
+    ):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = accelerator.device
@@ -61,7 +75,7 @@ class TrainingLatent:
         self.d = d
         self.patience = train_params.patience
         self.best_valid_loss = np.inf
-        #This needs to be updated
+        # This needs to be updated
         self.batch_size = datamodule.hparams.batch_size
         self.tau = exp_params.tau  # Here, 5 by default in both but we want to pass this as an argument
         self.d_x = exp_params.d_x
@@ -121,22 +135,34 @@ class TrainingLatent:
 
         self.plotter = Plotter()
 
-        if MULTI_GPU: 
-            #setup_ddp()
-            #DistributedSampler
+        if MULTI_GPU:
+            # setup_ddp()
+            # DistributedSampler
             self.model = DDP(self.model)
 
         # I think this is just initialising a tensor of zeroes to store results in
         if self.instantaneous:
             self.adj_tt = torch.zeros(
-                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.tau + 1, self.d * self.d_z, self.d * self.d_z]
+                [
+                    int(self.train_params.max_iteration / self.train_params.valid_freq),
+                    self.tau + 1,
+                    self.d * self.d_z,
+                    self.d * self.d_z,
+                ]
             )
         else:
             self.adj_tt = torch.zeros(
-                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.tau, self.d * self.d_z, self.d * self.d_z]
+                [
+                    int(self.train_params.max_iteration / self.train_params.valid_freq),
+                    self.tau,
+                    self.d * self.d_z,
+                    self.d * self.d_z,
+                ]
             )
         if not self.no_gt:
-            self.adj_w_tt = torch.zeros([int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z])
+            self.adj_w_tt = torch.zeros(
+                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
+            )
         self.logvar_encoder_tt = []
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
@@ -171,7 +197,7 @@ class TrainingLatent:
                 self.ortho_normalization = self.d_x * self.d_z
                 self.sparsity_normalization = self.tau * self.d_z * self.d_z
 
-    def train_with_QPM(self):
+    def train_with_QPM(self):  # noqa: C901
         """
         Optimize a problem under constraint using the Augmented Lagragian method (or QPM).
 
@@ -188,16 +214,12 @@ class TrainingLatent:
         #    name=...
         # # )
 
-        #TODO: Why config here?
+        # TODO: Why config here?
         # config = self.hp
         accelerator.init_trackers(
             "gpu-code-wandb",
             # config=config,
-            init_kwargs={
-                "wandb": {
-                    "name": self.wandbname
-                }
-            },
+            init_kwargs={"wandb": {"name": self.wandbname}},
         )
 
         # initialize ALM/QPM for orthogonality and acyclicity constraints
@@ -247,7 +269,6 @@ class TrainingLatent:
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=5, warmup=5, active=1, repeat=1),
                 # using the torch tensorboard handler
-                
                 # on_trace_ready=torch.profiler.export_chrome_trace(self.profiler_path),
                 # on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -342,15 +363,13 @@ class TrainingLatent:
                 print(f"Plotting Iteration {self.iteration}")
                 self.plotter.plot_sparsity(self)
                 # trying to save coords and adjacency matrices
-                # Todo propagate the path! 
+                # Todo propagate the path!
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
                 torch.save(self.model.state_dict(), self.save_path / "model.pth")
 
                 # try to use the accelerator.save function here
                 accelerator.save_state(output_dir=self.save_path)
-
-
 
             if not self.converged:
 
@@ -477,7 +496,6 @@ class TrainingLatent:
         y = y[:, 0]
         z = None
 
-
         nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
 
         # also make the proper prediction, not the reconstruction as we do above
@@ -488,7 +506,9 @@ class TrainingLatent:
 
         # compute regularisations constraints/penalties (sparsity and connectivity)
         if self.optim_params.use_sparsity_constraint:
-            h_sparsity = self.get_sparsity_violation(lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold)
+            h_sparsity = self.get_sparsity_violation(
+                lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
+            )
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
         else:
             sparsity_reg = self.get_regularisation()
@@ -526,13 +546,15 @@ class TrainingLatent:
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
-        #self.optimizer.zero_grad()
+        # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
 
         # loss.backward()
         accelerator.backward(loss)
 
-        _, _ = self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step(), self.train_params.lr
+        _, _ = (
+            self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
+        ), self.train_params.lr
 
         # projection of the gradient for w
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
@@ -576,7 +598,7 @@ class TrainingLatent:
             )
 
             # also try the particle filtering approach
-            #final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
+            # final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
 
             self.train_mae_recons = torch.mean(torch.abs(y_original_recons - y_original)).item()
             self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
@@ -728,7 +750,7 @@ class TrainingLatent:
             self.valid_sparsity_reg = sparsity_reg.item()
             self.valid_ortho_cons = h_ortho  # .detach()
             self.valid_connect_reg = connect_reg.item()
-            self.valid_acyclic_cons = h_acyclic  # .item() 
+            self.valid_acyclic_cons = h_acyclic  # .item()
 
             # adding the sparsity constraint to the logs
             self.valid_sparsity_cons = h_sparsity  # .detach()
@@ -761,7 +783,6 @@ class TrainingLatent:
             self.val_var_recons = torch.var(y_original_recons)
             self.val_var_pred = torch.var(y_original_pred)
 
-
             if self.d == 4:
                 self.val_mae_recons_1 = torch.mean(torch.abs(y_original_recons[:, 0] - y_original[:, 0])).item()
                 self.val_mae_recons_2 = torch.mean(torch.abs(y_original_recons[:, 1] - y_original[:, 1])).item()
@@ -789,7 +810,6 @@ class TrainingLatent:
             # get vertex lonlat mapping
             coordinates = np.loadtxt(MAPPINGS_DIR / "vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
-
 
             if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
                 self.plotter.plot_compare_predictions_icosahedral(
@@ -904,7 +924,9 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj()  # .cpu().detach().numpy()
+        self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = (
+            self.model.get_adj()
+        )  # .cpu().detach().numpy()
         w = self.model.autoencoder.get_w_decoder()  # .cpu().detach().numpy()
         if not self.no_gt:
             self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w
@@ -1137,7 +1159,7 @@ class TrainingLatent:
             fft_true = torch.log(fft_true)
             fft_recons = torch.log(fft_recons)
             fft_pred = torch.log(fft_pred)
-        
+
         # Calculate the power spectrum
         spectral_loss_recons = torch.abs(fft_recons - fft_true)
         spectral_loss_pred = torch.abs(fft_pred - fft_true)
@@ -1255,8 +1277,6 @@ class TrainingLatent:
             train_dataloader = iter(self.datamodule.train_dataloader())
             x, y = next(train_dataloader)
 
-
-
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
             y = y[:, 0]
@@ -1316,7 +1336,7 @@ class TrainingLatent:
 
                 # append the prediction
                 predictions.append(y_pred)
-                
+
                 assert i != 0
 
                 np.save(self.save_path / f"train_x_ar_{i}.npy", x.detach().cpu().numpy())
@@ -1331,9 +1351,9 @@ class TrainingLatent:
                 # np.save(os.path.join(self.hp.exp_path, f"train_samples_from_zs_{i}.npy"), samples_from_zs.detach().cpu().numpy())
 
             # at the end of this for loop, make the prediction a tensor
-            
+
             predictions = torch.stack(predictions, dim=1)
-            # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
+            # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
 
             print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
 
@@ -1345,12 +1365,14 @@ class TrainingLatent:
             print("What is the shape of the variance of the predictions?", y_pred_var.shape)
 
             # take the mean of the predictions along the batch and coordinates dimension:
-            print("What is the shape when I try to take the mean across the batch and coordinates:", torch.mean(y_pred_mean, dim=(0, 2)))
+            print(
+                "What is the shape when I try to take the mean across the batch and coordinates:",
+                torch.mean(y_pred_mean, dim=(0, 2)),
+            )
 
-            # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
+            # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
             # I will do this by calculating the spatial spectra of the true values and the predicted values, and then calculating a score between them.
             # This is a measure of how well the model is predicting the spatial spectra of the true values.
-
 
             # here I calculate the spatial spectra across the coordinates, then I average across the batch and across the timesteps
             fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1))
@@ -1363,31 +1385,30 @@ class TrainingLatent:
             # take the mean across the frequencies, the 1st dimension
             spatial_spectra_score = torch.mean(spatial_spectra_score, dim=1)
 
-            print('Spatial spectra score, lower is better...should be a spectra for each var', spatial_spectra_score)
+            print("Spatial spectra score, lower is better...should be a spectra for each var", spatial_spectra_score)
 
             # if this spatial_spectra_score is the lowest we have seen, then save the predictions
             if self.best_spatial_spectra_score is None:
                 self.best_spatial_spectra_score = spatial_spectra_score
-            
+
             # assert that self.best_spatial_spectra_score is not None
             assert self.best_spatial_spectra_score is not None
-            
+
             # check if every element of spatial_spectra_score is less than the best_spatial_spectra_score:
             print(torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
 
-            print('new score', spatial_spectra_score)
-            print('previous best score', self.best_spatial_spectra_score)
-            
+            print("new score", spatial_spectra_score)
+            print("previous best score", self.best_spatial_spectra_score)
+
             if torch.all(spatial_spectra_score < self.best_spatial_spectra_score):
                 print("The spatial spectra score is the best we have seen for all variables, I am in the if.")
 
                 self.best_spatial_spectra_score = spatial_spectra_score
                 print(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
-                
+
                 # save the model in its current state
                 print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
                 torch.save(self.model.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
-
 
         else:
 
@@ -1410,7 +1431,7 @@ class TrainingLatent:
             # swap
             with torch.no_grad():
                 y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
-                
+
                 # predict and take 100 samples too
                 samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
 
@@ -1436,10 +1457,9 @@ class TrainingLatent:
             for i in range(1, timesteps):
 
                 # remove the first timestep, so now we have (tau - 1) timesteps
-                
+
                 x = x[:, 1:, :, :]
                 x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
-
 
                 with torch.no_grad():
                     # then predict the next timestep
@@ -1481,17 +1501,16 @@ class TrainingLatent:
         return mse.item(), smape.item(), y_original, y_original_pred, y_original_recons, x_original
 
     def score_the_samples_for_spatial_spectra(self, y_true, y_pred_samples, num_samples=100):
-        '''
-        Calculate the spatial spectra of the true values and the predicted values, 
-        and then calculate a score between them. This is a measure of how well the model is 
-        predicting the spatial spectra of the true values.
+        """
+        Calculate the spatial spectra of the true values and the predicted values, and then calculate a score between
+        them. This is a measure of how well the model is predicting the spatial spectra of the true values.
 
         Args:
             true_values: torch.Tensor, observed values in a batch
             y_pred: torch.Tensor, a selection of predicted values
             num_samples: int, the number of samples that have been taken from the model
-        '''
-        
+        """
+
         # calculate the average spatial spectra of the true values, averaging across the batch
         print("y_true shape:", y_true.shape)
         fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
@@ -1513,16 +1532,13 @@ class TrainingLatent:
         spatial_spectra_score = 1 - spatial_spectra_score
 
         # score = ...
-        
-    
-        
+
         return spatial_spectra_score
 
     def particle_filter(self, x, y, num_particles, timesteps=120):
-        '''
-        Implement a particle filter to make a set of autoregressive predictions, where each created sample is 
-        evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
-        '''
+        """Implement a particle filter to make a set of autoregressive predictions, where each created sample is
+        evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive
+        rollout."""
 
         particles = torch.randn(num_particles)
         weights = torch.ones(num_particles) / num_particles
@@ -1558,7 +1574,5 @@ class TrainingLatent:
             x = torch.cat([x, selected_samples.unsqueeze(1)], dim=1)
 
             # then we are going back to the top of the loop
-
-            
 
         return particles

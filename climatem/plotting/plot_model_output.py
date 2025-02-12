@@ -875,7 +875,7 @@ class Plotter:
         best_metrics: dict = None,
         iteration: int = 0,
         plot_through_time: bool = False,
-        path = "",
+        path="",
     ):
         """Plot the training and validation loss through time
         Args:
@@ -900,9 +900,6 @@ class Plotter:
             # v_recons = moving_average(valid_recons[10:])
             # v_kl = moving_average(valid_kl[10:])
 
-        ax = plt.gca()
-        # ax.set_ylim([0, 5])
-        # ax.set_yscale("log")
         plt.plot(v_loss, label="valid loss", color="green")
         if train_recons is not None:
             plt.plot(t_recons, label="tr recons", color="blue")
@@ -911,8 +908,6 @@ class Plotter:
             plt.axhline(y=best_metrics["kl"], color="red", linestyle="dotted")
             plt.plot(t_loss, label="tr loss", color="purple")
             plt.axhline(y=best_metrics["elbo"], color="purple", linestyle="dotted")
-            # plt.plot(v_recons, label="val recons")
-            # plt.plot(v_kl, label="val kl")
         else:
             plt.plot(t_loss, label="tr ELBO")
 
@@ -923,16 +918,14 @@ class Plotter:
 
         plt.title("Learning curves")
         plt.legend()
-        # Possibly saving the plot...
-        # plt.savefig(path / fname, format="png")
-        plt.close()
+        plt.savefig(path / fname, format="png")
 
     def plot_learning_curves2(
         self,
         losses: list,
         iteration: int = 0,
         plot_through_time: bool = False,
-        path = "",
+        path="",
         fname="loss_detailed",
         yaxis_log: bool = False,
     ):
@@ -1113,9 +1106,7 @@ class Plotter:
         plt.savefig(path / fname, format="png")
         plt.close()
 
-    def plot_adjacency_matrix_w(
-        self, mat1: np.ndarray, mat2: np.ndarray, path, name_suffix: str, no_gt: bool = False
-    ):
+    def plot_adjacency_matrix_w(self, mat1: np.ndarray, mat2: np.ndarray, path, name_suffix: str, no_gt: bool = False):
         """Plot the adjacency matrices learned and compare it to the ground truth,
         the first dimension of the matrix should be the features (d)
         Args:

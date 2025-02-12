@@ -18,7 +18,8 @@ import numpy as np
 import torch
 
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
-# Why not gpu here? 
+
+# Why not gpu here?
 # from climatem.data_loader.to_delete_climate_data_loader_explore_ensembles.py import CausalClimateDataModule
 from climatem.model.tsdcd_latent import LatentTSDCD
 
@@ -390,7 +391,7 @@ print("Device:", device)
 
 home_dir_path = Path("/home/mila/s/sebastian.hickman")
 
-local_folder = home_dir_path / "work"  
+local_folder = home_dir_path / "work"
 scratch_dir = home_dir_path / "scratch"  # Where large data is stored
 results_dir = scratch_dir / "results"
 os.makedirs(results_dir, exist_ok=True)
@@ -418,11 +419,11 @@ os.makedirs(local_results_dir, exist_ok=True)
 # name_res_ts_novae = "var_[ts]_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
 
 # load a full model
-#local_results_dir = results_dir / "new_climatem_spectral"
-#name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
+# local_results_dir = results_dir / "new_climatem_spectral"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
 
-#local_results_dir = results_dir / "new_climatem_spectral"
-#name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_100_tempspcoef_5000"
+# local_results_dir = results_dir / "new_climatem_spectral"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_100_tempspcoef_5000"
 
 local_results_dir = results_dir / "new_climatem_spectral"
 name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
@@ -532,8 +533,8 @@ print("Where is the model?", next(model.parameters()).device)
 # model = model.cuda()
 
 
-
 batch_size = 16
+
 
 # select 16 random samples from the batch
 def sample_from_tensor_reproducibly(tensor1, tensor2, num_samples, seed=5):

@@ -1,18 +1,17 @@
-import os
-import scipy
-import numpy as np
+import itertools as it
+from typing import Union
+
 import matplotlib.pyplot as plt
+import numpy as np
+import scipy
 from matplotlib import cm
 from tigramite.data_processing import smooth
-import itertools as it
-
-from typing import Union
 
 
 def check_stability(graph: Union[np.ndarray, dict], lag_first_axis: bool = False, verbose: bool = False):
     """
-    Raises an AssertionError if the input graph corresponds to a non-stationary
-    process.
+    Raises an AssertionError if the input graph corresponds to a non-stationary process.
+
     Parameters
     ----------
     graph: array
@@ -23,7 +22,7 @@ def check_stability(graph: Union[np.ndarray, dict], lag_first_axis: bool = False
         Level of output information
     """
 
-    if type(graph) == dict:
+    if isinstance(graph, dict):
         graph = create_graph(graph, return_lag=False)
 
     # Adapt the Varmodel return to the desired format (lag, N, N) -> (N, N, lag)
@@ -37,18 +36,15 @@ def check_stability(graph: Union[np.ndarray, dict], lag_first_axis: bool = False
     n_nodes, _, period = graph.shape
     # Set the top section as the horizontally stacked matrix of
     # shape (n_nodes, n_nodes * period)
-    stability_matrix = \
-        scipy.sparse.hstack([scipy.sparse.lil_matrix(graph[:, :, t_slice])
-                             for t_slice in range(period)])
+    stability_matrix = scipy.sparse.hstack([scipy.sparse.lil_matrix(graph[:, :, t_slice]) for t_slice in range(period)])
     # Extend an identity matrix of shape
     # (n_nodes * (period - 1), n_nodes * (period - 1)) to shape
     # (n_nodes * (period - 1), n_nodes * period) and stack the top section on
     # top to make the stability matrix of shape
     # (n_nodes * period, n_nodes * period)
-    stability_matrix = \
-        scipy.sparse.vstack([stability_matrix,
-                             scipy.sparse.eye(n_nodes * (period - 1),
-                                              n_nodes * period)])
+    stability_matrix = scipy.sparse.vstack(
+        [stability_matrix, scipy.sparse.eye(n_nodes * (period - 1), n_nodes * period)]
+    )
     # Check the number of dimensions to see if we can afford to use a dense
     # matrix
     n_eigs = stability_matrix.shape[0]
@@ -61,22 +57,26 @@ def check_stability(graph: Union[np.ndarray, dict], lag_first_axis: bool = False
         # matrix, as it may be easier for the linear algebra package
         stability_matrix = stability_matrix.tocsr()
         # Get the eigen values of the stability matrix
-        eigen_values = scipy.sparse.linalg.eigs(stability_matrix,
-                                                k=(n_eigs - 2),
-                                                return_eigenvectors=False)
+        eigen_values = scipy.sparse.linalg.eigs(stability_matrix, k=(n_eigs - 2), return_eigenvectors=False)
     # Ensure they all have less than one magnitude
 
-    assert np.all(np.abs(eigen_values) < 1.), \
-        "Values given by time lagged connectivity matrix corresponds to a " + \
-        " non-stationary process!"
+    assert np.all(
+        np.abs(eigen_values) < 1.0
+    ), "Values given by time lagged connectivity matrix corresponds to a  non-stationary process!"
 
     if verbose:
         print("The coefficients correspond to an stationary process")
 
 
-def create_random_mode(size: tuple, mu: tuple = (0, 0), var: tuple = (.5, .5),
-                       position: tuple = (3, 3, 3, 3), plot: bool = False,
-                       Sigma: np.ndarray = None, random: bool = True) -> np.ndarray:
+def create_random_mode(
+    size: tuple,
+    mu: tuple = (0, 0),
+    var: tuple = (0.5, 0.5),
+    position: tuple = (3, 3, 3, 3),
+    plot: bool = False,
+    Sigma: np.ndarray = None,
+    random: bool = True,
+) -> np.ndarray:
     """
     Creates a positive-semidefinite matrix to be used as a covariance matrix of two var
     Then use that covariance to compute a pdf of a bivariate gaussian distribution which
@@ -121,7 +121,7 @@ def create_random_mode(size: tuple, mu: tuple = (0, 0), var: tuple = (.5, .5),
     if random:
         Sigma = np.random.rand(2, 2)
         Sigma = np.dot(Sigma, Sigma.transpose())  # Make it invertible
-        Sigma += + np.array([[var_x, 0], [0, var_y]])
+        Sigma += +np.array([[var_x, 0], [0, var_y]])
     else:
         if Sigma is None:
             Sigma = np.asarray([[0.5, 0], [0, 0.5]])
@@ -133,23 +133,19 @@ def create_random_mode(size: tuple, mu: tuple = (0, 0), var: tuple = (.5, .5),
 
     # This einsum call calculates (x-mu)T.Sigma-1.(x-mu) in a vectorized
     # way across all the input variables.
-    fac = np.einsum('...k,kl,...l->...', pos - mu, Sigma_inv, pos - mu)
+    fac = np.einsum("...k,kl,...l->...", pos - mu, Sigma_inv, pos - mu)
 
     # The actual weight
     Z = np.exp(-fac / 2) / N
 
     if not np.isfinite(Z).all() or (Z > 0.5).any():
-        Z = create_random_mode(size=size, mu=mu, var=var, position=position,
-                               plot=False, Sigma=Sigma_o, random=random)
+        Z = create_random_mode(size=size, mu=mu, var=var, position=position, plot=False, Sigma=Sigma_o, random=random)
 
     if plot:
         # Create a surface plot and projected filled contour plot under it.
         fig = plt.figure()
-        ax = fig.gca(projection='3d')
-        ax.plot_surface(X, Y, Z, rstride=3, cstride=3, linewidth=1, antialiased=True,
-                        cmap=cm.viridis)
-
-        cset = ax.contourf(X, Y, Z, zdir='z', offset=-0.15, cmap=cm.viridis)
+        ax = fig.gca(projection="3d")
+        ax.plot_surface(X, Y, Z, rstride=3, cstride=3, linewidth=1, antialiased=True, cmap=cm.viridis)
 
         # Adjust the limits, ticks and view angle
         ax.set_zlim(-0.15, 0.2)
@@ -160,13 +156,20 @@ def create_random_mode(size: tuple, mu: tuple = (0, 0), var: tuple = (.5, .5),
 
     return Z
 
-def create_non_stationarity(N_var: int, t_sample: int, tau: float = 0.5, cov_mat: np.ndarray = None, sigma: float = 1,
-                            smoothing_window: int = None) -> np.ndarray:
+
+def create_non_stationarity(
+    N_var: int,
+    t_sample: int,
+    tau: float = 0.5,
+    cov_mat: np.ndarray = None,
+    sigma: float = 1,
+    smoothing_window: int = None,
+) -> np.ndarray:
     """
-    Returns a (t_sample, N_var) array representing an oscilatory trend created from a N_var-dimensional
-    Ornstein-Uhlenbeck process of covariance matrix cov_mat, standard dev : sigma and mean reversal parameter = tau.
-    The Ornstein-Uhlenbeck process is smoothed with a Gaussian moving average of windows 2*smoothing_window
-    The mean of the O-U process is set to zero inside the function.
+    Returns a (t_sample, N_var) array representing an oscilatory trend created from a N_var-dimensional Ornstein-
+    Uhlenbeck process of covariance matrix cov_mat, standard dev : sigma and mean reversal parameter = tau. The
+    Ornstein-Uhlenbeck process is smoothed with a Gaussian moving average of windows 2*smoothing_window The mean of the
+    O-U process is set to zero inside the function.
 
     Parameters
     ----------
@@ -193,35 +196,36 @@ def create_non_stationarity(N_var: int, t_sample: int, tau: float = 0.5, cov_mat
         cov_mat = np.identity(N_var, dtype=float)
 
     if smoothing_window is None:
-        smoothing_window = int(t_sample/10)  # default value of smoothing windows if not specified
+        smoothing_window = int(t_sample / 10)  # default value of smoothing windows if not specified
 
-    mu = np.zeros(N_var) # Mean of the O-U is zero
+    mu = np.zeros(N_var)  # Mean of the O-U is zero
     dt = 0.001
-    T = dt*t_sample
-    t = np.linspace(0., T, t_sample)  # Vector of times.
 
-    sigma_bis = sigma * np.sqrt(2. / tau)
+    sigma_bis = sigma * np.sqrt(2.0 / tau)
     sqrtdt = np.sqrt(dt)
 
     # Initial value of the process
     X = np.zeros((t_sample, N_var))
     # random initial value of the O-U process around its mean
-    X[0, :] = np.random.multivariate_normal(mu, sigma*sigma*cov_mat)
+    X[0, :] = np.random.multivariate_normal(mu, sigma * sigma * cov_mat)
 
     # generation of the N-dim O-H process from its ODS
     for i in range(t_sample - 1):
-        X[i + 1, :] = X[i, :] + dt * (-(X[i, :] - mu) / tau) \
-                      + np.random.multivariate_normal(mu, (sigma_bis * sqrtdt)**2 * cov_mat)
+        X[i + 1, :] = (
+            X[i, :]
+            + dt * (-(X[i, :] - mu) / tau)
+            + np.random.multivariate_normal(mu, (sigma_bis * sqrtdt) ** 2 * cov_mat)
+        )
 
-    #Smoothing using tigramite smoothing function
-    try :
-        X_smooth = smooth(X,smoothing_window)
-    except:
-        print("Smoothing windows "+str(smoothing_window)+" is invalid")
+    # Smoothing using tigramite smoothing function
+    try:
+        X_smooth = smooth(X, smoothing_window)
+    except ValueError:
+        raise ValueError(f"Smoothing windows {str(smoothing_window)} is invalid")
     return X_smooth
 
-def create_graph(links_coeffs, return_lag = True):
 
+def create_graph(links_coeffs, return_lag=True):
     """
     :param links_coeffs:
     :param return_lag: if True, return max lag, otherwise returns only np.ndarray
@@ -239,11 +243,9 @@ def create_graph(links_coeffs, return_lag = True):
 
     # We find the max_lag
     if not non_linear:
-        max_lag = max(abs(lag)
-                      for (_, lag), _ in it.chain.from_iterable(links_coeffs.values()))
+        max_lag = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(links_coeffs.values()))
     else:
-        max_lag = max(abs(lag)
-              for (_, lag), _, _ in it.chain.from_iterable(links_coeffs.values()))
+        max_lag = max(abs(lag) for (_, lag), _, _ in it.chain.from_iterable(links_coeffs.values()))
 
     # We create an empty graph
     graph = np.zeros((N, N, max_lag + 1))

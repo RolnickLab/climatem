@@ -1,16 +1,17 @@
 # Here we try to modify the climate_data_loader so that we can use data from multiple ensemble members of a climate model, and indeed across climate models.
 
-import json
-from typing import Optional
 import os
+from typing import Optional
+
 import numpy as np
 import torch
+
+from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPPING
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
 from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
 from climatem.data_loader.savar_dataset import SavarDataset
-from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPPING
 
 
 class CausalDataset(torch.utils.data.Dataset):
@@ -35,7 +36,7 @@ class CausalClimateDataModule(ClimateDataModule):
     def __init__(self, tau=5, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
         super().__init__(self)
 
-        # kwargs are initialized as self.hparams by the Lightning module 
+        # kwargs are initialized as self.hparams by the Lightning module
         # WHat is this line? We cannot have different test vs train models
         # self.hparams.test_models = None if self.hparams.test_models else self.hparams.train_models
         self.hparams.test_models = self.hparams.train_models
@@ -73,14 +74,13 @@ class CausalClimateDataModule(ClimateDataModule):
             train_years = self.years_to_list(self.hparams.train_years)
             train_historical_years = self.years_to_list(self.hparams.train_historical_years)
 
-            os.makedirs(self.hparams.output_save_dir, exist_ok = True)
+            os.makedirs(self.hparams.output_save_dir, exist_ok=True)
             # Here add an option for SAVAR dataset
-
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
             if "savar" in self.hparams.in_var_ids:
                 train_val_input4mips = SavarDataset(
-                    #Make sure these arguments are propagated
+                    # Make sure these arguments are propagated
                     output_save_dir=self.hparams.output_save_dir,
                     lat=self.hparams.lat,
                     lon=self.hparams.lon,
@@ -95,14 +95,14 @@ class CausalClimateDataModule(ClimateDataModule):
                     seasonality=self.hparams.seasonality,
                     overlap=self.hparams.overlap,
                     is_forced=self.hparams.is_forced,
-                    plot_original_data=self.hparams.plot_original_data
+                    plot_original_data=self.hparams.plot_original_data,
                 )
             elif (
-                    "tas" in self.hparams.in_var_ids
-                    or "pr" in self.hparams.in_var_ids
-                    or "psl" in self.hparams.in_var_ids
-                    or "ts" in self.hparams.in_var_ids
-                ):
+                "tas" in self.hparams.in_var_ids
+                or "pr" in self.hparams.in_var_ids
+                or "psl" in self.hparams.in_var_ids
+                or "ts" in self.hparams.in_var_ids
+            ):
                 print(self.hparams.train_scenarios)
                 train_val_input4mips = CMIP6Dataset(
                     years=train_years,
@@ -143,7 +143,6 @@ class CausalClimateDataModule(ClimateDataModule):
                 )
 
             ratio_train = 1 - self.hparams.val_split
-
 
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,

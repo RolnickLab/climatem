@@ -1,11 +1,12 @@
-import glob
 import os
-import zipfile
-from typing import Dict, List, Optional, Tuple, Union
-from pathlib import Path 
+from pathlib import Path
+from typing import Optional
+
 import numpy as np
 import torch
+
 from climatem.synthetic_data.generate_savar_datasets import generate_save_savar_data
+
 
 class SavarDataset(torch.utils.data.Dataset):
     def __init__(
@@ -35,7 +36,7 @@ class SavarDataset(torch.utils.data.Dataset):
         self.seasonality_removal = seasonality_removal
         self.reload_climate_set_data = reload_climate_set_data
 
-        #TODO: for now this is ok, we create a square grid. Later we might want to look at icosahedral grid :) 
+        # TODO: for now this is ok, we create a square grid. Later we might want to look at icosahedral grid :)
         self.lat = lat
         self.lon = lon
         self.coordinates = np.array(np.meshgrid(np.arange(self.lat), np.arange(self.lon))).reshape((2, -1)).T
@@ -52,10 +53,7 @@ class SavarDataset(torch.utils.data.Dataset):
 
     @staticmethod
     def aggregate_months(data, num_months_aggregated):
-        """
-        Divide the data into chunks of size num_months_aggregated and
-        use the average of each chunk.
-        """
+        """Divide the data into chunks of size num_months_aggregated and use the average of each chunk."""
         # check if time dim is divisible by num_months_aggregated
         # if not print warning and drop the last few months
         if data.shape[1] % num_months_aggregated != 0:
@@ -64,23 +62,20 @@ class SavarDataset(torch.utils.data.Dataset):
             data = data[:, :end_idx]
 
         # introduce a new dimension of size num_months_aggregated
-        
+
         print("Inside aggregate_months, and the data before reshaping is:", data.shape)
-        reshaped_data = data.reshape(data.shape[0], -1, num_months_aggregated,
-                                        *data.shape[2:])
+        reshaped_data = data.reshape(data.shape[0], -1, num_months_aggregated, *data.shape[2:])
         print("Still inside aggregate months, reshaped_data shape:", reshaped_data.shape)
-        
+
         # average over the new dimension
         aggregated_data = np.nanmean(reshaped_data, axis=2)
         print("Shape of the aggregated data?:", aggregated_data.shape)
         return aggregated_data
 
     def split_data_by_interval(self, data, tau, ratio_train, interval_length=100):
-        """
-        Given a dataset and interval length, divide the data into intervals,
-        then splits each interval into training and validation indices based on ratio.
-        """
-        #interval_length=10
+        """Given a dataset and interval length, divide the data into intervals, then splits each interval into training
+        and validation indices based on ratio."""
+        # interval_length=10
         print(f"intervallength{interval_length}")
         print(f"datashape{data.shape[0]}")
         assert interval_length <= data.shape[0], "interval length is longer than the data"
@@ -88,7 +83,7 @@ class SavarDataset(torch.utils.data.Dataset):
         idx_train, idx_valid = [], []
         t_max = data.shape[0]
         n_intervals = t_max // interval_length
-        
+
         # split each interval into train and validation
         for i in range(n_intervals):
             start = i * interval_length
@@ -99,21 +94,22 @@ class SavarDataset(torch.utils.data.Dataset):
         idx_train, idx_valid = np.array(idx_train), np.array(idx_valid)
         return idx_train, idx_valid
 
-
     def get_overlapping_sequences(self, data, idxs, tau):
         """
         Given a dataset, time indices, and lag, generate sequences.
+
         Return input sequences and next step labels.
         """
         x_list, y_list = [], []
         for idx in idxs:
-            x_idx = data[idx-tau:idx]  # input includes tau lagged time steps
+            x_idx = data[idx - tau : idx]  # input includes tau lagged time steps
             y_idx = data[idx]  # labels are the next time step
             x_list.append(x_idx)
             y_list.append(y_idx)
 
         return x_list, y_list
-    #change this one
+
+    # change this one
 
     # This method loads the savar data from the given path and reshapes
     # the loaded data from savar's (lon*lat, years*months) to CDSD's
@@ -126,15 +122,26 @@ class SavarDataset(torch.utils.data.Dataset):
         print(f"Loaded data shape after: {data_reshaped.shape}")
         return data_reshaped
 
-    def get_causal_data(self, tau, channels_last, num_vars, num_scenarios, num_ensembles, 
-                        num_years, mode, num_months_aggregated=1, ratio_train=None, 
-                        interval_length=100):
+    def get_causal_data(
+        self,
+        tau,
+        channels_last,
+        num_vars,
+        num_scenarios,
+        num_ensembles,
+        num_years,
+        mode,
+        num_months_aggregated=1,
+        ratio_train=None,
+        interval_length=100,
+    ):
         """
-        Constructs dataset for causal discovery model. Splits each scenario into
-        training and validation sets, then generates overlapping sequences.
+        Constructs dataset for causal discovery model.
+
+        Splits each scenario into training and validation sets, then generates overlapping sequences.
         """
         print(f"Getting causal data [mode={mode}] ...")
-        #TODO: change + .npy...
+        # TODO: change + .npy...
         if os.path.exists(self.savar_path) and self.reload_climate_set_data:
             data = self.load_savar_data(self.savar_path)
         else:
@@ -156,10 +163,10 @@ class SavarDataset(torch.utils.data.Dataset):
             data = data.T.reshape((time_steps, self.lat, self.lon))
 
         data = data.astype("float32")
-        #TODO: normalize by saveing std/mean from train data and then normalize test by reloading 
-        # Very important to avoid normalizing differently test and train data 
+        # TODO: normalize by saveing std/mean from train data and then normalize test by reloading
+        # Very important to avoid normalizing differently test and train data
         if self.global_normalization:
-            data = (data - data.mean())/data.std()
+            data = (data - data.mean()) / data.std()
         if self.seasonality_removal:
             self.norm_data = self.remove_seasonality(self.norm_data)
 
@@ -171,12 +178,14 @@ class SavarDataset(torch.utils.data.Dataset):
             # Regular data shape before reshaping: (101, 12, 1, 96, 144)
             # Regular data shape after reshaping: (1, 1212, 1, 96, 144)
             print("Trying to regrid to lon, lat if we have regular data...")
-            #data = data.reshape(num_scenarios, num_years, num_vars, LON, LAT)
+            # data = data.reshape(num_scenarios, num_years, num_vars, LON, LAT)
 
             data = data.reshape(1, data.shape[0], 1, self.lon, self.lat)
-            
+
         except ValueError:
-            print('I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!')
+            print(
+                "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!"
+            )
             # I need to include the number of years in the reshape here...!
             # How to access it? As the length of the list of paths?
             # NOTE: currently hardcoding 101 year long sequences...need to unhack this...
@@ -187,11 +196,11 @@ class SavarDataset(torch.utils.data.Dataset):
             print("Data shape before reshaping:", data.shape)
             data = data.reshape(1, data.shape[0], 1, -1)
             print("Data shape after reshaping:", data.shape)
-        
-        if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated>1:
+
+        if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated > 1:
             data = self.aggregate_months(data, num_months_aggregated)
             # for each scenario in data, generate overlapping sequences
-            if mode == 'train' or mode == 'train+val':
+            if mode == "train" or mode == "train+val":
                 print("IN IF")
                 x_train_list, y_train_list = [], []
                 x_valid_list, y_valid_list = [], []
@@ -210,21 +219,15 @@ class SavarDataset(torch.utils.data.Dataset):
                     y_valid_list.extend(y_valid)
 
                 train_x, train_y = np.stack(x_train_list), np.stack(y_train_list)
-                if ratio_train==1:
+                if ratio_train == 1:
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:
                     valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
                 train_y = np.expand_dims(train_y, axis=1)
                 valid_y = np.expand_dims(valid_y, axis=1)
-                
+
                 # z-score normalization
                 # make train_y go from (2550, 4, 96, 144) to (2550, 1, 4, 96, 144)
-                mean_x, std_x = self.get_mean_std(train_x)
-                stats_x = {'mean': mean_x, 'std': std_x}
-
-                mean_y, std_y = self.get_mean_std(train_y)
-                stats_y = {'mean': mean_y, 'std': std_y}
-
                 train = train_x, train_y
                 valid = valid_x, valid_y
 
@@ -246,14 +249,14 @@ class SavarDataset(torch.utils.data.Dataset):
 
                 return test
 
-        #NOTE:seb delete commented code
+        # NOTE:seb delete commented code
 
         else:
             # TODO create this function and use it -> put it inside the data creation...
             # data = self.create_multi_res_data(data, num_months_aggregated)
 
             # for each scenario in data, generate overlapping sequences
-            if mode == 'train' or mode == 'train+val':
+            if mode == "train" or mode == "train+val":
                 x_train_list, y_train_list = [], []
                 x_valid_list, y_valid_list = [], []
                 for scenario in data:
@@ -275,8 +278,7 @@ class SavarDataset(torch.utils.data.Dataset):
                     valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
                 train_y = np.expand_dims(train_y, axis=1)
                 valid_y = np.expand_dims(valid_y, axis=1)
-                
-                
+
                 train = train_x, train_y
                 valid = valid_x, valid_y
                 print(f"train: {train[0].dtype}")
@@ -295,19 +297,21 @@ class SavarDataset(torch.utils.data.Dataset):
                 test = test_x, test_y
                 return test
 
-    def save_data_into_disk(self, data:np.ndarray,fname:str, output_save_dir: str) -> str:
-        
+    def save_data_into_disk(self, data: np.ndarray, fname: str, output_save_dir: str) -> str:
+
         np.savez(os.path.join(output_save_dir, fname), data=data)
-        return os.path.join(output_save_dir, fname) 
+        return os.path.join(output_save_dir, fname)
 
     def get_mean_std(self, data):
         # DATA shape (258, 12, 4, 96, 144) or DATA shape (258, 12, 2, 96, 144)
         # NOTE:(seb) 13th May, 2024: this is the original of the code:
         if data.ndim == 5:
-            data = np.moveaxis(data, 2, 0) #DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144) easier to calulate statistics
-            vars_mean = np.nanmean(data, axis=(1, 2, 3, 4)) #sDATA shape (258, 12, 4, 96, 144)
+            data = np.moveaxis(
+                data, 2, 0
+            )  # DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144) easier to calulate statistics
+            vars_mean = np.nanmean(data, axis=(1, 2, 3, 4))  # sDATA shape (258, 12, 4, 96, 144)
             vars_std = np.nanstd(data, axis=(1, 2, 3, 4))
-            vars_mean = np.expand_dims(vars_mean, (1, 2, 3, 4)) # Shape of mean & std (4, 1, 1, 1, 1)
+            vars_mean = np.expand_dims(vars_mean, (1, 2, 3, 4))  # Shape of mean & std (4, 1, 1, 1, 1)
             vars_std = np.expand_dims(vars_std, (1, 2, 3, 4))
 
         elif data.ndim == 4:
@@ -325,11 +329,13 @@ class SavarDataset(torch.utils.data.Dataset):
     def get_min_max(self, data):
 
         if data.ndim == 5:
-            data = np.moveaxis(data, 2, 0) #DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144) easier to calulate statistics
-            vars_max = np.nanmax(data, axis=(1, 2, 3, 4)) #sDATA shape (258, 12, 4, 96, 144)
+            data = np.moveaxis(
+                data, 2, 0
+            )  # DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144) easier to calulate statistics
+            vars_max = np.nanmax(data, axis=(1, 2, 3, 4))  # sDATA shape (258, 12, 4, 96, 144)
             vars_min = np.nanmin(data, axis=(1, 2, 3, 4))
-            vars_max = np.expand_dims(vars_max, (1, 2, 3, 4)) # Shape of mean & std (4, 1, 1, 1, 1)
-            vars_min= np.expand_dims(vars_min, (1, 2, 3, 4))
+            vars_max = np.expand_dims(vars_max, (1, 2, 3, 4))  # Shape of mean & std (4, 1, 1, 1, 1)
+            vars_min = np.expand_dims(vars_min, (1, 2, 3, 4))
         elif data.ndim == 4:
             data = np.moveaxis(data, 2, 0)
             vars_max = np.nanmax(data, axis=(1, 2, 3))
@@ -339,69 +345,68 @@ class SavarDataset(torch.utils.data.Dataset):
         else:
             print("Data dimension not recognized. Please check the dimensions of the data.")
             raise ValueError
-        
+
         return vars_min, vars_max
 
-    #important?
+    # important?
     # NOTE:(seb) I need to check the axis is correct here?
     def remove_seasonality(self, data):
-        '''
-        Function to remove seasonality from the data
-        There are various different options to do this
-        These are just different methods of removing seasonality
-        e.g. 
+        """
+        Function to remove seasonality from the data There are various different options to do this These are just
+        different methods of removing seasonality.
+
+        e.g.
         monthly - remove seasonality on a per month basis
         rolling monthly - remove seasonality on a per month basis but using a rolling window,
         removing only the average from the months that have preceded this month
         linear - remove seasonality using a linear model to predict seasonality
-        
+
         or trend removal
         emissions - remove the trend using the emissions data, such as cumulative CO2
-
-        '''
+        """
 
         mean = np.nanmean(data, axis=0)
         std = np.nanstd(data, axis=0)
-        
-        #return data
-            
+
+        # return data
+
         # NOTE: SH - do we not do this above?
         # standardise - I hope this is doing by month, to check
 
         return (data - mean[None]) / std[None]
-        
+
         # now just divide by std...
-        #return data / std[None]
+        # return data / std[None]
 
     def write_dataset_statistics(self, fname, stats):
-#            fname = fname.replace('.npz.npy', '.npy')
-        np.save(os.path.join(self.output_save_dir, fname), stats, allow_pickle=True)            
-        return os.path.join(self.output_save_dir, fname) 
+        #            fname = fname.replace('.npz.npy', '.npy')
+        np.save(os.path.join(self.output_save_dir, fname), stats, allow_pickle=True)
+        return os.path.join(self.output_save_dir, fname)
 
     def load_dataset_statistics(self, fname, mode, mips):
-        if 'train_' in fname:
-            fname = fname.replace('train', 'train+val')
-        elif 'test' in fname:
-            fname = fname.replace('test', 'train+val')
+        if "train_" in fname:
+            fname = fname.replace("train", "train+val")
+        elif "test" in fname:
+            fname = fname.replace("test", "train+val")
 
         stats_data = np.load(os.path.join(self.output_save_dir, fname), allow_pickle=True).item()
-            
+
         return stats_data
 
     def __getitem__(self, index):  # Dict[str, Tensor]):
 
         # access data in input4mips and cmip6 datasets
         X = self.input4mips_ds[index]
-        Y= self.cmip6_ds[index]
+        Y = self.cmip6_ds[index]
 
-        return X,Y
+        return X, Y
 
     def __str__(self):
         s = f" {self.name} dataset: {self.n_years} years used, with a total size of {len(self)} examples."
         return s
 
-    #NOTE(seb): is this a good way to get the length?
+    # NOTE(seb): is this a good way to get the length?
     def __len__(self):
-        print('Input4mips', self.input4mips_ds.length, 'CMIP6 data' , self.cmip6_ds.length)
+        print("Input4mips", self.input4mips_ds.length, "CMIP6 data", self.cmip6_ds.length)
         assert self.input4mips_ds.length == self.cmip6_ds.length, "Datasets not of same length"
         return self.input4mips_ds.length

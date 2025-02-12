@@ -1,8 +1,6 @@
 from typing import List, Optional, Union
-import os
-import torch
-import torch.distributed as dist
 
+import torch
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
@@ -11,7 +9,7 @@ from torch.utils.data.distributed import DistributedSampler
 from climatem.data_loader.climate_dataset import ClimateDataset
 from climatem.utils import get_logger, random_split
 
-MULTI_GPU=torch.cuda.device_count()>1
+MULTI_GPU = torch.cuda.device_count() > 1
 
 # def setup_ddp(rank=1, world_size=1):
 #     # os.environ['MASTER_ADDR'] = 'localhost'
@@ -62,10 +60,10 @@ class ClimateDataModule(LightningDataModule):
         verbose: bool = True,
         seed: int = 11,
         seq_len: int = 12,
-        data_dir: Optional[str] = "Climateset_DATA", # Change this
+        data_dir: Optional[str] = "Climateset_DATA",  # Change this
         output_save_dir: Optional[str] = "Climateset_DATA",
-        reload_climate_set_data = True,
-        seasonality_removal = True,
+        reload_climate_set_data=True,
+        seasonality_removal=True,
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         lon: int = 125,
         lat: int = 125,
@@ -73,7 +71,7 @@ class ClimateDataModule(LightningDataModule):
         num_levels: int = 1,
         # input_transform: Optional[AbstractTransform] = None,
         # normalizer: Optional[Normalizer] = None,
-        #Below SAVAR data arguments
+        # Below SAVAR data arguments
         time_len: int = 10_000,
         comp_size: int = 10,
         noise_val: float = 0.2,
@@ -232,11 +230,10 @@ class ClimateDataModule(LightningDataModule):
             sampler=train_sampler,
             **self._shared_dataloader_kwargs(),
         )
-         
 
     def val_dataloader(self):
 
-        valid_sampler=None
+        valid_sampler = None
 
         if MULTI_GPU:
             # setup_ddp()
@@ -244,14 +241,11 @@ class ClimateDataModule(LightningDataModule):
 
         return (
             DataLoader(
-                dataset=self._data_val, drop_last=True, 
-                sampler=valid_sampler, 
-                **self._shared_eval_dataloader_kwargs()
+                dataset=self._data_val, drop_last=True, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs()
             )
             if self._data_val is not None
             else None
         )
-
 
     def test_dataloader(self) -> List[DataLoader]:
 
@@ -261,9 +255,7 @@ class ClimateDataModule(LightningDataModule):
             test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
 
         return [
-            DataLoader(dataset=ds_test, 
-                    sampler=test_sampler, 
-                    **self._shared_eval_dataloader_kwargs())
+            DataLoader(dataset=ds_test, sampler=test_sampler, **self._shared_eval_dataloader_kwargs())
             for ds_test in self._data_test
         ]
 
@@ -276,12 +268,8 @@ class ClimateDataModule(LightningDataModule):
 
         return [
             (
-                DataLoader(dataset=self._data_val, 
-                        sampler=valid_sampler,
-                        **self._shared_eval_dataloader_kwargs())
+                DataLoader(dataset=self._data_val, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs())
                 if self._data_val is not None
                 else None
             )
         ]
-        
-            

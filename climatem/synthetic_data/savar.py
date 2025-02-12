@@ -1,29 +1,29 @@
-# External imports
-import numpy as np
-from copy import deepcopy
-from math import sin, pi
+"""
+This code is inspired by the SAVAR data generation paper and code "A spatiotemporal stochastic climate model for
+benchmarking causal discovery methods for teleconnections", Tibau et al.
+
+2022 The main difference with the provided code is the torch/GPU implementation which considerably speeds up the data
+generation process
+"""
+
 import itertools as it
-from tqdm.auto import tqdm
-# Interal imports
+from copy import deepcopy
+from math import pi, sin
+
+import numpy as np
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
+from tqdm.auto import tqdm
 
-"""
-This code is inspired by the SAVAR data generation paper and code
-"A spatiotemporal stochastic climate model for benchmarking causal discovery methods for teleconnections", Tibau et al. 2022
-The main difference with the provided code is the torch/GPU implementation which considerably speeds up the data generation process 
-"""
 
-### TODO: To be moves ###
 def dict_to_matrix(links_coeffs, default=0):
     """
-    Maps to the coefficient matrix. Without time
-    :param links_coeffs:
-    :param default:
-    :return: a matrix coefficient of [j, i, \tau-1] where a link is i -> j at \tau
+    Maps to the coefficient matrix.
+
+    Without time :param links_coeffs: :param default: :return: a matrix coefficient of [j, i, \tau-1] where a link is i
+    -> j at \tau
     """
-    tau_max = max(abs(lag)
-                  for (_, lag), _ in it.chain.from_iterable(links_coeffs.values()))
+    tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(links_coeffs.values()))
 
     n_vars = len(links_coeffs)
 
@@ -41,32 +41,61 @@ def dict_to_matrix(links_coeffs, default=0):
 
 
 class SAVAR:
-    """
-    Main class containing SAVAR model
-    """
+    """Main class containing SAVAR model."""
 
-    __slots__ = ["links_coeffs", "n_vars", "time_length", "transient", "spatial_resolution", "tau_max",
-                 "mode_weights", "noise_weights",
-                 "noise_cov", "noise_strength", "noise_variance", "latent_noise_cov", "fast_noise_cov",
-                 "forcing_dict", "season_dict",
-                 "data_field", "noise_data_field", "seasonal_data_field", "forcing_data_field",
-                 "linearity", "verbose", "model_seed"]
+    __slots__ = [
+        "links_coeffs",
+        "n_vars",
+        "time_length",
+        "transient",
+        "spatial_resolution",
+        "tau_max",
+        "mode_weights",
+        "noise_weights",
+        "noise_cov",
+        "noise_strength",
+        "noise_variance",
+        "latent_noise_cov",
+        "fast_noise_cov",
+        "forcing_dict",
+        "season_dict",
+        "data_field",
+        "noise_data_field",
+        "seasonal_data_field",
+        "forcing_data_field",
+        "linearity",
+        "verbose",
+        "model_seed",
+    ]
 
-    def __init__(self, links_coeffs: dict, time_length: int, mode_weights: np.ndarray, transient: int = 200,
-                 noise_weights: np.ndarray = None,
-                 noise_strength: float = 1, noise_variance: float = 1, noise_cov: np.ndarray = None,
-                 latent_noise_cov: np.ndarray = None, fast_cov: np.ndarray = None,
-                 forcing_dict: dict = None, season_dict: dict = None,
-                 data_field: np.ndarray = None, noise_data_field: np.ndarray = None,
-                 seasonal_data_field: np.ndarray = None, forcing_data_field: np.ndarray = None,
-                 linearity: str = "linear", verbose: bool = False, model_seed: int = None,
-                 ):
+    def __init__(
+        self,
+        links_coeffs: dict,
+        time_length: int,
+        mode_weights: np.ndarray,
+        transient: int = 200,
+        noise_weights: np.ndarray = None,
+        noise_strength: float = 1,
+        noise_variance: float = 1,
+        noise_cov: np.ndarray = None,
+        latent_noise_cov: np.ndarray = None,
+        fast_cov: np.ndarray = None,
+        forcing_dict: dict = None,
+        season_dict: dict = None,
+        data_field: np.ndarray = None,
+        noise_data_field: np.ndarray = None,
+        seasonal_data_field: np.ndarray = None,
+        forcing_data_field: np.ndarray = None,
+        linearity: str = "linear",
+        verbose: bool = False,
+        model_seed: int = None,
+    ):
 
         self.links_coeffs = links_coeffs
         self.time_length = time_length
         self.transient = transient
         self.noise_strength = noise_strength
-        self.noise_variance = noise_variance  #TODO: NOT USED.
+        self.noise_variance = noise_variance  # TODO: NOT USED.
         self.noise_cov = noise_cov
 
         self.latent_noise_cov = latent_noise_cov  # D_x
@@ -87,8 +116,7 @@ class SAVAR:
         # Computed attributes
         print("Creating attributes")
         self.n_vars = len(links_coeffs)
-        self.tau_max = max(abs(lag)
-                           for (_, lag), _ in it.chain.from_iterable(self.links_coeffs.values()))
+        self.tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(self.links_coeffs.values()))
         self.spatial_resolution = deepcopy(self.mode_weights.reshape(self.n_vars, -1).shape[1])
         print("spatial-resolution done")
 
@@ -109,10 +137,7 @@ class SAVAR:
             np.random.seed(model_seed)
 
     def generate_data(self) -> None:
-        """
-        Generates the data of savar
-        :return:
-        """
+        """Generates the data of savar :return:"""
         # Prepare the datafield
         if self.data_field is None:
             if self.verbose:
@@ -136,7 +161,6 @@ class SAVAR:
         else:
             print("No seasonality")
 
-
         # Add external forcing
         if self.forcing_dict is not None:
             if self.verbose:
@@ -151,12 +175,11 @@ class SAVAR:
                 print("Creating linear data")
             self._create_linear()
         else:
-            raise NotImplemented("Now, only linear methods are implemented")
+            raise NotImplementedError("Now, only linear methods are implemented")
 
     def generate_cov_noise_matrix(self) -> np.ndarray:
         """
-        W \in NxL
-        data_field L times T
+        W in NxL data_field L times T.
 
         :return:
         """
@@ -164,10 +187,10 @@ class SAVAR:
         W = deepcopy(self.noise_weights).reshape(self.n_vars, -1)
         print(f"noise_weights copied, {W.shape}")
         W_plus = np.linalg.pinv(W)
-        print(f"noise_weights inverted")
+        print("noise_weights inverted")
         # Can we speed this up? since they are all np.eye
-        cov = self.noise_strength * W_plus @ W_plus.transpose() #+ self.fast_noise_cov
-        print(f"cov created inverted")
+        cov = self.noise_strength * W_plus @ W_plus.transpose()  # + self.fast_noise_cov
+        print("cov created inverted")
 
         return cov
 
@@ -175,17 +198,17 @@ class SAVAR:
 
         if self.noise_cov is None:
             print("Generate covariance matrix")
-            self.noise_cov = self.generate_cov_noise_matrix() 
-            self.noise_cov += 1e-6*np.eye(self.noise_cov.shape[0])
+            self.noise_cov = self.generate_cov_noise_matrix()
+            self.noise_cov += 1e-6 * np.eye(self.noise_cov.shape[0])
 
         # Generate noise from cov
         print("Generate noise_data_field multivariate random")
         mean_torch = torch.Tensor(np.zeros(self.spatial_resolution)).to(device="cuda")
         cov = torch.Tensor(self.noise_cov).to(device="cuda")
-        distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov) #. to(device="cuda")
-        noise_data_field = distrib.sample(sample_shape = torch.Size([self.time_length + self.transient]))
+        distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov)  # . to(device="cuda")
+        noise_data_field = distrib.sample(sample_shape=torch.Size([self.time_length + self.transient]))
         self.noise_data_field = noise_data_field.detach().cpu().numpy().transpose()
-    
+
         # self.noise_data_field = np.random.multivariate_normal(mean=np.zeros(self.spatial_resolution), cov=self.noise_cov,
         #                                                       size=self.time_length + self.transient).transpose()
 
@@ -198,9 +221,9 @@ class SAVAR:
         period = self.season_dict["period"]
         season_weight = self.season_dict.get("season_weight", None)
 
-        seasonal_trend = np.asarray([amplitude * sin((2 * pi / period) * x)
-                                     for x in range(self.time_length +
-                                                    self.transient)])
+        seasonal_trend = np.asarray(
+            [amplitude * sin((2 * pi / period) * x) for x in range(self.time_length + self.transient)]
+        )
 
         seasonal_data_field = np.ones_like(self.data_field)
         seasonal_data_field *= seasonal_trend.reshape(1, -1)
@@ -217,7 +240,7 @@ class SAVAR:
 
     def _add_external_forcing(self):
 
-        #TODO Make this a torch function
+        # TODO Make this a torch function
 
         if self.forcing_dict is None:
             raise TypeError("Forcing dict is empty")
@@ -238,8 +261,13 @@ class SAVAR:
 
         # Check
         time_length = self.time_length + self.transient
-        trend = np.concatenate((np.repeat([f_1], f_time_1), np.linspace(f_1, f_2, f_time_2 - f_time_1),
-                                np.repeat([f_2], time_length - f_time_2))).reshape((1, time_length))
+        trend = np.concatenate(
+            (
+                np.repeat([f_1], f_time_1),
+                np.linspace(f_1, f_2, f_time_2 - f_time_1),
+                np.repeat([f_2], time_length - f_time_2),
+            )
+        ).reshape((1, time_length))
 
         forcing_field = (w_f_sum.reshape(1, -1) * trend.transpose()).transpose()
         self.forcing_data_field = forcing_field
@@ -248,11 +276,7 @@ class SAVAR:
         self.data_field += forcing_field
 
     def _create_linear(self):
-
-        """
-            weights N \times L
-            data_field L \times T
-        """
+        """Weights N \times L data_field L \times T."""
         weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
         # weights_inv = np.linalg.pinv(weights)
         weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
@@ -269,9 +293,7 @@ class SAVAR:
         print("create_linear")
         for t in tqdm(range(tau_max, time_len)):
             for i in range(tau_max):
-                data_field[..., t:t + 1] += weights_inv @ phi[..., i] @ weights @ data_field[..., t - 1 - i:t - i]
+                data_field[..., t : t + 1] += weights_inv @ phi[..., i] @ weights @ data_field[..., t - 1 - i : t - i]
                 # data_field[..., t:t + 1] += torch.matmul(torch.matmul(torch.matmul(weights_inv, phi[..., i]), weights), data_field[..., t - 1 - i:t - i])
 
-        self.data_field = data_field[..., self.transient:].detach().cpu().numpy()
-
-
+        self.data_field = data_field[..., self.transient :].detach().cpu().numpy()

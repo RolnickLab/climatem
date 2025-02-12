@@ -3,9 +3,8 @@ import torch
 
 
 class ALM:
-    """
-    Augmented Lagrangian Method To use the quadratic penalty method (e.g. for the acyclicity constraint), just ignore
-    """
+    """Augmented Lagrangian Method To use the quadratic penalty method (e.g. for the acyclicity constraint), just
+    ignore."""
 
     def __init__(
         self,

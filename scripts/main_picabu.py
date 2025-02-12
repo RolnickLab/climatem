@@ -1,5 +1,4 @@
 # Here we have a quick main where we are testing data loading with different ensemble members and ideally with different climate models.
-
 import argparse
 import json
 import os
@@ -9,15 +8,15 @@ from pathlib import Path
 
 import numpy as np
 import torch
-torch.set_warn_always(False)
 from accelerate import Accelerator
 
+from climatem.config import *
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
-from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.model.train_model import TrainingLatent
-from climatem.config import *
+from climatem.model.tsdcd_latent import LatentTSDCD
 
+torch.set_warn_always(False)
 accelerator = Accelerator()
 
 
@@ -37,15 +36,8 @@ class Bunch:
     #     return '\n'.join(str_list)
 
 
-def main(        
-        experiment_params,
-        data_params,
-        gt_params,
-        train_params, 
-        model_params, 
-        optim_params, 
-        plot_params,
-        savar_params
+def main(
+    experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params
 ):
     """
     :param hp: object containing hyperparameter values
@@ -79,50 +71,50 @@ def main(
         return
     else:
         datamodule = CausalClimateDataModule(
-            tau=experiment_params.tau, 
-            num_months_aggregated=data_params.num_months_aggregated, 
+            tau=experiment_params.tau,
+            num_months_aggregated=data_params.num_months_aggregated,
             train_val_interval_length=data_params.train_val_interval_length,
-            in_var_ids = data_params.in_var_ids,
-            out_var_ids = data_params.out_var_ids,
-            train_years = data_params.train_years,
-            train_historical_years = data_params.train_historical_years,
-            test_years = data_params.test_years,  # do we want to implement keeping only certain years for testing?
-            val_split = 1-train_params.ratio_train,  # fraction of testing to split for valdation
-            seq_to_seq = data_params.seq_to_seq,  # if true maps from T->T else from T->1
-            channels_last = data_params.channels_last,  # wheather variables come last our after sequence lenght
-            train_scenarios = data_params.train_scenarios,
-            test_scenarios = data_params.test_scenarios,
-            train_models = data_params.train_models,
+            in_var_ids=data_params.in_var_ids,
+            out_var_ids=data_params.out_var_ids,
+            train_years=data_params.train_years,
+            train_historical_years=data_params.train_historical_years,
+            test_years=data_params.test_years,  # do we want to implement keeping only certain years for testing?
+            val_split=1 - train_params.ratio_train,  # fraction of testing to split for valdation
+            seq_to_seq=data_params.seq_to_seq,  # if true maps from T->T else from T->1
+            channels_last=data_params.channels_last,  # wheather variables come last our after sequence lenght
+            train_scenarios=data_params.train_scenarios,
+            test_scenarios=data_params.test_scenarios,
+            train_models=data_params.train_models,
             # test_models = data_params.test_models,
-            batch_size = data_params.batch_size,
-            eval_batch_size = data_params.eval_batch_size,
-            num_workers = experiment_params.num_workers,
-            pin_memory = experiment_params.pin_memory,
-            load_train_into_mem = data_params.load_train_into_mem,
-            load_test_into_mem = data_params.load_test_into_mem,
-            verbose = experiment_params.verbose,
-            seed = experiment_params.random_seed,
-            seq_len = data_params.seq_len,
-            data_dir = data_params.climateset_data,
-            output_save_dir = data_params.data_dir,
-            num_ensembles = data_params.num_ensembles,  # 1 for first ensemble, -1 for all
-            lon = experiment_params.lon,
-            lat = experiment_params.lon,
-            num_levels = data_params.num_levels,
-            global_normalization = data_params.global_normalization,
-            seasonality_removal = data_params.seasonality_removal,
-            reload_climate_set_data = data_params.reload_climate_set_data,
-            #Below SAVAR data arguments
-            time_len = savar_params.time_len,
-            comp_size = savar_params.comp_size,
-            noise_val = savar_params.noise_val,
-            n_per_col = savar_params.n_per_col,
-            difficulty = savar_params.difficulty,
-            seasonality = savar_params.seasonality,
-            overlap = savar_params.overlap,
-            is_forced = savar_params.is_forced,
-            plot_original_data = savar_params.plot_original_data,
-        ) 
+            batch_size=data_params.batch_size,
+            eval_batch_size=data_params.eval_batch_size,
+            num_workers=experiment_params.num_workers,
+            pin_memory=experiment_params.pin_memory,
+            load_train_into_mem=data_params.load_train_into_mem,
+            load_test_into_mem=data_params.load_test_into_mem,
+            verbose=experiment_params.verbose,
+            seed=experiment_params.random_seed,
+            seq_len=data_params.seq_len,
+            data_dir=data_params.climateset_data,
+            output_save_dir=data_params.data_dir,
+            num_ensembles=data_params.num_ensembles,  # 1 for first ensemble, -1 for all
+            lon=experiment_params.lon,
+            lat=experiment_params.lon,
+            num_levels=data_params.num_levels,
+            global_normalization=data_params.global_normalization,
+            seasonality_removal=data_params.seasonality_removal,
+            reload_climate_set_data=data_params.reload_climate_set_data,
+            # Below SAVAR data arguments
+            time_len=savar_params.time_len,
+            comp_size=savar_params.comp_size,
+            noise_val=savar_params.noise_val,
+            n_per_col=savar_params.n_per_col,
+            difficulty=savar_params.difficulty,
+            seasonality=savar_params.seasonality,
+            overlap=savar_params.overlap,
+            is_forced=savar_params.is_forced,
+            plot_original_data=savar_params.plot_original_data,
+        )
         datamodule.setup()
 
     train_dataloader = iter(datamodule.train_dataloader())
@@ -147,7 +139,7 @@ def main(
         num_layers=model_params.num_layers,
         num_hidden=model_params.num_hidden,
         num_input=num_input,
-        num_output=2, #This should be parameterized somewhere? 
+        num_output=2,  # This should be parameterized somewhere?
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
         coeff_kl=optim_params.coeff_kl,
@@ -176,18 +168,23 @@ def main(
 
     # Make folder to save run results
     exp_path = Path(experiment_params.exp_path)
-    os.makedirs(exp_path, exist_ok = True)
-    data_var_ids_str = str(data_params.in_var_ids)[1:-1].translate({ord('\''):None}).translate({ord(','):None}).translate({ord(' '):None})
+    os.makedirs(exp_path, exist_ok=True)
+    data_var_ids_str = (
+        str(data_params.in_var_ids)[1:-1]
+        .translate({ord("'"): None})
+        .translate({ord(","): None})
+        .translate({ord(" "): None})
+    )
     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
-    os.makedirs(exp_path, exist_ok = True)
+    os.makedirs(exp_path, exist_ok=True)
 
     # create path to exp and save hyperparameters
     save_path = exp_path / "training_results"
     os.makedirs(save_path, exist_ok=True)
     plots_path = exp_path / "plots"
     os.makedirs(plots_path, exist_ok=True)
-    # Here could maybe implement a "save()" function inside each class 
+    # Here could maybe implement a "save()" function inside each class
     hp = {}
     hp["exp_params"] = experiment_params.__dict__
     hp["data_params"] = data_params.__dict__
@@ -204,10 +201,21 @@ def main(
     best_metrics = {"recons": 0, "kl": 0, "mcc": 0, "elbo": 0}
 
     # train, always with the latent version
-    trainer = TrainingLatent(model, datamodule, 
-                             experiment_params, gt_params, model_params, train_params, optim_params, plot_params, 
-                             save_path, plots_path, 
-                             best_metrics, d, wandbname=name)
+    trainer = TrainingLatent(
+        model,
+        datamodule,
+        experiment_params,
+        gt_params,
+        model_params,
+        train_params,
+        optim_params,
+        plot_params,
+        save_path,
+        plots_path,
+        best_metrics,
+        d,
+        wandbname=name,
+    )
 
     # where is the model at this point?
     print("Where is my model?", next(trainer.model.parameters()).device)
@@ -273,18 +281,22 @@ def main(
 
 
 def assert_args(
-        experiment_params,
-        data_params,
-        gt_params,
-        optim_params, 
+    experiment_params,
+    data_params,
+    gt_params,
+    optim_params,
 ):
-    
     """Raise errors or warnings if some args should not take some combination of values."""
     # raise errors if some args should not take some combination of values
     if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
         raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
 
-    if experiment_params.latent and (experiment_params.d_z is None or experiment_params.d_x is None or experiment_params.d_z <= 0 or experiment_params.d_x <= 0):
+    if experiment_params.latent and (
+        experiment_params.d_z is None
+        or experiment_params.d_x is None
+        or experiment_params.d_z <= 0
+        or experiment_params.d_x <= 0
+    ):
         raise ValueError("When using latent model, you need to define d_z and d_x with integer values greater than 0")
 
     # string input with limited possible values
@@ -300,7 +312,7 @@ def assert_args(
             f"This optimizer type ({optim_params.optimizer}) is not \
                          supported. Supported types are: {supported_optimizer}"
         )
-    
+
     # warnings, strange choice of args combination
     if not experiment_params.latent and gt_params.debug_gt_z:
         warnings.warn("Are you sure you want to use gt_z even if you don't have latents")
@@ -332,7 +344,7 @@ if __name__ == "__main__":
     model_params = modelParams(**params["model_params"])
     optim_params = optimParams(**params["optim_params"])
     plot_params = plotParams(**params["plot_params"])
-    savar_params =savarParams(**params["savar_params"])
+    savar_params = savarParams(**params["savar_params"])
 
     if "savar" in data_params.in_var_ids:
         experiment_params.lat = int(savar_params.comp_size * savar_params.n_per_col)
@@ -343,22 +355,13 @@ if __name__ == "__main__":
         plot_params.savar = False
 
     assert_args(
-            experiment_params,
-            data_params,
-            gt_params,
-            optim_params, 
-    )
-
-    main(
         experiment_params,
         data_params,
         gt_params,
-        train_params, 
-        model_params, 
-        optim_params, 
-        plot_params,
-        savar_params
+        optim_params,
     )
+
+    main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
 
     # Experiment parameters
     # parser.add_argument("--exp-path", type=str, default="../../causal_climate_exp/", help="Path to experiments")

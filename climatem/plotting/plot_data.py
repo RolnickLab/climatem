@@ -201,4 +201,3 @@ def plot_species_anomaly(data, coordinates, var, out_dir, num_video, method="mon
     for i in range(len(img_array)):
         out.write(img_array[i])
     out.release()
-

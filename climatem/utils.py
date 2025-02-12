@@ -12,7 +12,8 @@ from torch import default_generator, randperm
 from torch._utils import _accumulate
 from torch.utils.data.dataset import Subset
 
-#What functions do we axctually use from this? ... I feel like we could delete everything
+# What functions do we axctually use from this? ... I feel like we could delete everything
+
 
 def to_DictConfig(obj: Optional[Union[List, Dict]]):
     if isinstance(obj, DictConfig):

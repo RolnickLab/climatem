@@ -351,7 +351,7 @@ class LatentTSDCD(nn.Module):
             self.d, self.d_z, self.total_tau, self.num_layers, self.num_hidden, self.num_output
         )
 
-        #print("We are setting the Mask here.")
+        # print("We are setting the Mask here.")
         self.mask = Mask(
             d,
             d_z,
@@ -422,7 +422,7 @@ class LatentTSDCD(nn.Module):
         mu = torch.zeros(b, self.d, self.d_z)
         std = torch.zeros(b, self.d, self.d_z)
 
-        #print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
+        # print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
 
         # learning conditional variance
         # for i in range(self.d):
@@ -434,24 +434,22 @@ class LatentTSDCD(nn.Module):
 
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
-            #print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
+            # print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
             for k in range(self.d_z):
-                #print("Doing the transition, and this is the k at the moment.", k)
-                #print("**************************************************")
-                #print("What is the shape of the mask?", mask.shape)
-                #print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
-                #print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
+                # print("Doing the transition, and this is the k at the moment.", k)
+                # print("**************************************************")
+                # print("What is the shape of the mask?", mask.shape)
+                # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
+                # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
                 pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
 
-
-            #print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
-            #print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
-            #print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
+            # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
+            # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
+            # print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
-
-        #print("This is giving us the pz_mu and pz_std that we use later.")
+        # print("This is giving us the pz_mu and pz_std that we use later.")
         return mu, std
 
     def decode(self, z):
@@ -491,8 +489,6 @@ class LatentTSDCD(nn.Module):
         px_mu, px_std = self.decode(z[:, -1])
 
         # set distribution with obtained parameters
-        p = distr.Normal(pz_mu.view(b, -1), pz_std.view(b, -1))
-        q = distr.Normal(q_mu_y.view(b, -1), q_std_y.view(b, -1))
         px_distr = self.distr_decoder(px_mu, px_std)
 
         # compute the KL, the reconstruction and the ELBO
@@ -579,7 +575,7 @@ class LatentTSDCD(nn.Module):
         px_mu, px_std = self.decode(pz_mu)
 
         return px_mu, y, z, pz_mu, pz_std
-    
+
     def predict_counterfactual(self, x, y, counterfactual_z_index, counterfactual_z_value):
 
         # Use no grad to speed it up! But I need to keep the grads if I am going to add to the loss.
@@ -595,7 +591,11 @@ class LatentTSDCD(nn.Module):
         z, q_mu_y, q_std_y = self.encode(x, y)
 
         print("This is the shape of the latents that we are going to intervene on.", z.shape)
-        print("Here is where we are going to intervene on the latents, and the value.", counterfactual_z_index, counterfactual_z_value)
+        print(
+            "Here is where we are going to intervene on the latents, and the value.",
+            counterfactual_z_index,
+            counterfactual_z_value,
+        )
 
         assert torch.all(z[:, 4, :, :] == z[:, -2, :, :])
 
@@ -604,13 +604,11 @@ class LatentTSDCD(nn.Module):
         # we want to intervene on the final (non-instantaneous) latent variable.
         # we also intervene on only the first variable
         # we also intervene on all batch members
-        
+
         z[:, -2, 0, counterfactual_z_index] = counterfactual_z_value
 
         print("This is e.g. the new value of the latents after intervention.", z[0, -2, 0, counterfactual_z_index])
         assert torch.all(z[:, -2, 0, counterfactual_z_index] == counterfactual_z_value)
-
-
 
         mask = self.mask(b)
 
@@ -673,7 +671,7 @@ class LatentTSDCD(nn.Module):
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
 
-    def predict_sample_bayesianfiltering(self, x, y, num_samples, with_zs_logprob:bool = False):
+    def predict_sample_bayesianfiltering(self, x, y, num_samples, with_zs_logprob: bool = False):
         """
         This is a prediction function for the model, but where we take samples from the Gaussians of the latents.
 
@@ -853,7 +851,7 @@ class NonLinearAutoEncoder(nn.Module):
             if self.tied:
                 sampled_mask = self.mask(bs_size)
             else:
-                sampled_mask = self.mask_encoder(x.shape[0])
+                sampled_mask = self.mask_encoder(bs_size)
         else:
             if self.tied:
                 return torch.transpose(self.w, 1, 2)
@@ -1177,43 +1175,43 @@ class TransitionModel(nn.Module):
         # t_total = torch.max(self.tau, z_past.size(1))  # TODO: find right dim
         # param_z = torch.zeros(z_past.size(0), 2)
 
-        #print("In the forward of the transition model, and trying to ascertain which way the information flows through the mask.")
-        #print("The mask is of size: ", mask.size())
-        #print("The z is of size: ", z.size())
-        
+        # print("In the forward of the transition model, and trying to ascertain which way the information flows through the mask.")
+        # print("The mask is of size: ", mask.size())
+        # print("The z is of size: ", z.size())
+
         # print the unique values and their counts in mask:
-        #print("The unique values of mask are: ", torch.unique(mask))
-        #print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
+        # print("The unique values of mask are: ", torch.unique(mask))
+        # print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
 
         # print the first few elements of z
 
         z = z.view(mask.size())
 
-        #print("The z is now, after z.view() of size: ", z.size())
+        # print("The z is now, after z.view() of size: ", z.size())
 
-        #print("what is mask * z shape? ", (mask * z).size())
+        # print("what is mask * z shape? ", (mask * z).size())
 
         masked_z = (mask * z).view(z.size(0), -1)
 
-        #print("mask * z is of size: ", (mask * z).size())
-        #print("The masked_z is of size: ", masked_z.size())
+        # print("mask * z is of size: ", (mask * z).size())
+        # print("The masked_z is of size: ", masked_z.size())
 
         # print the first few elements of masked_z
-        #print("The first few elements of masked_z are: ", masked_z[0, :10])
+        # print("The first few elements of masked_z are: ", masked_z[0, :10])
 
         # print all the unique values of masked_z, and the number of unique values.
-        #print("The unique values of masked_z are: ", torch.unique(masked_z))
-        
-        # count the number of very small values in masked_z
-        #print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
+        # print("The unique values of masked_z are: ", torch.unique(masked_z))
 
-        #print("What is i, self_d_z, k? ", i, self.d_z, k)
-        #print("What is i * self.d_z + k? ", i * self.d_z + k)
-        #print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
+        # count the number of very small values in masked_z
+        # print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
+
+        # print("What is i, self_d_z, k? ", i, self.d_z, k)
+        # print("What is i * self.d_z + k? ", i * self.d_z + k)
+        # print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
 
         param_z = self.nn[i * self.d_z + k](masked_z)
 
-        #print("What is the shape of param_z?", param_z.size())
+        # print("What is the shape of param_z?", param_z.size())
 
         # param_z = self.nn(masked_z)
 
