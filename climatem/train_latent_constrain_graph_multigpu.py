@@ -30,7 +30,6 @@ accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
 
 # set profiler manually for now
 
-
 class TrainingLatent:
     def __init__(self, model, datamodule, hp, best_metrics, d, profiler=False, profiler_path="./log"):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
@@ -500,7 +499,7 @@ class TrainingLatent:
 
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         crps = self.get_crps_loss(y, px_mu, px_std)
-        spectral_loss = self.get_spectral_loss(y, y_pred_recons, y_pred, take_log=True)
+        spectral_loss = self.get_spectral_loss(y, y_pred_recons, y_pred, take_log=True, fraction_highest_wavenumbers=0.5)
         temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_recons, y_pred)
 
         # add the spectral loss to the loss
@@ -1072,7 +1071,7 @@ class TrainingLatent:
 
         return crps
 
-    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=True):
+    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log:bool=True, fraction_highest_wavenumbers:float = None):
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
@@ -1132,6 +1131,15 @@ class TrainingLatent:
             fft_true = torch.log(fft_true)
             fft_recons = torch.log(fft_recons)
             fft_pred = torch.log(fft_pred)
+        
+        # print the index of the minimum value of the fft_true: 
+
+        if fraction_highest_wavenumbers is not None:
+            # print(f"Only applying this loss to the {fraction_highest_wavenumbers} highest wavenumbers.")
+            fft_true = fft_true[:, round(fraction_highest_wavenumbers*fft_true.shape[1]):]
+            fft_recons = fft_recons[:, :round(fraction_highest_wavenumbers*fft_recons.shape[1]):]
+            fft_pred = fft_pred[:, :round(fraction_highest_wavenumbers*fft_pred.shape[1]):]
+
         
         # Calculate the power spectrum
         spectral_loss_recons = torch.abs(fft_recons - fft_true)
