@@ -12,12 +12,12 @@ from accelerate.utils import DistributedDataParallelKwargs
 from geopy import distance
 from torch.profiler import ProfilerActivity
 
+from climatem import MAPPINGS_DIR
 from climatem.dag_optim import compute_dag_constraint
 from climatem.plot_multigpu import Plotter
 from climatem.prox import monkey_patch_RMSprop
 from climatem.utils import ALM
 
-from climatem import MAPPINGS_DIR
 # Using Accelerator, not wandb now
 # import wandb
 
@@ -29,6 +29,7 @@ accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
 
 
 # set profiler manually for now
+
 
 class TrainingLatent:
     def __init__(self, model, datamodule, hp, best_metrics, d, profiler=False, profiler_path="./log"):
@@ -232,7 +233,6 @@ class TrainingLatent:
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=5, warmup=5, active=1, repeat=1),
                 # using the torch tensorboard handler
-                
                 # on_trace_ready=torch.profiler.export_chrome_trace(self.profiler_path),
                 # on_trace_ready=trace_handler,
                 profile_memory=True,
@@ -331,8 +331,6 @@ class TrainingLatent:
 
                 # try to use the accelerator.save function here
                 accelerator.save_state(output_dir=self.hp.exp_path)
-
-
 
             if not self.converged:
 
@@ -459,7 +457,6 @@ class TrainingLatent:
         y = y[:, 0]
         z = None
 
-
         nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
 
         # also make the proper prediction, not the reconstruction as we do above
@@ -499,7 +496,9 @@ class TrainingLatent:
 
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         crps = self.get_crps_loss(y, px_mu, px_std)
-        spectral_loss = self.get_spectral_loss(y, y_pred_recons, y_pred, take_log=True, fraction_highest_wavenumbers=0.5)
+        spectral_loss = self.get_spectral_loss(
+            y, y_pred_recons, y_pred, take_log=True, fraction_highest_wavenumbers=None
+        )
         temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_recons, y_pred)
 
         # add the spectral loss to the loss
@@ -513,7 +512,7 @@ class TrainingLatent:
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
-        #self.optimizer.zero_grad()
+        # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
 
         # loss.backward()
@@ -563,7 +562,7 @@ class TrainingLatent:
             )
 
             # also try the particle filtering approach
-            #final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
+            # final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
 
             self.train_mae_recons = torch.mean(torch.abs(y_original_recons - y_original)).item()
             self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
@@ -722,7 +721,7 @@ class TrainingLatent:
             self.valid_sparsity_reg = sparsity_reg.item()
             self.valid_ortho_cons = h_ortho  # .detach()
             self.valid_connect_reg = connect_reg.item()
-            self.valid_acyclic_cons = h_acyclic  # .item() 
+            self.valid_acyclic_cons = h_acyclic  # .item()
 
             # adding the sparsity constraint to the logs
             self.valid_sparsity_cons = h_sparsity  # .detach()
@@ -755,7 +754,6 @@ class TrainingLatent:
             self.val_var_recons = torch.var(y_original_recons)
             self.val_var_pred = torch.var(y_original_pred)
 
-
             if self.d == 4:
                 self.val_mae_recons_1 = torch.mean(torch.abs(y_original_recons[:, 0] - y_original[:, 0])).item()
                 self.val_mae_recons_2 = torch.mean(torch.abs(y_original_recons[:, 1] - y_original[:, 1])).item()
@@ -783,7 +781,6 @@ class TrainingLatent:
             # get vertex lonlat mapping
             coordinates = np.loadtxt(MAPPINGS_DIR / "vertex_lonlat_mapping.txt")
             coordinates = coordinates[:, 1:]
-
 
             if self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
                 self.plotter.plot_compare_predictions_icosahedral(
@@ -1071,7 +1068,9 @@ class TrainingLatent:
 
         return crps
 
-    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log:bool=True, fraction_highest_wavenumbers:float = None):
+    def get_spectral_loss(
+        self, y_true, y_recons, y_pred, take_log: bool = True, fraction_highest_wavenumbers: float = None
+    ):
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
@@ -1131,16 +1130,15 @@ class TrainingLatent:
             fft_true = torch.log(fft_true)
             fft_recons = torch.log(fft_recons)
             fft_pred = torch.log(fft_pred)
-        
-        # print the index of the minimum value of the fft_true: 
+
+        # print the index of the minimum value of the fft_true:
 
         if fraction_highest_wavenumbers is not None:
             # print(f"Only applying this loss to the {fraction_highest_wavenumbers} highest wavenumbers.")
-            fft_true = fft_true[:, round(fraction_highest_wavenumbers*fft_true.shape[1]):]
-            fft_recons = fft_recons[:, :round(fraction_highest_wavenumbers*fft_recons.shape[1]):]
-            fft_pred = fft_pred[:, :round(fraction_highest_wavenumbers*fft_pred.shape[1]):]
+            fft_true = fft_true[:, round(fraction_highest_wavenumbers * fft_true.shape[1]) :]
+            fft_recons = fft_recons[:, round(fraction_highest_wavenumbers * fft_recons.shape[1]) :]
+            fft_pred = fft_pred[:, round(fraction_highest_wavenumbers * fft_pred.shape[1]) :]
 
-        
         # Calculate the power spectrum
         spectral_loss_recons = torch.abs(fft_recons - fft_true)
         spectral_loss_pred = torch.abs(fft_pred - fft_true)
@@ -1258,8 +1256,6 @@ class TrainingLatent:
             train_dataloader = iter(self.datamodule.train_dataloader())
             x, y = next(train_dataloader)
 
-
-
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
             y = y[:, 0]
@@ -1319,7 +1315,7 @@ class TrainingLatent:
 
                 # append the prediction
                 predictions.append(y_pred)
-                
+
                 assert i != 0
 
                 np.save(os.path.join(self.hp.exp_path, f"train_x_ar_{i}.npy"), x.detach().cpu().numpy())
@@ -1334,9 +1330,9 @@ class TrainingLatent:
                 # np.save(os.path.join(self.hp.exp_path, f"train_samples_from_zs_{i}.npy"), samples_from_zs.detach().cpu().numpy())
 
             # at the end of this for loop, make the prediction a tensor
-            
+
             predictions = torch.stack(predictions, dim=1)
-            # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
+            # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
 
             print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
 
@@ -1348,12 +1344,14 @@ class TrainingLatent:
             print("What is the shape of the variance of the predictions?", y_pred_var.shape)
 
             # take the mean of the predictions along the batch and coordinates dimension:
-            print("What is the shape when I try to take the mean across the batch and coordinates:", torch.mean(y_pred_mean, dim=(0, 2)))
+            print(
+                "What is the shape when I try to take the mean across the batch and coordinates:",
+                torch.mean(y_pred_mean, dim=(0, 2)),
+            )
 
-            # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
+            # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
             # I will do this by calculating the spatial spectra of the true values and the predicted values, and then calculating a score between them.
             # This is a measure of how well the model is predicting the spatial spectra of the true values.
-
 
             # here I calculate the spatial spectra across the coordinates, then I average across the batch and across the timesteps
             fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1))
@@ -1366,31 +1364,32 @@ class TrainingLatent:
             # take the mean across the frequencies, the 1st dimension
             spatial_spectra_score = torch.mean(spatial_spectra_score, dim=1)
 
-            print('Spatial spectra score, lower is better...should be a spectra for each var', spatial_spectra_score)
+            print("Spatial spectra score, lower is better...should be a spectra for each var", spatial_spectra_score)
 
             # if this spatial_spectra_score is the lowest we have seen, then save the predictions
             if self.best_spatial_spectra_score is None:
                 self.best_spatial_spectra_score = spatial_spectra_score
-            
+
             # assert that self.best_spatial_spectra_score is not None
             assert self.best_spatial_spectra_score is not None
-            
+
             # check if every element of spatial_spectra_score is less than the best_spatial_spectra_score:
             print(torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
 
-            print('new score', spatial_spectra_score)
-            print('previous best score', self.best_spatial_spectra_score)
-            
+            print("new score", spatial_spectra_score)
+            print("previous best score", self.best_spatial_spectra_score)
+
             if torch.all(spatial_spectra_score < self.best_spatial_spectra_score):
                 print("The spatial spectra score is the best we have seen for all variables, I am in the if.")
 
                 self.best_spatial_spectra_score = spatial_spectra_score
                 print(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
-                
+
                 # save the model in its current state
                 print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
-                torch.save(self.model.state_dict(), os.path.join(self.hp.exp_path, "best_model_for_average_spectra.pth"))
-
+                torch.save(
+                    self.model.state_dict(), os.path.join(self.hp.exp_path, "best_model_for_average_spectra.pth")
+                )
 
         else:
 
@@ -1413,7 +1412,7 @@ class TrainingLatent:
             # swap
             with torch.no_grad():
                 y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
-                
+
                 # predict and take 100 samples too
                 samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
 
@@ -1439,10 +1438,9 @@ class TrainingLatent:
             for i in range(1, timesteps):
 
                 # remove the first timestep, so now we have (tau - 1) timesteps
-                
+
                 x = x[:, 1:, :, :]
                 x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
-
 
                 with torch.no_grad():
                     # then predict the next timestep
@@ -1484,17 +1482,16 @@ class TrainingLatent:
         return mse.item(), smape.item(), y_original, y_original_pred, y_original_recons, x_original
 
     def score_the_samples_for_spatial_spectra(self, y_true, y_pred_samples, num_samples=100):
-        '''
-        Calculate the spatial spectra of the true values and the predicted values, 
-        and then calculate a score between them. This is a measure of how well the model is 
-        predicting the spatial spectra of the true values.
+        """
+        Calculate the spatial spectra of the true values and the predicted values, and then calculate a score between
+        them. This is a measure of how well the model is predicting the spatial spectra of the true values.
 
         Args:
             true_values: torch.Tensor, observed values in a batch
             y_pred: torch.Tensor, a selection of predicted values
             num_samples: int, the number of samples that have been taken from the model
-        '''
-        
+        """
+
         # calculate the average spatial spectra of the true values, averaging across the batch
         print("y_true shape:", y_true.shape)
         fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
@@ -1516,16 +1513,13 @@ class TrainingLatent:
         spatial_spectra_score = 1 - spatial_spectra_score
 
         # score = ...
-        
-    
-        
+
         return spatial_spectra_score
 
     def particle_filter(self, x, y, num_particles, timesteps=120):
-        '''
-        Implement a particle filter to make a set of autoregressive predictions, where each created sample is 
-        evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
-        '''
+        """Implement a particle filter to make a set of autoregressive predictions, where each created sample is
+        evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive
+        rollout."""
 
         particles = torch.randn(num_particles)
         weights = torch.ones(num_particles) / num_particles
@@ -1551,7 +1545,9 @@ class TrainingLatent:
             # weights = torch.ones(num_particles) / num_particles
 
             # store these selected_samples
-            np.save(os.path.join(self.hp.exp_path, f"selected_samples_{_}.npy"), selected_samples.detach().cpu().numpy())
+            np.save(
+                os.path.join(self.hp.exp_path, f"selected_samples_{_}.npy"), selected_samples.detach().cpu().numpy()
+            )
 
             # then we are going to be passing the selected samples to the next timestep, so we need to make the input again
             # first drop the first value of x, then
@@ -1561,7 +1557,5 @@ class TrainingLatent:
             x = torch.cat([x, selected_samples.unsqueeze(1)], dim=1)
 
             # then we are going back to the top of the loop
-
-            
 
         return particles
