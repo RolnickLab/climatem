@@ -50,7 +50,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path="vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path="/home/mila/s/sebastian.hickman/work/new_climatem/climatem/climatem/mappings/vertex_lonlat_mapping.txt",
         # input_transform=None,  # TODO: implement
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,
@@ -239,7 +239,8 @@ class ClimateDataset(torch.utils.data.Dataset):
         print("length paths", len(paths))
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
-            coordinates = np.load(self.icosahedral_coordinates_path)
+            coordinates = np.loadtxt(self.icosahedral_coordinates_path)
+            coordinates = coordinates[:, 1:]
         else:
             for vlist in [paths[0]]:
                 # print("I am in the else of load_coordinates_into_mem")
@@ -547,8 +548,9 @@ class ClimateDataset(torch.utils.data.Dataset):
 
     def save_data_into_disk(self, data: np.ndarray, fname: str, output_save_dir: str) -> str:
 
-        np.savez(output_save_dir / fname, data=data)
-        return output_save_dir / fname
+        np.savez(f"{output_save_dir}/{fname}", data=data)
+        
+        return f"{output_save_dir}/{fname}"
 
     def get_save_name_from_kwargs(self, mode: str, file: str, kwargs: Dict, causal: Optional[bool] = False):
         fname = ""
@@ -820,7 +822,7 @@ class CMIP6Dataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "/home/mila/s/sebastian.hickman/work/new_climatem/climatem/climatem/mappings/vertex_lonlat_mapping.txt",
         *args,
         **kwargs,
     ):  # noqa: C901
@@ -838,6 +840,8 @@ class CMIP6Dataset(ClimateDataset):
         self.lon = lon
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        print("ON LINE 845, WHAT IS ICOSAHEDRAL COORDINATES PATH?", self.icosahedral_coordinates_path)
+
 
         fname_kwargs = dict(
             climate_model=climate_model,
@@ -893,7 +897,7 @@ class CMIP6Dataset(ClimateDataset):
 
         # here we reload files if they exist
         if (
-            os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data
+            os.path.isfile(output_save_dir + '/' + fname) and self.reload_climate_set_data
         ):  # we first need to get the name here to test that...
 
             self.data_path = output_save_dir / fname
@@ -1074,7 +1078,7 @@ class Input4MipsDataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "/home/mila/s/sebastian.hickman/work/new_climatem/climatem/climatem/mappings/vertex_lonlat_mapping.txt",
         *args,
         **kwargs,
     ):
@@ -1094,6 +1098,8 @@ class Input4MipsDataset(ClimateDataset):
         self.lon = lon
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        print("ON LINE 1103, WHAT IS ICOSAHEDRAL COORDINATES PATH?", self.icosahedral_coordinates_path)
+
 
         if len(historical_years) == 0:
             historical_years_str = "no_historical"

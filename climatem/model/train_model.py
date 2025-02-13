@@ -24,6 +24,8 @@ from climatem.plotting.plot_model_output import Plotter
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
+
+print("what is the cuda device count?", torch.cuda.device_count())
 MULTI_GPU = torch.cuda.device_count() > 1
 
 # set profiler manually for now
@@ -136,6 +138,7 @@ class TrainingLatent:
         self.plotter = Plotter()
 
         if MULTI_GPU:
+            print("I am using multiple GPUs!!")
             # setup_ddp()
             # DistributedSampler
             self.model = DDP(self.model)
@@ -213,6 +216,9 @@ class TrainingLatent:
         #    project="test-gpu-code-wandb",
         #    name=...
         # # )
+
+        print("WHAT IS MULTI GPU", MULTI_GPU)
+        print("what is the cuda device count?", torch.cuda.device_count())
 
         # TODO: Why config here?
         # config = self.hp

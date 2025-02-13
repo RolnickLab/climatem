@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
-from mpl_toolkits.basemap import Basemap
+#from mpl_toolkits.basemap import Basemap
 
 from climatem.model.metrics import mcc_latent
 
@@ -478,7 +478,7 @@ class Plotter:
                 axes = fig.add_subplot(313)
                 axes.set_title("Prediction")
 
-            map = Basemap(projection="robin", lon_0=0)
+            #map = Basemap(projection="robin", lon_0=0)
             map.drawcoastlines()
             map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
             # map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
