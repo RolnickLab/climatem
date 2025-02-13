@@ -1145,7 +1145,7 @@ class TrainingLatent:
 
         spectral_loss = spectral_loss_recons + spectral_loss_pred
 
-        spectral_loss = torch.mean(spectral_loss[: :])
+        spectral_loss = torch.mean(spectral_loss[:, :])
         # print('what is the shape of the spectral loss?', spectral_loss)
 
         return spectral_loss
