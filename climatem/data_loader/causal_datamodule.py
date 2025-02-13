@@ -21,7 +21,7 @@ class CausalDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int):
         return self.x[index], self.y[index]
-
+ 
     def __len__(self):
         return len(self.x)
 
