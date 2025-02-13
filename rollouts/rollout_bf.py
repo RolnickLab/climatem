@@ -235,7 +235,7 @@ def particle_filter_weighting_bayesian(
             # note, here I think x is no. of samples - dimensional
             # REMOVE THIS FOR LOOP IF POSSIBLE
             for i in range(num_particles):
-                print(f"Generating mean sample for particle {i}")
+                # print(f"Generating mean sample for particle {i}")
                 # px_mu, y, z, pz_mu, pz_std = model.predict(x[:, i, :, :], y[i, :, :])
 
                 # New code
@@ -246,6 +246,10 @@ def particle_filter_weighting_bayesian(
                             x[i, :, :, :, :], y, num_particles_per_particle, with_zs_logprob=True
                         )
                     )
+                    # clip the next_sample_from_zs to avoid numerical instability
+                    print("Clipping the next_samples_from_zs to avoid numerical instability.")
+                    next_sample_from_zs = torch.clip(next_sample_from_zs, -1e10, 1e10)
+
                     next_logscore_samples_fromzs = torch.sum(next_logscore_samples_fromzs, -1).squeeze()
                 #                     print("What should be the correct shape??")
                 #                     print(f"shape of new samples {next_sample_from_zs.shape}")
@@ -297,6 +301,17 @@ def particle_filter_weighting_bayesian(
             )
             print(f"spatial_spectra shape {scores_spatial_spectra.shape}")
             # This is [K*L, batch size]
+
+            print("********************************************************************************")
+            print("What are the top 10 scores for the spatial spectra?", torch.topk(scores_spatial_spectra, 10))
+            print(
+                "What are the bottom 10 scores for the spatial spectra?",
+                torch.topk(scores_spatial_spectra, 10, largest=False),
+            )
+            print("What is the median of the scores for the spatial spectra?", torch.median(scores_spatial_spectra))
+            print("What is the mean of the scores for the spatial spectra?", torch.mean(scores_spatial_spectra))
+            print("What is the std of the scores for the spatial spectra?", torch.std(scores_spatial_spectra))
+
             new_weights = logscore_samples_fromzs + scores_spatial_spectra
         #             new_weights = torch.exp(new_weights) # Here we might be able to sample directly from the log probabilities in torch to avoid taking the exp
         else:
@@ -339,18 +354,21 @@ def particle_filter_weighting_bayesian(
         #         print("Sum of the new normalised weights:", torch.sum(new_weights, dim=0))
 
         # clip the new_weights to avoid numerical instability
-        new_weights = torch.clamp(new_weights, min=1e-8, max=1.0)
+        new_weights = torch.clamp(new_weights, min=1e-6, max=1.0)
 
         print("What is the shape of the new weights after clipping?", new_weights.shape)
         print("Are all the values 0?", torch.all(new_weights == 0))
         print("What is the minimum value of the new weights?", torch.min(new_weights))
+        print("What is the maximum value of the new weights?", torch.max(new_weights))
         print("Are there any nans in the new weights?", torch.any(torch.isnan(new_weights)))
         print("Are there any infs in the new weights?", torch.any(torch.isinf(new_weights)))
 
         # replace any nans with 1e-8
-        new_weights[torch.isnan(new_weights)] = 1e-8
+        new_weights[torch.isnan(new_weights)] = 1e-6
 
         print("Are there any nans in the new weights after replacing?", torch.any(torch.isnan(new_weights)))
+        print("What is the new minimum value of the new weights?", torch.min(new_weights))
+        print("What is the new maximum value of the new weights?", torch.max(new_weights))
 
         # REMOVE THIS FOR LOOP IF POSSIBLE
         for i in range(batch_size):
@@ -415,13 +433,15 @@ coordinates = coordinates[:, 1:]
 results_save_folder = results_dir / "new_climatem_spectral_filtered_100_year"
 # Make below updated with variables automatically + simpler
 results_save_folder_var = results_save_folder / "logspectraltrain_300particles_ablations"
-results_save_folder_var_spectral = results_save_folder_var / "full_model_10crps_500spec_2000tspec_filtered_val"
+results_save_folder_var_spectral = (
+    results_save_folder_var / "full_model_1crps_1000spec_2000tspec_16batch_filtered_val_high_wavs_fix_penalty"
+)
 
 # path to the results directory that I care about
 # Now doing for two models, one where we learned a causal graph (taking the final model) and one where we didn't
 
-local_results_dir = results_dir / "climatem_spectral"
-os.makedirs(local_results_dir, exist_ok=True)
+# local_results_dir = results_dir / "climatem_spectral"
+# os.makedirs(local_results_dir, exist_ok=True)
 
 # TODO: These names are bad... the [] and '' make it super annoying + the params should update the name automatically
 # name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.743706_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
@@ -432,24 +452,19 @@ os.makedirs(local_results_dir, exist_ok=True)
 # name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_20_tempspcoef_2000"
 
 # local_results_dir = results_dir / "new_climatem_spectral"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_100_tempspcoef_5000"
-
-# local_results_dir = results_dir / "new_climatem_spectral"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
-
-# local_results_dir = results_dir / "new_climatem_spectral"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_tau_5_z_90_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_5000"
-
-
-local_results_dir = results_dir / "new_climatem_spectral"
+# local_results_dir = results_dir / "new_climatem_spectral_high_wavs"
+local_results_dir = results_dir / "new_climatem_spectral_high_wavs_fix_penalty"
 
 # name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_50_tempspcoef_2000"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_500_tempspcoef_2000"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_20000"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_5000_tempspcoef_20000"
-name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_10_spcoef_500_tempspcoef_2000"
-# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_100_spcoef_500_tempspcoef_2000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_110_lr_0.001_spreg_0.2_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_5000_tempspcoef_20000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_150_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_5000_tempspcoef_20000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_2000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_0_spcoef_1000_tempspcoef_0"
 
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_2000"
+# name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_2000"
+
+name_res_ts_vae = "var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.1_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_2000"
 
 results_dir_ts_vae = local_results_dir / name_res_ts_vae
 os.makedirs(results_dir_ts_vae, exist_ok=True)
@@ -541,12 +556,15 @@ model = LatentTSDCD(
     fixed_output_fraction=hp["fixed_output_fraction"],
 )
 
-
 # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
 # state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=None)
 
 # if we need to load the model that has been trained on 2 GPUs, I think we need to do this:
-state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=torch.device("cuda:0"))
+# state_dict_vae_final = torch.load(results_dir_ts_vae / "model.pth", map_location=torch.device("cuda:0"))
+
+state_dict_vae_final = torch.load(
+    results_dir_ts_vae / "best_model_for_average_spectra.pth", map_location=torch.device("cuda:0")
+)
 
 model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
 
@@ -556,7 +574,6 @@ print("Where is the model?", next(model.parameters()).device)
 
 # make sure the model is on GPU, and this all runs on GPU
 # model = model.cuda()
-
 
 batch_size = 32
 
