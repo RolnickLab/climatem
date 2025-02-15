@@ -1,5 +1,6 @@
 import logging
 import math
+from itertools import accumulate
 from typing import Callable, Dict, List, Optional, Union
 
 import numpy as np
@@ -9,7 +10,6 @@ import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 from torch import default_generator, randperm
-from torch._utils import _accumulate
 from torch.utils.data.dataset import Subset
 
 # What functions do we axctually use from this? ... I feel like we could delete everything
@@ -142,7 +142,7 @@ def random_split(dataset, lengths, generator=default_generator):
         raise ValueError("Sum of input lengths does not equal the length of the input dataset!")
 
     indices = randperm(sum(lengths), generator=generator).tolist()  # type: ignore[call-overload]
-    return [Subset(dataset, indices[offset - length : offset]) for offset, length in zip(_accumulate(lengths), lengths)]
+    return [Subset(dataset, indices[offset - length : offset]) for offset, length in zip(accumulate(lengths), lengths)]
 
 
 def diff_max_min(x, dim):

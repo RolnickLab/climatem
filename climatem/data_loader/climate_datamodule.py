@@ -67,7 +67,7 @@ class ClimateDataModule(LightningDataModule):
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         lon: int = 125,
         lat: int = 125,
-        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
         num_levels: int = 1,
         # input_transform: Optional[AbstractTransform] = None,
         # normalizer: Optional[Normalizer] = None,
@@ -143,6 +143,12 @@ class ClimateDataModule(LightningDataModule):
             in_variables=self.hparams.in_var_ids,
             channels_last=self.hparams.channels_last,
             seq_to_seq=self.hparams.seq_to_seq,
+            icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+            seq_len=self.hparams.seq_len,
+            lat=self.hparams.lat,
+            lon=self.hparams.lon,
+            global_normalization=self.hparams.global_normalization,
+            seasonality_removal=self.hparams.seasonality_removal,
         )
         # create datasets
         # assign to vars

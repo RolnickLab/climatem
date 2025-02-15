@@ -50,7 +50,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path="vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path="../../mappings/vertex_lonlat_mapping.npy",
         # input_transform=None,  # TODO: implement
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,
@@ -76,7 +76,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         super().__init__()
         self.test_dir = output_save_dir
-        self.output_save_dir = output_save_dir
+        self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
         # Here need to propagate argument data_params.reload_climate_set_data
 
@@ -124,7 +124,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             channels_last=channels_last,
             openburning_specs=openburning_specs,
             mode=mode,
-            output_save_dir=output_save_dir,
+            output_save_dir=self.output_save_dir,
             reload_climate_set_data=self.reload_climate_set_data,
             seq_to_seq=seq_to_seq,
             global_normalization=self.global_normalization,
@@ -820,7 +820,7 @@ class CMIP6Dataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
         *args,
         **kwargs,
     ):  # noqa: C901
@@ -893,10 +893,10 @@ class CMIP6Dataset(ClimateDataset):
 
         # here we reload files if they exist
         if (
-            os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data
+            os.path.isfile(self.output_save_dir / fname) and self.reload_climate_set_data
         ):  # we first need to get the name here to test that...
 
-            self.data_path = output_save_dir / fname
+            self.data_path = self.output_save_dir / fname
             # print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
             self.coordinates = self.load_dataset_coordinates(
@@ -959,10 +959,13 @@ class CMIP6Dataset(ClimateDataset):
                             # print('y is this:', y)
                             # print('here is exp:', exp)
                             var_dir = ensemble_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+                            print(f"ALL FILES DIRECTORY: {var_dir}")
                             files = glob.glob(f"{var_dir}/*.nc", recursive=True)
+                            print(f"NC FILES: {files}")
                             if len(files) == 0:
                                 # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
                                 files = glob.glob(f"{var_dir}/*.grib", recursive=True)
+                            print(f"Grib FILES: {files}")
                             # print('files here:', files)
                             # loads all years! implement splitting
                             output_nc_files += files
@@ -1029,7 +1032,7 @@ class CMIP6Dataset(ClimateDataset):
 
             # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
             # print("In cmip6, just about to save the data.")
-            self.data_path = self.save_data_into_disk(self.raw_data, fname, output_save_dir)
+            self.data_path = self.save_data_into_disk(self.raw_data, fname, self.output_save_dir)
             # print("In cmip6, just saved the data.")
 
             # print("In cmip6, just about to copy the data to slurm.")
@@ -1074,7 +1077,7 @@ class Input4MipsDataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
         *args,
         **kwargs,
     ):
@@ -1083,7 +1086,7 @@ class Input4MipsDataset(ClimateDataset):
 
         self.mode = mode
         self.root_dir = data_dir / "inputs/input4mips"
-        self.output_save_dir = output_save_dir
+        self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
         self.input_nc_files = []
         self.output_nc_files = []
@@ -1221,7 +1224,7 @@ class Input4MipsDataset(ClimateDataset):
 
             # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
             # print("In input4mips, just about to save the data.")
-            self.data_path = self.save_data_into_disk(self.raw_data, fname, output_save_dir)
+            self.data_path = self.save_data_into_disk(self.raw_data, fname, self.output_save_dir)
             # print("In input4mips, just saved the data.")
 
             # print("In input4mips, just about to copy the data to slurm.")

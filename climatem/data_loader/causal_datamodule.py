@@ -103,7 +103,6 @@ class CausalClimateDataModule(ClimateDataModule):
                 or "psl" in self.hparams.in_var_ids
                 or "ts" in self.hparams.in_var_ids
             ):
-                print(self.hparams.train_scenarios)
                 train_val_input4mips = CMIP6Dataset(
                     years=train_years,
                     historical_years=train_historical_years,

@@ -1,6 +1,6 @@
 accelerate~=1.0.1
-torch~=2.5.0
-pytorch-lightning~=2.5.0
+torch~=2.2.0
+pytorch-lightning~=2.2.0
 scipy~=1.15.1
 cartopy~=0.24.1
 xarray~=2025.1.2

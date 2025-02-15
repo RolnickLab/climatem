@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1                                              # Ask for 2 CPUs
 #SBATCH --nodes=1                                                        # Ask for 2 CPUs
 #SBATCH --mem=32G                                                       # Ask for 10 GB of RAM
-#SBATCH --time=20:00                                                  # The job will run for 2 hours
+#SBATCH --time=2:00:00                                                  # The job will run for 2 hours
 #SBATCH --partition=main
 
 # 0. Clear the environment
@@ -18,7 +18,7 @@ module purge
 module --quiet load python/3.10
 
 # 2. Load your environment
-source $HOME/causal_model/env_emulator_climatem/bin/activate
+source $HOME/causal_model/env_climatem/bin/activate
 
 
 # Get a unique port for this job based on the job ID
@@ -37,4 +37,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/causal_model/climatem/scripts/main_explore_predictions_ar_sparsity_constraint_explore_ensembles_multigpu_accelerate.py --config-path $HOME/causal_model/climatem/configs/single_param_file.json
+    $HOME/causal_model/climatem/scripts/main_picabu.py --config-path $HOME/causal_model/climatem/configs/single_param_file.json
