@@ -1,3 +1,5 @@
+import argparse
+import json
 import logging
 import math
 from itertools import accumulate
@@ -175,3 +177,50 @@ def get_epoch_ckpt_or_last(ckpt_files: List[str], epoch: int = None):
             raise ValueError(f"There is no ckpt file for epoch={epoch}. Try one of the ones in {ckpt_files}!")
         model_ckpt_filename = model_ckpt_filename[0]
     return model_ckpt_filename
+
+
+def load_config(config_path):
+    """Load configuration from a JSON file."""
+    with open(config_path, "r") as f:
+        return json.load(f)
+
+
+def parse_args():
+    """Parse command-line arguments with support for nested structure."""
+    parser = argparse.ArgumentParser(description="Causal models for climate data")
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default="configs/param_file.json",
+        help="Path to a json file with values for all parameters",
+    )
+    # Add an argument for nested keys, this will be handled dynamically later
+    parser.add_argument("--cmd-params", action="append", metavar="KEY=VALUE", help="Cmd line arguments")
+    return parser.parse_args()
+
+
+def update_config_withparse(params, args):
+    """Merge command-line arguments with JSON configuration, handling nested parameters."""
+    list_of_keys = params.keys()
+    if args.cmd_params:
+        for param in args.cmd_params:
+            try:
+                key, value = param.split("=")
+            except ValueError:
+                print(f"Invalid data format: {param} should be configclass.param=value")
+            try:
+                key_nested = key.split(".")
+            except ValueError:
+                print(f"Invalid data format: {key} should be configclass.param")
+            # Convert the value to the appropriate type
+            try:
+                value = json.loads(value)  # This will handle numbers, booleans, etc.
+            except ValueError:
+                pass  # Treat it as a string if JSON parsing fails
+
+            if value is not None:  # and arg != "config_path"
+                if key_nested[0] not in list_of_keys:
+                    raise ValueError(f"You tried setting up the wrong key {key_nested[0]}. Should be in {list_of_keys}")
+                else:
+                    params[key_nested[0]][key_nested[1]] = value
+    return params

@@ -4,18 +4,9 @@ import torch
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 
 from climatem.data_loader.climate_dataset import ClimateDataset
 from climatem.utils import get_logger, random_split
-
-MULTI_GPU = torch.cuda.device_count() > 1
-
-# def setup_ddp(rank=1, world_size=1):
-#     # os.environ['MASTER_ADDR'] = 'localhost'
-#     # os.environ['MASTER_PORT'] = '12355'
-#     dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
 
 log = get_logger()
 
@@ -221,60 +212,54 @@ class ClimateDataModule(LightningDataModule):
     # y: (batch_size, sequence_length, lon, lat, out_vars) if channels_last else (batch_size, sequence_lenght, out_vars, lon, lat)
 
     # Below can have a single function (only the dataset changes)
-    def train_dataloader(self):
+    def train_dataloader(self, accelerator):
 
-        train_sampler = None
-        if MULTI_GPU:
-            # setup_ddp()
-            train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
+        # train_sampler = None
+        # if multi_gpu:
+        #     # setup_ddp()
+        #     train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
 
         return DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
-            shuffle=False,
+            shuffle=True,
+            generator=torch.Generator(device=accelerator.device),
             drop_last=True,
-            sampler=train_sampler,
             **self._shared_dataloader_kwargs(),
         )
 
     def val_dataloader(self):
 
-        valid_sampler = None
-
-        if MULTI_GPU:
-            # setup_ddp()
-            valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        # valid_sampler = None
+        # if multi_gpu:
+        #     # setup_ddp()
+        #     valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return (
-            DataLoader(
-                dataset=self._data_val, drop_last=True, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs()
-            )
+            DataLoader(dataset=self._data_val, drop_last=True, **self._shared_eval_dataloader_kwargs())
             if self._data_val is not None
             else None
         )
 
     def test_dataloader(self) -> List[DataLoader]:
 
-        test_sampler = None
-        if MULTI_GPU:
-            # setup_ddp()
-            test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
+        # test_sampler = None
+        # if multi_gpu:
+        #     # setup_ddp()
+        #     test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
 
-        return [
-            DataLoader(dataset=ds_test, sampler=test_sampler, **self._shared_eval_dataloader_kwargs())
-            for ds_test in self._data_test
-        ]
+        return [DataLoader(dataset=ds_test, **self._shared_eval_dataloader_kwargs()) for ds_test in self._data_test]
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
 
-        valid_sampler = None
-        if MULTI_GPU:
-            # setup_ddp()
-            valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        # valid_sampler = None
+        # if multi_gpu:
+        #     # setup_ddp()
+        #     valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return [
             (
-                DataLoader(dataset=self._data_val, sampler=valid_sampler, **self._shared_eval_dataloader_kwargs())
+                DataLoader(dataset=self._data_val, **self._shared_eval_dataloader_kwargs())
                 if self._data_val is not None
                 else None
             )

@@ -103,6 +103,10 @@ class CausalClimateDataModule(ClimateDataModule):
                 or "psl" in self.hparams.in_var_ids
                 or "ts" in self.hparams.in_var_ids
             ):
+
+                print(
+                    f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
+                )
                 train_val_input4mips = CMIP6Dataset(
                     years=train_years,
                     historical_years=train_historical_years,

@@ -555,29 +555,31 @@ class ClimateDataset(torch.utils.data.Dataset):
         coordinates_fname = ""
         # print("KWARGs:", kwargs)
 
-        if file == "statistics":
-            # only cmip 6
-            if "climate_model" in kwargs:
-                fname += f"{kwargs['climate_model']}_"
-                coordinates_fname += f"{kwargs['climate_model']}_"
-            if "num_ensembles" in kwargs:
-                fname += f"{str(kwargs['num_ensembles'])}_"
-                coordinates_fname += f"{str(kwargs['num_ensembles'])}_"  # all
-            fname += f"{'_'.join(kwargs['variables'])}_"
-            coordinates_fname += f"{'_'.join(kwargs['variables'])}_"
-            if causal:
-                fname += "causal_"
-                coordinates_fname += "causal_"
-        else:
+        # if file == "statistics":
+        #     # only cmip 6
+        #     if "climate_model" in kwargs:
+        #         fname += f"{kwargs['climate_model']}_"
+        #         coordinates_fname += f"{kwargs['climate_model']}_"
+        #     if "num_ensembles" in kwargs:
+        #         fname += f"{str(kwargs['num_ensembles'])}_"
+        #         coordinates_fname += f"{str(kwargs['num_ensembles'])}_"  # all
+        #     fname += f"{'_'.join(kwargs['variables'])}_"
+        #     coordinates_fname += f"{'_'.join(kwargs['variables'])}_"
+        #     if causal:
+        #         fname += "causal_"
+        #         coordinates_fname += "causal_"
+        # else:
 
-            for k in kwargs:
-                if isinstance(kwargs[k], List):
-                    fname += f"{k}_{'_'.join(kwargs[k])}_"
-                    coordinates_fname += f"{k}_{'_'.join(kwargs[k])}_"
-                else:
-                    fname += f"{k}_{kwargs[k]}_"
-                    coordinates_fname += f"{k}_{kwargs[k]}_"
-
+        for k in kwargs:
+            if isinstance(kwargs[k], List):
+                fname += f"{k}_{'_'.join(kwargs[k])}_"
+                coordinates_fname += f"{k}_{'_'.join(kwargs[k])}_"
+            else:
+                fname += f"{k}_{kwargs[k]}_"
+                coordinates_fname += f"{k}_{kwargs[k]}_"
+        if causal:
+            fname += "causal_"
+            coordinates_fname += "causal_"
         if file == "statistics":
             fname += f"{mode}_{file}.npy"
             coordinates_fname += f"{mode}_coordinates.npy"
@@ -838,6 +840,7 @@ class CMIP6Dataset(ClimateDataset):
         self.lon = lon
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        print(f"CMIP6 self.icosahedral_coordinates_path {self.icosahedral_coordinates_path}")
 
         fname_kwargs = dict(
             climate_model=climate_model,
@@ -850,6 +853,8 @@ class CMIP6Dataset(ClimateDataset):
             seq_to_seq=seq_to_seq,
         )
         self.fname_kwargs = fname_kwargs
+
+        print("self.fname_kwargs instantiated")
 
         # TO-DO: This is just getting the list of .nc files for targets. Put this logic in a function and get input list as well.
         # In a function, we can call CausalDataset() instance for train and test separately to load the data
@@ -889,7 +894,8 @@ class CMIP6Dataset(ClimateDataset):
             # print("Ensemble directories:", self.ensemble_dirs)
             # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
 
-        fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=fname_kwargs)
+        fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=self.fname_kwargs)
+        print(f"coordinates_fname {coordinates_fname}")
 
         # here we reload files if they exist
         if (
@@ -899,16 +905,14 @@ class CMIP6Dataset(ClimateDataset):
             self.data_path = self.output_save_dir / fname
             # print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
-            self.coordinates = self.load_dataset_coordinates(
-                self.output_save_dir / coordinates_fname, mode=self.mode, mips="cmip6"
-            )
+            self.coordinates = self.load_dataset_coordinates(coordinates_fname, mode=self.mode, mips="cmip6")
 
             if self.global_normalization:
                 # Load stats and normalize
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                    mode=mode, file="statistics", kwargs=fname_kwargs
+                    mode=mode, file="statistics", kwargs=self.fname_kwargs
                 )
-                stats = self.load_dataset_statistics(self.output_save_dir / stats_fname, mode=self.mode, mips="cmip6")
+                stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
                 self.Data = self.normalize_data(self.raw_data, stats)
             else:
                 self.Data = self.raw_data
@@ -918,6 +922,7 @@ class CMIP6Dataset(ClimateDataset):
             # print("In CMIP6Dataset, just finished removing the seasonality.")
 
         else:
+            print("NOT RELOADING!!!")
             # Add code here for adding files for input nc data
             # Similar to the loop below for output files
 
@@ -996,11 +1001,14 @@ class CMIP6Dataset(ClimateDataset):
             self.coordinates = self.load_coordinates_into_mem(files_per_var)
 
             if self.mode == "train" or self.mode == "train+val":
+                print("creating stats fname")
+                print(f"self.fname_kwargs {self.fname_kwargs}")
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                    mode=mode, file="statistics", kwargs=fname_kwargs
+                    mode=mode, file="statistics", kwargs=self.fname_kwargs
                 )
-                # print(stats_fname)
-                # print(coordinates_fname)
+                print("creating stats / coordinates name")
+                print(stats_fname)
+                print(coordinates_fname)
 
                 if os.path.isfile(stats_fname) and self.global_normalization:
                     print("Stats file already exists! Loading from memory.")
@@ -1131,18 +1139,14 @@ class Input4MipsDataset(ClimateDataset):
             self.data_path = output_save_dir / fname
             # print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
-            self.coordinates = self.load_dataset_coordinates(
-                self.output_save_dir / coordinates_fname, mode=self.mode, mips="input4mips"
-            )
+            self.coordinates = self.load_dataset_coordinates(coordinates_fname, mode=self.mode, mips="input4mips")
 
             # Load stats and normalize
             if self.global_normalization:
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
                     mode=mode, file="statistics", kwargs=fname_kwargs
                 )
-                stats = self.load_dataset_statistics(
-                    self.output_save_dir / stats_fname, mode=self.mode, mips="input4mips"
-                )
+                stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="input4mips")
                 self.Data = self.normalize_data(self.raw_data, stats)
             else:
                 self.Data = self.raw_data

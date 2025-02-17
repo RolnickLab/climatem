@@ -4,31 +4,15 @@ import torch
 import torch.distributions as dist
 
 # we use accelerate for distributed training
-from accelerate import Accelerator
-from accelerate.utils import DistributedDataParallelKwargs
 from geopy import distance
-from torch.nn.parallel import DistributedDataParallel as DDP
+
+# from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import ProfilerActivity
 
-from climatem import MAPPINGS_DIR
 from climatem.model.dag_optim import compute_dag_constraint
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
-
-# Using Accelerator, not wandb now
-# import wandb
-
-
-# here is the combo:
-
-kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
-print("what is the cuda device count?", torch.cuda.device_count())
-MULTI_GPU = torch.cuda.device_count() > 1
-print("MULTIGPU?", MULTI_GPU)
-
-# set profiler manually for now
 
 
 class TrainingLatent:
@@ -46,17 +30,17 @@ class TrainingLatent:
         plots_path,
         best_metrics,
         d,
+        accelerator,
         wandbname="unspecified",
         profiler=False,
         profiler_path="./log",
     ):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
-        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = accelerator.device
+        self.accelerator = accelerator
         self.model = model
-        self.model.to(self.device)
+        self.model.to(accelerator.device)
         self.datamodule = datamodule
-        self.data_loader_train = iter(datamodule.train_dataloader())
+        self.data_loader_train = iter(datamodule.train_dataloader(accelerator=accelerator))
         self.data_loader_val = iter(datamodule.val_dataloader())
         self.coordinates = datamodule.coordinates
         self.exp_params = exp_params
@@ -137,11 +121,11 @@ class TrainingLatent:
 
         self.plotter = Plotter()
 
-        if MULTI_GPU:
-            print("I am using multiple GPUs!!")
-            # setup_ddp()
-            # DistributedSampler
-            self.model = DDP(self.model)
+        # if MULTI_GPU:
+        #     print("I am using multiple GPUs!!")
+        #     # setup_ddp()
+        #     # DistributedSampler
+        #     self.model = DDP(self.model)
 
         # I think this is just initialising a tensor of zeroes to store results in
         if self.instantaneous:
@@ -186,8 +170,8 @@ class TrainingLatent:
 
         # prepare the model, optimizer, data loader, and scheduler using Accerate for distributed training
         print("Preparing all the models here!")
-        self.model, self.optimizer, self.data_loader_train, self.scheduler = accelerator.prepare(
-            self.model, self.optimizer, self.data_loader_train, self.scheduler
+        self.data_loader_train, self.model, self.optimizer, self.scheduler = accelerator.prepare(
+            self.data_loader_train, self.model, self.optimizer, self.scheduler
         )
 
         # compute constraint normalization
@@ -217,12 +201,12 @@ class TrainingLatent:
         #    name=...
         # # )
 
-        print("what is the cuda device count?", torch.cuda.device_count())
-        print("MULTI GPU?", MULTI_GPU)
+        # print("what is the cuda device count?", torch.cuda.device_count())
+        # print("MULTI GPU?", MULTI_GPU)
 
         # TODO: Why config here?
         # config = self.hp
-        accelerator.init_trackers(
+        self.accelerator.init_trackers(
             "gpu-code-wandb",
             # config=config,
             init_kwargs={"wandb": {"name": self.wandbname}},
@@ -301,7 +285,7 @@ class TrainingLatent:
                 #  multiple metrics here...
                 if self.iteration % (self.plot_params.print_freq) == 0:
                     # altered to use the accelerator.log function
-                    accelerator.log(
+                    self.accelerator.log(
                         {
                             "kl_train": self.train_kl,
                             "loss_train": self.train_loss,
@@ -349,7 +333,7 @@ class TrainingLatent:
                     )
 
                 else:
-                    accelerator.log(
+                    self.accelerator.log(
                         {
                             "kl_train": self.train_kl,
                             "loss_train": self.train_loss,
@@ -375,7 +359,7 @@ class TrainingLatent:
                 torch.save(self.model.state_dict(), self.save_path / "model.pth")
 
                 # try to use the accelerator.save function here
-                accelerator.save_state(output_dir=self.save_path)
+                self.accelerator.save_state(output_dir=self.save_path)
 
             if not self.converged:
 
@@ -455,7 +439,7 @@ class TrainingLatent:
         self.print_results()
 
         # wandb.finish()
-        accelerator.end_training()
+        self.accelerator.end_training()
 
         valid_loss = {
             "valid_loss": self.valid_loss,
@@ -494,7 +478,7 @@ class TrainingLatent:
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
         except StopIteration:
-            self.data_loader_train = iter(self.datamodule.train_dataloader())
+            self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(self.data_loader_train)
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
@@ -556,7 +540,7 @@ class TrainingLatent:
         self.optimizer.zero_grad(set_to_none=True)
 
         # loss.backward()
-        accelerator.backward(loss)
+        self.accelerator.backward(loss)
 
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
@@ -641,10 +625,6 @@ class TrainingLatent:
                 self.train_mae_pred_3 = 0
                 self.train_mae_pred_4 = 0
 
-            # Get vertex lonlat mapping
-            coordinates = np.loadtxt(MAPPINGS_DIR / "vertex_lonlat_mapping.txt")
-            coordinates = coordinates[:, 1:]
-
             # choose a random integer in self.batch_size, setting a seed for this
             np.random.seed(0)
 
@@ -672,7 +652,7 @@ class TrainingLatent:
                     y_recons=y_original_recons.cpu().detach().numpy(),
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
-                    coordinates=coordinates,
+                    coordinates=self.coordinates,
                     path=self.plots_path,
                     iteration=self.iteration,
                     valid=False,
@@ -685,7 +665,7 @@ class TrainingLatent:
                     y_recons=y_original_recons.cpu().detach().numpy(),
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
-                    coordinates=coordinates,
+                    coordinates=self.coordinates,
                     path=self.plots_path,
                     iteration=self.iteration,
                     valid=False,
@@ -813,10 +793,6 @@ class TrainingLatent:
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
 
-            # get vertex lonlat mapping
-            coordinates = np.loadtxt(MAPPINGS_DIR / "vertex_lonlat_mapping.txt")
-            coordinates = coordinates[:, 1:]
-
             if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
                 self.plotter.plot_compare_predictions_icosahedral(
                     x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
@@ -824,7 +800,7 @@ class TrainingLatent:
                     y_recons=y_original_recons.cpu().detach().numpy(),
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
-                    coordinates=coordinates,
+                    coordinates=self.coordinates,
                     path=self.plots_path,
                     iteration=self.iteration,
                     valid=True,
@@ -837,7 +813,7 @@ class TrainingLatent:
                     y_recons=y_original_recons.cpu().detach().numpy(),
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
-                    coordinates=coordinates,
+                    coordinates=self.coordinates,
                     path=self.plots_path,
                     iteration=self.iteration,
                     valid=True,
@@ -850,7 +826,7 @@ class TrainingLatent:
                     y_recons=y_original_recons.cpu().detach().numpy(),
                     y_hat=y_original_pred.cpu().detach().numpy(),
                     sample=np.random.randint(0, self.batch_size),
-                    coordinates=coordinates,
+                    coordinates=self.coordinates,
                     path=self.plots_path,
                     iteration=self.iteration,
                     valid=True,
@@ -1280,7 +1256,7 @@ class TrainingLatent:
             predictions = []
 
             # Make the iterator again, since otherwise we have iterated through it already...
-            train_dataloader = iter(self.datamodule.train_dataloader())
+            train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(train_dataloader)
 
             x = torch.nan_to_num(x)
