@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1                                              # Ask for 2 CPUs
 #SBATCH --nodes=1                                                        # Ask for 2 CPUs
 #SBATCH --mem=32G                                                       # Ask for 10 GB of RAM
-#SBATCH --time=2:00:00                                                  # The job will run for 2 hours
+#SBATCH --time=20:00                                                  # The job will run for 2 hours
 #SBATCH --partition=main
 
 # 0. Clear the environment

@@ -17,7 +17,7 @@
     "data_params": {
         "data_dir": "/network/scratch/j/julien.boussard/data/Climateset_DATA_TEST", 
         "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni", 
-        "reload_climate_set_data": true,
+        "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "/home/mila/j/julien.boussard/causal_model/climatem/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["ts"],
         "out_var_ids": ["ts"],
