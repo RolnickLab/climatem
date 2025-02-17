@@ -53,12 +53,18 @@ class SavarDataset(torch.utils.data.Dataset):
         self.is_forced = is_forced
         self.plot_original_data = plot_original_data
 
-        self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
-        self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
-        links_coeffs = np.load(self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True).item()[
-            "links_coeffs"
-        ]
-        self.gt_adj = np.array(extract_adjacency_matrix(links_coeffs, n_per_col**2, tau))
+        if self.reload_climate_set_data:
+            self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
+            self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
+            links_coeffs = np.load(
+                self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True
+            ).item()["links_coeffs"]
+            self.gt_adj = np.array(extract_adjacency_matrix(links_coeffs, n_per_col**2, tau))
+        else:
+            self.gt_modes = None
+            self.gt_noise = None
+            links_coeffs = None
+            self.gt_adj = None
 
     @staticmethod
     def aggregate_months(data, num_months_aggregated):
@@ -170,6 +176,13 @@ class SavarDataset(torch.utils.data.Dataset):
             )
             time_steps = data.shape[1]
             data = data.T.reshape((time_steps, self.lat, self.lon))
+
+            self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
+            self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
+            links_coeffs = np.load(
+                self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True
+            ).item()["links_coeffs"]
+            self.gt_adj = np.array(extract_adjacency_matrix(links_coeffs, self.n_per_col**2, tau))
 
         data = data.astype("float32")
         # TODO: normalize by saveing std/mean from train data and then normalize test by reloading

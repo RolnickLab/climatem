@@ -98,9 +98,6 @@ class CausalClimateDataModule(ClimateDataModule):
                     is_forced=self.hparams.is_forced,
                     plot_original_data=self.hparams.plot_original_data,
                 )
-                self.savar_gt_modes = train_val_input4mips.gt_modes
-                self.savar_gt_noise = train_val_input4mips.gt_noise
-                self.savar_gt_adj = train_val_input4mips.gt_adj
             elif (
                 "tas" in self.hparams.in_var_ids
                 or "pr" in self.hparams.in_var_ids
@@ -163,6 +160,10 @@ class CausalClimateDataModule(ClimateDataModule):
                 interval_length=self.train_val_interval_length,
                 mode="train+val",
             )
+            if "savar" in self.hparams.in_var_ids:
+                self.savar_gt_modes = train_val_input4mips.gt_modes
+                self.savar_gt_noise = train_val_input4mips.gt_noise
+                self.savar_gt_adj = train_val_input4mips.gt_adj
 
             train_x, train_y = train
             train_x = train_x.reshape((train_x.shape[0], train_x.shape[1], train_x.shape[2], -1))
