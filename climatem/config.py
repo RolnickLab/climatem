@@ -100,6 +100,7 @@ class dataParams:
         self.num_months_aggregated = num_months_aggregated
 
 
+# This class is only for debugging and for setting some params to the true aprams when training picabu
 class gtParams:
     def __init__(
         self, no_gt: bool = True, debug_gt_z: bool = False, debug_gt_w: bool = False, debug_gt_graph: bool = False
@@ -243,10 +244,13 @@ class optimParams:
 
 
 class plotParams:
-    def __init__(self, plot_freq: int = 500, plot_through_time: bool = True, print_freq: int = 500):
+    def __init__(
+        self, plot_freq: int = 500, plot_through_time: bool = True, print_freq: int = 500, savar: bool = False
+    ):
         self.plot_freq = plot_freq
         self.plot_through_time = plot_through_time
         self.print_freq = print_freq
+        self.savar = savar
 
 
 class savarParams:

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.basemap import Basemap
 
 from climatem.model.metrics import mcc_latent
@@ -213,15 +214,27 @@ class Plotter:
             adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
-        self.plot_adjacency_matrix(
-            mat1=adj,
-            mat2=gt_dag,
-            path=learner.plots_path,
-            name_suffix="transition",
-            no_gt=learner.no_gt,
-            iteration=learner.iteration,
-            plot_through_time=learner.plot_params.plot_through_time,
-        )
+        if learner.plot_params.savar:
+            self.plot_adjacency_matrix(
+                mat1=adj,
+                # Below savar dag
+                mat2=learner.datamodule.savar_gt_adj,
+                path=learner.plots_path,
+                name_suffix="transition",
+                no_gt=False,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+            )
+        else:
+            self.plot_adjacency_matrix(
+                mat1=adj,
+                mat2=gt_dag,
+                path=learner.plots_path,
+                name_suffix="transition",
+                no_gt=learner.no_gt,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+            )
 
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
@@ -235,6 +248,15 @@ class Plotter:
             if not learner.no_gt:
                 self.plot_adjacency_through_time_w(
                     learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
+                )
+            elif learner.plot_params.savar:
+                self.plot_savar_feature_maps(
+                    learner,
+                    adj_w,
+                    coordinates=learner.coordinates,
+                    iteration=learner.iteration,
+                    plot_through_time=learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
                 )
             else:
                 self.plot_regions_map(
@@ -345,6 +367,7 @@ class Plotter:
         # plot_compare_prediction(x, x_hat)
 
         # plot the adjacency matrix (learned vs ground-truth)
+        # Here if SAVAR, learner should have GT and gt_dag should be the SAVAR GT
         adj = learner.model.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
@@ -391,15 +414,27 @@ class Plotter:
             adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
-        self.plot_adjacency_matrix(
-            mat1=adj,
-            mat2=gt_dag,
-            path=learner.plots_path,
-            name_suffix="transition",
-            no_gt=learner.no_gt,
-            iteration=learner.iteration,
-            plot_through_time=learner.plot_params.plot_through_time,
-        )
+        if learner.plot_params.savar:
+            self.plot_adjacency_matrix(
+                mat1=adj,
+                # Below savar dag
+                mat2=learner.datamodule.savar_gt_adj,
+                path=learner.plots_path,
+                name_suffix="transition",
+                no_gt=False,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+            )
+        else:
+            self.plot_adjacency_matrix(
+                mat1=adj,
+                mat2=gt_dag,
+                path=learner.plots_path,
+                name_suffix="transition",
+                no_gt=learner.no_gt,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+            )
 
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
@@ -412,6 +447,15 @@ class Plotter:
             if not learner.no_gt:
                 self.plot_adjacency_through_time_w(
                     learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
+                )
+            elif learner.plot_params.savar:
+                self.plot_savar_feature_maps(
+                    learner,
+                    adj_w,
+                    coordinates=learner.coordinates,
+                    iteration=learner.iteration,
+                    plot_through_time=learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
                 )
             else:
                 self.plot_regions_map(
@@ -834,6 +878,66 @@ class Plotter:
             fname = "spatial_aggregation.png"
 
         plt.savefig(path / fname, format="png")
+        plt.close()
+
+    # TO REWRITE PROPERLY AND PROPAGATE
+    def plot_savar_feature_maps(
+        self,
+        learner,
+        w_adj,
+        coordinates: np.ndarray,
+        iteration: int,
+        plot_through_time: bool,
+        path,
+    ):
+
+        grid_shape = (learner.lat, learner.lon)
+
+        w_adj = w_adj[0]  # Now w_adj_mean should be (lat*lon, num_latents)
+        d_z = w_adj.shape[1]
+
+        # w_adj_mean = self.permute_latents(w_adj_mean, grid_shape)
+        # Create a combined plot showing all features
+        combined_map_n_rows, combined_map_n_columns = int(np.sqrt(d_z + 1)) + 1, int(np.sqrt(d_z + 1)) + 1
+        fig, axs = plt.subplots(
+            nrows=combined_map_n_rows,
+            ncols=combined_map_n_columns,
+            figsize=(combined_map_n_columns * 3, combined_map_n_rows * 3),
+        )
+
+        ax = axs.flat[0]
+        im = ax.imshow(
+            learner.datamodule.savar_gt_noise + learner.datamodule.savar_gt_modes, cmap="viridis"
+        )  # , vmin=vmin, vmax=vmax)
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(im, cax=cax)
+        ax.set_title("Ground-Truth", fontsize="large")
+        ax.tick_params(axis="both", labelsize="large")
+
+        for i in range(d_z):
+            ax = axs.flat[i + 1]
+            feature_data = w_adj[:, i]
+            data = feature_data.reshape(grid_shape)
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            im = ax.imshow(data, cmap="viridis")  # , vmin=vmin, vmax=vmax)
+            # cbar = plt.colorbar(im, cax=cax)
+            plt.colorbar(im, cax=cax)
+            ax.set_title(f"Feature {i}", fontsize="large")
+            ax.tick_params(axis="both", labelsize="large")
+
+        for ax in axs.flat[d_z + 1 :]:
+            fig.delaxes(ax)
+
+        fig.tight_layout()
+
+        if plot_through_time:
+            fname = f"spatial_aggregation_{iteration}.png"
+        else:
+            fname = "spatial_aggregation.png"
+
+        plt.savefig(path / fname)
         plt.close()
 
     def get_centroid(self, xs, ys):
@@ -1279,3 +1383,150 @@ class Plotter:
             plt.title("MCC score through time")
             fig.savefig(exp_path / "mcc.png")
             fig.clf()
+
+    # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
+
+    # def plot_original_savar(self, path, lon, lat, savar_path):
+    #     """Plotting the original savar data."""
+    #     data = np.load(f"{savar_path}.npy")
+
+    #     # Get the dimensions
+    #     time_steps = data.shape[1]
+    #     data_reshaped = data.T.reshape((time_steps, lat, lon))
+
+    #     # Calculate the average over the time axis
+    #     avg_data = np.mean(data_reshaped, axis=0)
+
+    #     # Determine the global min and max from the averaged data for consistent color scaling
+    #     vmin = np.min(avg_data)
+    #     vmax = np.max(avg_data)
+
+    #     fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
+    #     cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
+    #     cbar = fig.colorbar(cax, ax=ax)
+
+    #     def animate(i):
+    #         cax.set_data(data_reshaped[i])
+    #         ax.set_title(f"Time step: {i+1}")
+    #         return (cax,)
+
+    #     # Create an animation
+    #     ani = animation.FuncAnimation(fig, animate, frames=100, blit=True)
+
+    #     fname = "original_savar_data.gif"
+    #     # Save the animation as a video file
+    #     ani.save(os.path.join(path, fname), writer="pillow", fps=10)
+
+    #     plt.close()
+
+    # def compute_time_averaged_pixel_error(self, learner, cdsd_data, savar_data, iteration, path):
+    #     """
+    #     Computes the pixel error between time-averaged SAVAR ground truth and reconstructed CDSD latent variables.
+
+    #     Args:
+    #         cdsd_data (numpy.ndarray): CDSD latent variables of shape (1, lon*lat, d_z).
+    #         savar_data (numpy.ndarray): SAVAR ground truth data of shape (time_steps, lat, lon).
+
+    #     Returns:
+    #         float: The mean squared error between time-averaged SAVAR and reconstructed CDSD.
+    #     """
+    #     # Step 1: Time-average the SAVAR data over time_steps
+    #     savar_avg = np.mean(savar_data, axis=0)  # Shape becomes (lat, lon)
+
+    #     # Step 2: Reshape cdsd_data to (lat, lon, d_z) based on savar spatial dimensions
+    #     lat, lon = savar_avg.shape
+    #     d_z = cdsd_data.shape[2]
+
+    #     # Assuming lon*lat matches the savar grid
+    #     cdsd_reshaped = cdsd_data.reshape(lat, lon, d_z)  # Shape becomes (lat, lon, d_z)
+
+    #     # Step 3: Reconstruct CDSD by summing over the latent dimension (d_z)
+    #     cdsd_reconstructed = np.sum(cdsd_reshaped, axis=2)  # Shape becomes (lat, lon)
+
+    #     # Step 4: Compute pixel-wise error (Mean Squared Error)
+    #     pixel_error = np.mean((cdsd_reconstructed - savar_avg) ** 2)
+
+    #     print(f"Pixel error: {pixel_error}")
+
+    #     combined_min = min(np.min(cdsd_reconstructed), np.min(savar_avg))
+    #     combined_max = max(np.max(cdsd_reconstructed), np.max(savar_avg))
+
+    #     # Step 5: Plot both the reconstructed CDSD data and the time-averaged SAVAR data
+    #     fig, axes = plt.subplots(1, 2, figsize=(learner.hp.compute_pixel_figsize_x, learner.hp.compute_pixel_figsize_y))
+
+    #     # Plot the reconstructed CDSD data
+    #     im1 = axes[0].imshow(cdsd_reconstructed, cmap="viridis", aspect="auto", vmin=combined_min, vmax=combined_max)
+    #     axes[0].set_title(f"Reconstructed CDSD Data (Pixel Error: {pixel_error:.4f})")
+    #     axes[0].set_xlabel("Longitude")
+    #     axes[0].set_ylabel("Latitude")
+    #     plt.colorbar(im1, ax=axes[0], label="Reconstructed Value")
+
+    #     # Plot the time-averaged SAVAR data
+    #     im2 = axes[1].imshow(savar_avg, cmap="viridis", aspect="auto", vmin=combined_min, vmax=combined_max)
+    #     axes[1].set_title("Time-Averaged SAVAR Data")
+    #     axes[1].set_xlabel("Longitude")
+    #     axes[1].set_ylabel("Latitude")
+    #     plt.colorbar(im2, ax=axes[1], label="SAVAR Value")
+    #     plt.tight_layout()
+
+    #     fname = f"cdsd_reconstructed_{iteration}.png"
+
+    #     plt.savefig(os.path.join(path, fname))
+    #     plt.close()
+
+    #     return pixel_error
+
+    # def calculate_mcc_with_savar(self, cdsd_data, savar_data):
+    #     """
+    #     Calculates the Mean Correlation Coefficient (MCC) between discovered latents (CDSD) and ground truth SAVAR data,
+    #     where SAVAR data is reshaped and projected into the same number of latents as the CDSD discovered data.
+
+    #     Args:
+    #         cdsd_latents (numpy array): Discovered latent variables from CDSD with shape (n_samples, n_latents).
+    #         savar_data (numpy array): Ground-truth SAVAR data with shape (time_steps, longitude, latitude).
+    #         num_latents (int): The number of latent variables (e.g., 3 in your case).
+
+    #     Returns:
+    #         float: The Mean Correlation Coefficient (MCC) between the CDSD latents and projected SAVAR latents.
+    #     """
+    #     num_latents = cdsd_data.shape[2]
+
+    #     # Reshape SAVAR data from (time_steps, longitude, latitude) to (time_steps, longitude * latitude)
+    #     time_steps, lat, lon = savar_data.shape
+    #     savar_data_reshaped = savar_data.reshape(time_steps, lon * lat)
+
+    #     # Apply ICA
+    #     ica = FastICA(n_components=num_latents)
+    #     savar_latents = ica.fit_transform(savar_data_reshaped.T).T
+    #     print(savar_latents.shape)
+
+    #     # Now, reshape the latents back into (time_steps, lat, lon, num_latents)
+    #     savar_latents_reshaped = savar_latents.reshape(num_latents, lat, lon)
+
+    #     for i in range(num_latents):
+    #         plt.figure(figsize=(6, 6))  # Create a new figure for each latent
+    #         latent_component = savar_latents_reshaped[i]  # Shape: (lat, lon)
+    #         plt.imshow(latent_component, cmap="viridis", aspect="auto")
+    #         plt.title(f"Latent {i + 1} after PCA")
+    #         plt.colorbar()
+    #         plt.show()  # Show each plot separately
+
+    #     # Ensure CDSD latents and SAVAR latents have the same shape
+    #     assert cdsd_data.shape == savar_latents.shape, "CDSD and SAVAR latent representations must have the same shape"
+
+    #     # Number of latent variables
+    #     n_latents = cdsd_data.shape[1]
+
+    #     # Compute the correlation matrix between each latent variable of CDSD and SAVAR
+    #     correlation_matrix = np.corrcoef(cdsd_data, savar_latents, rowvar=False)[:n_latents, n_latents:]
+
+    #     # Use the Hungarian algorithm to find the best matching between CDSD and SAVAR latents
+    #     row_ind, col_ind = linear_sum_assignment(-np.abs(correlation_matrix))
+
+    #     # Extract the corresponding correlations
+    #     matched_correlations = correlation_matrix[row_ind, col_ind]
+
+    #     # Calculate the Mean Correlation Coefficient (MCC)
+    #     mcc = np.mean(np.abs(matched_correlations))
+
+    #     return mcc

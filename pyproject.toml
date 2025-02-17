@@ -45,6 +45,7 @@ basemap = "^1.4.1"
 cfgrib = "^0.9.15.0"
 cftime = "^1.6.4.post1"
 dask = "^2025.2.0"
+scikit-learn = "^1.6.1"
 
 
 [tool.poetry.group.dev.dependencies]

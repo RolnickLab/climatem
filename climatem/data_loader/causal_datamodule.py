@@ -84,6 +84,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     output_save_dir=self.hparams.output_save_dir,
                     lat=self.hparams.lat,
                     lon=self.hparams.lon,
+                    tau=self.hparams.tau,
                     global_normalization=self.hparams.global_normalization,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
@@ -97,6 +98,9 @@ class CausalClimateDataModule(ClimateDataModule):
                     is_forced=self.hparams.is_forced,
                     plot_original_data=self.hparams.plot_original_data,
                 )
+                self.savar_gt_modes = train_val_input4mips.gt_modes
+                self.savar_gt_noise = train_val_input4mips.gt_noise
+                self.savar_gt_adj = train_val_input4mips.gt_adj
             elif (
                 "tas" in self.hparams.in_var_ids
                 or "pr" in self.hparams.in_var_ids

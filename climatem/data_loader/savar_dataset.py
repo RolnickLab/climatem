@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from climatem.synthetic_data.generate_savar_datasets import generate_save_savar_data
+from climatem.synthetic_data.graph_evaluation import extract_adjacency_matrix
 
 
 class SavarDataset(torch.utils.data.Dataset):
@@ -14,6 +15,7 @@ class SavarDataset(torch.utils.data.Dataset):
         output_save_dir: Optional[str] = "Savar_DATA",
         lat: int = 125,
         lon: int = 125,
+        tau: int = 5,
         global_normalization: bool = True,
         seasonality_removal: bool = True,
         reload_climate_set_data: Optional[bool] = True,
@@ -50,6 +52,13 @@ class SavarDataset(torch.utils.data.Dataset):
         self.overlap = overlap
         self.is_forced = is_forced
         self.plot_original_data = plot_original_data
+
+        self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
+        self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
+        links_coeffs = np.load(self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True).item()[
+            "links_coeffs"
+        ]
+        self.gt_adj = np.array(extract_adjacency_matrix(links_coeffs, n_per_col**2, tau))
 
     @staticmethod
     def aggregate_months(data, num_months_aggregated):
