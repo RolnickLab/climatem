@@ -195,15 +195,15 @@ def parse_args():
         help="Path to a json file with values for all parameters",
     )
     # Add an argument for nested keys, this will be handled dynamically later
-    parser.add_argument("--cmd-params", action="append", metavar="KEY=VALUE", help="Cmd line arguments")
+    parser.add_argument("--hp", action="append", metavar="KEY=VALUE", help="Cmd line arguments")
     return parser.parse_args()
 
 
 def update_config_withparse(params, args):
     """Merge command-line arguments with JSON configuration, handling nested parameters."""
     list_of_keys = params.keys()
-    if args.cmd_params:
-        for param in args.cmd_params:
+    if args.hp:
+        for param in args.hp:
             try:
                 key, value = param.split("=")
             except ValueError:
