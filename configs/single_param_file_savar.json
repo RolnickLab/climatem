@@ -80,8 +80,8 @@
 
         "use_sparsity_constraint": true,
         "crps_coeff": 1,
-        "spectral_coeff": 20,
-        "temporal_spectral_coeff": 2000,
+        "spectral_coeff": 0,
+        "temporal_spectral_coeff": 0,
         "coeff_kl": 1,
 
         "reg_coeff": 0,
@@ -102,9 +102,9 @@
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
-        "sparsity_h_threshold": 0.0001,
+        "sparsity_h_threshold": 0.05,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 0.5,
+        "sparsity_upper_threshold": 0.05,
 
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,
