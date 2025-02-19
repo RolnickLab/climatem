@@ -226,9 +226,9 @@ def main(
     # save final results, (MSE)
     metrics = {"shd": 0.0, "precision": 0.0, "recall": 0.0, "train_mse": 0.0, "val_mse": 0.0, "mcc": 0.0}
     # if we have the GT, also compute (SHD, Pr, Re, MCC)
-    if not hp.no_gt:
+    if not gt_params.no_gt:
         # Here can remove this ---
-        if hp.instantaneous:
+        if model_params.instantaneous:
             gt_graph = trainer.gt_dag
         else:
             gt_graph = trainer.gt_dag[:-1]  # remove the graph G_t
@@ -274,11 +274,11 @@ def main(
     metrics["val_smape"] = val_smape
 
     # save the metrics
-    with open(os.path.join(hp.exp_path, "results.json"), "w") as file:
+    with open(os.path.join(experiment_params.exp_path, "results.json"), "w") as file:
         json.dump(metrics, file, indent=4)
 
     # finally, save the model
-    torch.save(trainer.model.state_dict(), os.path.join(hp.exp_path, "model.pth"))
+    torch.save(trainer.model.state_dict(), os.path.join(experiment_params.exp_path, "model.pth"))
 
 
 def assert_args(
