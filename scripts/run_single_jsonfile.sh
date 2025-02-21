@@ -18,7 +18,7 @@ module purge
 module --quiet load python/3.10
 
 # 2. Load your environment
-source $HOME/causal_model/env_climatem/bin/activate
+source $HOME/env_climatem/bin/activate
 
 
 # Get a unique port for this job based on the job ID
@@ -37,4 +37,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/causal_model/climatem/scripts/main_picabu.py --config-path $HOME/causal_model/climatem/configs/single_param_file.json
+    $HOME/climatem/scripts/main_picabu.py --config-path $HOME/climatem/configs/single_param_file.json
