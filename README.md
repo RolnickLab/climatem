@@ -2,29 +2,99 @@
 
 This is the code to run experiments to train and evaluate probabilistic generative models that aim to emulate climate models.
 
+
+## Installation
+
+### Dependencies
+- Python 3.10
+- poetry
+- [accelerate](https://huggingface.co/docs/accelerate/usage_guides)
+- wandb
+
+### 1. Clone the repo
+
+``git clone git@github.com:RolnickLab/climatem.git``
+
+### 2. Set up environment
 In order to set up the environment, please use venv, running the following commands once the repository is cloned.
 
-Environment creation, first make sure you have a python installation, and run from the climatem directory:
+Environment creation, first make sure you have a python installation (or `module load python\3.10` on cluster), and run from the climatem directory:
 
-1. python3 -m venv env_emulator_climatem
+1. `python3 -m venv env_emulator_climatem`
 
-2. source activate env_emulator_climatem
+2. `source env_emulator_climatem/bin/activate`
 
-3. pip install -r requirements_env_emulator.txt    
+3. `poetry add $(cat requirements_env_emulator.txt)`
 
-P.S. (this still has a left over installation from the causalpaca github that I have tried to make sure we don't need any more - TBC)
+4. `poetry install`
 
-Then follow poetry instructions.
+If you do not have poetry yet, refer to section below for installing it (you only need to do that once).
 
-You may also need to create a directory: climatem/Climateset_DATA/, where the processed data will be stored.
+### 3. Set up Data Paths
 
-Then results that are output by the model training, and various output plots will be written to --exp-path $HOME/scratch/results/test_climatem/ (as detailed in the run_cdsd....sh scripts).
+#### Input Data
 
-Finally, raw data is currently stored in /home/mila/s/sebastian.hickman/scratch/data/icosahedral_data/structured/picontrol/24_ni/outputs/CMIP6/NorESM2-LM/r1i1p1f1/piControl ...
+**Option A**: Request access to the data on the mila cluster (Seb can setfacl). The data is stored in `/home/mila/s/sebastian.hickman/scratch/data/icosahedral_data/`. You want to have access to this via network, i.e. Seb must give you permission for the following dir: 
+`/network/scratch/s/sebastian.hickman/data/icosahedral_data/`.
 
-Shall I put some of this data into a project directory to make it easily accessible for now?
+**Option B**: Download the data from the [Google Drive folder](https://drive.google.com/drive/u/0/folders/1G8vC4AZd7QJIS4Vt1taO-brgB95e6HCh) and put it where you want it (e.g. upload to cluster). Change the data path in the config json files (`data_dir`) to your novel data path. Make sure it also points to the directory `icosahedral_data/structured/picontrol/24_ni`.
 
-Ok!
+### Output Data
+Create the dir where the processed data will be stored:
+
+``mkdir climatem/Climateset_DATA/``
+
+The results that are output by the model training, and various output plots will be written to `--exp-path $HOME/scratch/results/test_climatem/` (as detailed in the run_cdsd....sh scripts).
+
+Outputs of the experiments are also stored in wandb.
+
+### Setting up other dependencies
+
+If you do not have those things already set-up, you can find descriptions here how to set them up.
+
+#### poetry
+TBC (see lab template below, copy paste relevant part up here)
+
+#### wandb
+TBC (link to quick set-up)
+
+#### accelerate
+Set up accelerate by running 
+
+``accelerate config``
+
+It will prompt a range of questions. You can either answer them yourself or copy paste the following configs into your `$HOME/.cache/huggingface/accelerate/default_config.yaml`
+
+```
+compute_environment: LOCAL_MACHINE
+debug: true
+distributed_type: MULTI_GPU
+downcast_bf16: 'no'
+enable_cpu_affinity: true
+gpu_ids: 0,1,2,3
+machine_rank: 0
+main_training_function: main
+mixed_precision: 'no'
+num_machines: 1
+num_processes: 4
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+```
+Check configurations by running:
+
+``accelerate env``
+
+Run a quick test to check if it's working:
+
+``accelerate test``
+
+If this runs smoothly you can go ahead.
+
+## Run Experiments
 
 
 
@@ -33,14 +103,7 @@ Ok!
 
 
 
-
-
-
-
-
-### See lab-basic-template readme below:
-
-# README
+# LAB TEMPLATE README
 
 Set up a minimal codebase to run climate emulation experiments with causal representation learning.
 

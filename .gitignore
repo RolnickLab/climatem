@@ -129,6 +129,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+# add new one!
+env_emulator_poetry/
+
 
 # Spyder project settings
 .spyderproject
@@ -169,5 +172,15 @@ cython_debug/
 data/*
 !data/README.md
 scripts/config.sh
+scripts/tuning/*
+scripts/configs/tuning/*
 **/*.nc
 **/*.tif
+Climateset_DATA/*
+wandb/
+notebooks/
+notebooks/*.npy
+notebooks/*.npz
+notebooks/*.png
+notebooks/plots/
+notebooks/rollouts/

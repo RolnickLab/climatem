@@ -1,81 +1,226 @@
+import argparse
+import json
+import logging
+import math
+from itertools import accumulate
+from typing import Callable, Dict, List, Optional, Union
+
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from omegaconf import DictConfig, OmegaConf
+from pytorch_lightning.utilities import rank_zero_only
+from torch import default_generator, randperm
+from torch.utils.data.dataset import Subset
+
+# What functions do we axctually use from this? ... I feel like we could delete everything
 
 
-class ALM:
+def to_DictConfig(obj: Optional[Union[List, Dict]]):
+    if isinstance(obj, DictConfig):
+        return obj
+
+    if isinstance(obj, list):
+        try:
+            dict_config = OmegaConf.from_dotlist(obj)
+        except ValueError:
+            dict_config = OmegaConf.create(obj)
+
+    elif isinstance(obj, dict):
+        dict_config = OmegaConf.create(obj)
+
+    else:
+        dict_config = OmegaConf.create()  # empty
+
+    return dict_config
+
+
+def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
+    """Initializes multi-GPU-friendly python logger."""
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # this ensures all logging levels get marked with the rank zero decorator
+    # otherwise logs would get multiplied for each GPU process in multi-GPU setup
+    for level in ("debug", "info", "warning", "error", "exception", "fatal", "critical"):
+        setattr(logger, level, rank_zero_only(getattr(logger, level)))
+
+    return logger
+
+
+def get_activation_function(name: str, functional: bool = False, num: int = 1):
+    name = name.lower().strip()
+
+    def get_functional(s: str) -> Optional[Callable]:
+        return {
+            "softmax": F.softmax,
+            "relu": F.relu,
+            "tanh": torch.tanh,
+            "sigmoid": torch.sigmoid,
+            "identity": nn.Identity(),
+            None: None,
+            "swish": F.silu,
+            "silu": F.silu,
+            "elu": F.elu,
+            "gelu": F.gelu,
+            "prelu": nn.PReLU(),
+        }[s]
+
+    def get_nn(s: str) -> Optional[Callable]:
+        return {
+            "softmax": nn.Softmax(dim=1),
+            "relu": nn.ReLU(),
+            "tanh": nn.Tanh(),
+            "sigmoid": nn.Sigmoid(),
+            "identity": nn.Identity(),
+            "silu": nn.SiLU(),
+            "elu": nn.ELU(),
+            "prelu": nn.PReLU(),
+            "swish": nn.SiLU(),
+            "gelu": nn.GELU(),
+        }[s]
+
+    if num == 1:
+        return get_functional(name) if functional else get_nn(name)
+    else:
+        return [get_nn(name) for _ in range(num)]
+
+
+def get_trainable_params(model):
+    trainable_params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            trainable_params.append(param)
+    return trainable_params
+
+
+def no_op(*args, **kwargs):
+    pass
+
+
+def random_split(dataset, lengths, generator=default_generator):
+    r"""
+    Randomly split a dataset into non-overlapping new datasets of given lengths.
+
+    If a list of fractions that sum up to 1 is given,
+    the lengths will be computed automatically as
+    floor(frac * len(dataset)) for each fraction provided.
+
+    After computing the lengths, if there are any remainders, 1 count will be
+    distributed in round-robin fashion to the lengths
+    until there are no remainders left.
+
+    Optionally fix the generator for reproducible results, e.g.:
+
+    >>> random_split(range(10), [3, 7], generator=torch.Generator().manual_seed(42))
+    >>> random_split(range(30), [0.3, 0.3, 0.4], generator=torch.Generator(
+    ...   ).manual_seed(42))
+
+    Args:
+        dataset (Dataset): Dataset to be split
+        lengths (sequence): lengths or fractions of splits to be produced
+        generator (Generator): Generator used for the random permutation.
     """
-    Augmented Lagrangian Method
-    To use the quadratic penalty method (e.g. for the acyclicity constraint),
-    just ignore 'self.lambda'
-    NOTE:(seb) self.lambda does not even exist? We mean self.gamma?
-    """
-    def __init__(self,
-                 mu_init: float,
-                 mu_mult_factor: float,
-                 omega_gamma: float,
-                 omega_mu: float,
-                 h_threshold: float,
-                 min_iter_convergence: int,
-                 dim_gamma = (1)):
-        self.gamma = torch.zeros(*dim_gamma)
-        self.delta_gamma = -np.inf
-        self.mu = mu_init
-        self.min_iter_convergence = min_iter_convergence
-        self.h_threshold = h_threshold
-        self.omega_mu = omega_mu
-        self.omega_gamma = omega_gamma
-        self.mu_mult_factor = mu_mult_factor
-        self.stop_crit_window = 100
-        self.constraint_violation = []
-        self.has_converged = False
-        self.dim_gamma = dim_gamma
+    if math.isclose(sum(lengths), 1) and sum(lengths) <= 1:
+        subset_lengths: List[int] = []
+        for i, frac in enumerate(lengths):
+            if frac < 0 or frac > 1:
+                raise ValueError(f"Fraction at index {i} is not between 0 and 1")
+            n_items_in_split = int(math.floor(len(dataset) * frac))  # type: ignore[arg-type]
+            subset_lengths.append(n_items_in_split)
+        remainder = len(dataset) - sum(subset_lengths)  # type: ignore[arg-type]
+        # add 1 to all the lengths in round-robin fashion until the remainder is 0
+        for i in range(remainder):
+            idx_to_add_at = i % len(subset_lengths)
+            subset_lengths[idx_to_add_at] += 1
+        lengths = subset_lengths
+        for i, length in enumerate(lengths):
+            if length == 0:
+                print(f"Length of split at index {i} is 0. " f"This might result in an empty dataset.")
 
-    def _compute_delta_gamma(self, iteration: int, val_loss: list):
-        # compute delta for gamma
-        if iteration >= 2 * self.stop_crit_window and \
-           iteration % (2 * self.stop_crit_window) == 0:
-            t0, t_half, t1 = val_loss[-3], val_loss[-2], val_loss[-1]
+    # Cannot verify that dataset is Sized
+    if sum(lengths) != len(dataset):  # type: ignore[arg-type]
+        raise ValueError("Sum of input lengths does not equal the length of the input dataset!")
 
-            # if the validation loss went up and down, do not update lagrangian and penalty coefficients.
-            if not (min(t0, t1) < t_half < max(t0, t1)):
-                self.delta_gamma = -np.inf
-            else:
-                self.delta_gamma = (t1 - t0) / self.stop_crit_window
+    indices = randperm(sum(lengths), generator=generator).tolist()  # type: ignore[call-overload]
+    return [Subset(dataset, indices[offset - length : offset]) for offset, length in zip(accumulate(lengths), lengths)]
+
+
+def diff_max_min(x, dim):
+    return torch.max(x, dim=dim) - torch.min(x, dim=dim)
+
+
+def diff_max_min_np(x, dim):
+    return np.max(x, axis=dim) - np.min(x, axis=dim)
+
+
+def weighted_global_mean(input, weights):
+    # weitghs * input summed over lon lat / lon+lat
+    return np.mean(input * weights, axis=(-1, -2))
+
+
+def get_epoch_ckpt_or_last(ckpt_files: List[str], epoch: int = None):
+    if epoch is None:
+        if "last.ckpt" in ckpt_files:
+            model_ckpt_filename = "last.ckpt"
         else:
-            self.delta_gamma = -np.inf  # do not update gamma nor mu
+            ckpt_epochs = [int(name.replace("epoch", "")[:3]) for name in ckpt_files]
+            # Use checkpoint with latest epoch if epoch is not specified
+            max_epoch = max(ckpt_epochs)
+            model_ckpt_filename = [name for name in ckpt_files if str(max_epoch) in name][0]
+        logging.warning(f"Multiple ckpt files exist: {ckpt_files}. Using latest epoch: {model_ckpt_filename}")
+    else:
+        # Use checkpoint with specified epoch
+        model_ckpt_filename = [name for name in ckpt_files if str(epoch) in name]
+        if len(model_ckpt_filename) == 0:
+            raise ValueError(f"There is no ckpt file for epoch={epoch}. Try one of the ones in {ckpt_files}!")
+        model_ckpt_filename = model_ckpt_filename[0]
+    return model_ckpt_filename
 
-    def update(self, iteration: int, h_list: list, val_loss: list):
-        """
-        Update the value of mu and gamma. Return True if it has converged.
-        Args:
-            iteration: number of training iterations completed
-            h_list: list of the values of the constraint
-            val_loss: list of validation loss
-        """
-        self.has_increased_mu = False
 
-        if len(val_loss) >= 3:
-            h = h_list[-1]
-            if len(self.dim_gamma) > 1:
-                h_scalar = torch.sum(h)
-            else:
-                h_scalar = h
+def load_config(config_path):
+    """Load configuration from a JSON file."""
+    with open(config_path, "r") as f:
+        return json.load(f)
 
-            # check if QPM has converged
-            if iteration > self.min_iter_convergence and h_scalar <= self.h_threshold:
-                self.has_converged = True
-            else:
-                # update delta_gamma
-                self._compute_delta_gamma(iteration, val_loss)
 
-                # if we have found a stationary point of the augmented loss
-                if abs(self.delta_gamma) < self.omega_gamma or self.delta_gamma > 0:
-                    self.gamma += self.mu * h
-                    self.constraint_violation.append(h_scalar)
+def parse_args():
+    """Parse command-line arguments with support for nested structure."""
+    parser = argparse.ArgumentParser(description="Causal models for climate data")
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default="configs/param_file.json",
+        help="Path to a json file with values for all parameters",
+    )
+    # Add an argument for nested keys, this will be handled dynamically later
+    parser.add_argument("--hp", action="append", metavar="KEY=VALUE", help="Cmd line arguments")
+    return parser.parse_args()
 
-                    # increase mu if the constraint has sufficiently decreased
-                    # since the last subproblem
-                    if len(self.constraint_violation) >= 2:
-                        if h_scalar > self.omega_mu * self.constraint_violation[-2]:
-                            self.mu *= self.mu_mult_factor
-                            self.has_increased_mu = True
+
+def update_config_withparse(params, args):
+    """Merge command-line arguments with JSON configuration, handling nested parameters."""
+    list_of_keys = params.keys()
+    if args.hp:
+        for param in args.hp:
+            try:
+                key, value = param.split("=")
+            except ValueError:
+                print(f"Invalid data format: {param} should be configclass.param=value")
+            try:
+                key_nested = key.split(".")
+            except ValueError:
+                print(f"Invalid data format: {key} should be configclass.param")
+            # Convert the value to the appropriate type
+            try:
+                value = json.loads(value)  # This will handle numbers, booleans, etc.
+            except ValueError:
+                pass  # Treat it as a string if JSON parsing fails
+
+            if value is not None:  # and arg != "config_path"
+                if key_nested[0] not in list_of_keys:
+                    raise ValueError(f"You tried setting up the wrong key {key_nested[0]}. Should be in {list_of_keys}")
+                else:
+                    params[key_nested[0]][key_nested[1]] = value
+    return params

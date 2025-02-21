@@ -1,26 +1,33 @@
-from pathlib import Path
-import os
 # Data constants
+# These should be things that will NEVER change ("constants")
+# params should be params
+# For example, not lat/lon, but fire type is ok
 
+# JB: These are also input to the json files, twice...
+# It needs to be input and not a constants
+# LON = 144 # TODO JK commenting: LON and LAT must be swapped...
+# LAT = 96
+# NUM_LEVELS = 1
+# SEQ_LEN = 12
+INPUT4MIPS_TEMP_RES = "mon"
+CMIP6_TEMP_RES = "mon"
+INPUT4MIPS_NOM_RES = "map_250_km"
+CMIP6_NOM_RES = "250_km"  # TODO: not allow different resolutions
+SEQ_LEN_MAPPING = {"mon": 12}
 
-LON = 96
-LAT = 144
-NUM_LEVELS = 1
-SEQ_LEN = 12
-INPUT4MIPS_TEMP_RES = 'mon'
-CMIP6_TEMP_RES = 'mon'
-TEMP_RES ='mon'
-INPUT4MIPS_NOM_RES = 'map_250_km'
-CMIP6_NOM_RES = '250_km' #TODO: not allow different resolutions
-SEQ_LEN_MAPPING ={
-    'mon': 12
-}
-
-DATA_DIR = os.path.join(Path(__file__).absolute().parent.parent, 'Climateset_DATA') #os.path.join(os.getcwd(), 'Climateset_DATA') # set path to local data
+# TODO JK commenting: this should be done via the __init__.py
+# JB: This should be input to the json or params file, and
+# we should verify each time that it corresponds to the correct data,
+# This has led to a lot of confusion in the past.
+# TBD but I think putting paths in the init or constants file is a bad idea
+# DATA_DIR = os.path.join(
+#     Path(__file__).absolute().parent.parent, "Climateset_DATA"
+# )  # os.path.join(os.getcwd(), 'Climateset_DATA') # set path to local data
 # Model : (historical_obe_files, future_obe_files)
 
-#Available models 
-AVAILABLE_MODELS_FIRETYPE = ["CESM2-WACCM",
+# Available models
+AVAILABLE_MODELS_FIRETYPE = [
+    "CESM2-WACCM",
     "CNRM-ESM2-1",
     "CMCC-ESM2",
     "EC-Earth3-Veg",
@@ -31,37 +38,38 @@ AVAILABLE_MODELS_FIRETYPE = ["CESM2-WACCM",
     "GFDL-ESM4",
     "TaiESM1",
     "CESM2",
-    "MRI-ESM-2.0"]
+    "MRI-ESM-2.0",
+]
 
 OPENBURNING_MODEL_MAPPING = {
-    "other" : ("anthro-fires", "anthro-fires"),
-    "CESM2-WACCM": ("no-fires", "no-fires" ),
+    "other": ("anthro-fires", "anthro-fires"),
+    "CESM2-WACCM": ("no-fires", "no-fires"),
     "CNRM-ESM2-1": ("anthro-fires", "anthro-fires"),
-    "CMCC-ESM2": ("no-fires", "no-fires" ),
+    "CMCC-ESM2": ("no-fires", "no-fires"),
     "EC-Earth3-Veg": ("anthro-fires", "anthro-fires"),
     "EC-Earth3-Veg-LR": ("anthro-fires", "anthro-fires"),
     "MPI-ESM1-2-LR": ("anthro-fires", "anthro-fires"),
-    "NorESM2-LM": ("no-fires", "no-fires" ),
-    "NorESM2-MM": ("no-fires", "no-fires" ),
-    "GFDL-ESM4": ("no-fires", "no-fires" ),
+    "NorESM2-LM": ("no-fires", "no-fires"),
+    "NorESM2-MM": ("no-fires", "no-fires"),
+    "GFDL-ESM4": ("no-fires", "no-fires"),
     "TaiESM1": ("anthro-fires", "all-fires"),
     "CESM2": ("anthro-fires", "all-fires"),
-    "MRI-ESM-2.0": ("anthro-fires", "all-fires")
+    "MRI-ESM-2.0": ("anthro-fires", "all-fires"),
 }
 
 ORIGINAL_OPENBURNING_MODEL_MAPPING = {
-    "other" : ("all-fires", "all-fires"),
-    "CESM2-WACCM": ("no-fires", "no-fires" ),
+    "other": ("all-fires", "all-fires"),
+    "CESM2-WACCM": ("no-fires", "no-fires"),
     "CNRM-ESM2-1": ("anthro-fires", "anthro-fires"),
-    "CMCC-ESM2": ("no-fires", "no-fires" ),
+    "CMCC-ESM2": ("no-fires", "no-fires"),
     "EC-Earth3-Veg": ("anthro-fires", "anthro-fires"),
     "EC-Earth3-Veg-LR": ("anthro-fires", "anthro-fires"),
     "MPI-ESM1-2-LR": ("anthro-fires", "anthro-fires"),
-    "NorESM2-LM": ("no-fires", "no-fires" ),
-    "NorESM2-MM": ("no-fires", "no-fires" ),
-    "GFDL-ESM4": ("no-fires", "no-fires" ),
+    "NorESM2-LM": ("no-fires", "no-fires"),
+    "NorESM2-MM": ("no-fires", "no-fires"),
+    "GFDL-ESM4": ("no-fires", "no-fires"),
     "TaiESM1": ("anthro-fires", "all-fires"),
     "CESM2": ("anthro-fires", "all-fires"),
-    "MRI-ESM-2.0": ("anthro-fires", "all-fires")
+    "MRI-ESM-2.0": ("anthro-fires", "all-fires"),
 }
-NO_OPENBURNING_VARS = ['CO2_sum']
+NO_OPENBURNING_VARS = ["CO2_sum"]
