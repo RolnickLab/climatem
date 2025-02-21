@@ -37,7 +37,7 @@ This link points you to additional references for setting up your environment co
 For running the model on real cliamte data, please download monthly climate model data and regrid it to an icosahedral grid using ClimateSet https://github.com/RolnickLab/ClimateSet. 
 If you have any problem downloading or formatting the data, please get in touch. 
 
-### 4. Running PICABU
+### 4. Running the model
 
 An example of bash script can be found in scripts/run_single_jsonfile.sh. 
 This script assumes that environment `env_climatem` and `climatem` repo are located in `$HOME`. 
@@ -85,8 +85,6 @@ Run a quick test to check if it's working:
 ``accelerate test``
 
 If this runs smoothly you can go ahead.
-
-## Run Experiments
 
 
 
