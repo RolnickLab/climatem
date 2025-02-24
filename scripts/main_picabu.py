@@ -334,9 +334,7 @@ if __name__ == "__main__":
         params = json.load(f)
     config_obj_list = update_config_withparse(params, args)
 
-    # fuck around with paths
-
-    # get user's scratch dir on mila cluster:
+    # get user's scratch directory on Mila cluster:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
     print ("new data path:", params["data_params"]["data_dir"])
@@ -344,7 +342,7 @@ if __name__ == "__main__":
     params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)
     print ("new exp path:", params["exp_params"]["exp_path"])
 
-    # get dir of project via current file (aka .../climatem/)
+    # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
     
     params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path)
     print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
