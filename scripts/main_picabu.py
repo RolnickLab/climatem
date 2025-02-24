@@ -326,9 +326,28 @@ def assert_args(
 if __name__ == "__main__":
 
     args = parse_args()
-    with open(args.config_path, "r") as f:
+    
+    root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
+    json_path = f"{root_path}/configs/{args.config_path}"
+    
+    with open(json_path, "r") as f:
         params = json.load(f)
     config_obj_list = update_config_withparse(params, args)
+
+    # fuck around with paths
+
+    # get user's scratch dir on mila cluster:
+    scratch_path = os.getenv("SCRATCH")
+    params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
+    print ("new data path:", params["data_params"]["data_dir"])
+
+    params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)
+    print ("new exp path:", params["exp_params"]["exp_path"])
+
+    # get dir of project via current file (aka .../climatem/)
+    
+    params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path)
+    print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])

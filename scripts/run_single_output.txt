@@ -1,0 +1,2308 @@
+=== checking accel
+=== sourcing env
+=== home: /home/mila/i/isaicuc
+=== checking accel again
+/home/mila/i/isaicuc/env/env_climatem/bin/accelerate
+=== calling accelerate
+new data path: /network/scratch/i/isaicuc/data/SAVAR_DATA_TEST
+new exp path: /network/scratch/i/isaicuc/results/SAVAR_DATA_TEST
+new icosahedron path: /home/mila/i/isaicuc/dev/climatem/scripts/../mappings/vertex_lonlat_mapping.npy
+Test models: None
+TEST SET NAMES ['ssp370_NorESM2-LM', 'ssp126_NorESM2-LM']
+1600-2100
+1894-2000
+Getting causal data [mode=train+val] ...
+CREATE SAVAR DATA
+Creating attributes
+spatial-resolution done
+copies done
+Generate covariance matrix
+noise_weights copied, (4, 400)
+noise_weights inverted
+cov created inverted
+Generate noise_data_field multivariate random
+No seasonality
+No forcing
+create_linear
+modes_4_tl_10000_isforced_False_difficulty_easy_noisestrength_0.2_seasonality_False_overlap_False DONE!
+data is float32
+Trying to regrid to lon, lat if we have regular data...
+intervallength40
+datashape10000
+train: float32
+Using 1 variables
+LINEAR MIXING
+Preparing all the models here!
+Where is my model? cuda:0
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0035])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.6226])
+tensor(False)
+new score tensor([6.6226])
+previous best score tensor([6.6226])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0026])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.4553])
+tensor(True)
+new score tensor([6.4553])
+previous best score tensor([6.6226])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.4553])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 1000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.3818])
+tensor(True)
+new score tensor([6.3818])
+previous best score tensor([6.4553])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.3818])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 1500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0034])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.3990])
+tensor(False)
+new score tensor([6.3990])
+previous best score tensor([6.3818])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 2000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0027])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.3271])
+tensor(True)
+new score tensor([6.3271])
+previous best score tensor([6.3818])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.3271])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 2500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2761])
+tensor(True)
+new score tensor([6.2761])
+previous best score tensor([6.3271])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.2761])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 3000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0031])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2213])
+tensor(True)
+new score tensor([6.2213])
+previous best score tensor([6.2761])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.2213])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 3500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0027])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2143])
+tensor(True)
+new score tensor([6.2143])
+previous best score tensor([6.2213])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.2143])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 4000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0026])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2399])
+tensor(False)
+new score tensor([6.2399])
+previous best score tensor([6.2143])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 4500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0033])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2505])
+tensor(False)
+new score tensor([6.2505])
+previous best score tensor([6.2143])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 5000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2402])
+tensor(False)
+new score tensor([6.2402])
+previous best score tensor([6.2143])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 5500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2004])
+tensor(True)
+new score tensor([6.2004])
+previous best score tensor([6.2143])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.2004])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 6000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0028])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1720])
+tensor(True)
+new score tensor([6.1720])
+previous best score tensor([6.2004])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.1720])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 6500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1773])
+tensor(False)
+new score tensor([6.1773])
+previous best score tensor([6.1720])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 7000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0028])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1984])
+tensor(False)
+new score tensor([6.1984])
+previous best score tensor([6.1720])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 7500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0028])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1523])
+tensor(True)
+new score tensor([6.1523])
+previous best score tensor([6.1720])
+The spatial spectra score is the best we have seen for all variables, I am in the if.
+Best spatial spectra score: tensor([6.1523])
+Saving the model, since the spatial spectra score is the best we have seen for all variables.
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 8000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1720])
+tensor(False)
+new score tensor([6.1720])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 8500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0028])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1875])
+tensor(False)
+new score tensor([6.1875])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 9000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0026])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1730])
+tensor(False)
+new score tensor([6.1730])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 9500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1884])
+tensor(False)
+new score tensor([6.1884])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 10000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1823])
+tensor(False)
+new score tensor([6.1823])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 10500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1711])
+tensor(False)
+new score tensor([6.1711])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 11000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0023])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1873])
+tensor(False)
+new score tensor([6.1873])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 11500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1864])
+tensor(False)
+new score tensor([6.1864])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 12000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1667])
+tensor(False)
+new score tensor([6.1667])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 12500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1880])
+tensor(False)
+new score tensor([6.1880])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 13000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1892])
+tensor(False)
+new score tensor([6.1892])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 13500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0031])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1595])
+tensor(False)
+new score tensor([6.1595])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 14000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0023])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1803])
+tensor(False)
+new score tensor([6.1803])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 14500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1961])
+tensor(False)
+new score tensor([6.1961])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 15000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0026])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1970])
+tensor(False)
+new score tensor([6.1970])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 15500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1709])
+tensor(False)
+new score tensor([6.1709])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 16000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1967])
+tensor(False)
+new score tensor([6.1967])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 16500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0028])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1875])
+tensor(False)
+new score tensor([6.1875])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 17000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1763])
+tensor(False)
+new score tensor([6.1763])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 17500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1971])
+tensor(False)
+new score tensor([6.1971])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 18000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1764])
+tensor(False)
+new score tensor([6.1764])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 18500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1975])
+tensor(False)
+new score tensor([6.1975])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 19000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2155])
+tensor(False)
+new score tensor([6.2155])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 19500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2000])
+tensor(False)
+new score tensor([6.2000])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 20000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1945])
+tensor(False)
+new score tensor([6.1945])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 20500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1943])
+tensor(False)
+new score tensor([6.1943])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 21000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1817])
+tensor(False)
+new score tensor([6.1817])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 21500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0023])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2154])
+tensor(False)
+new score tensor([6.2154])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 22000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0027])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2021])
+tensor(False)
+new score tensor([6.2021])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 22500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0025])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1873])
+tensor(False)
+new score tensor([6.1873])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 23000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2084])
+tensor(False)
+new score tensor([6.2084])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 23500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2124])
+tensor(False)
+new score tensor([6.2124])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 24000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2040])
+tensor(False)
+new score tensor([6.2040])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 24500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.1988])
+tensor(False)
+new score tensor([6.1988])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 25000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2032])
+tensor(False)
+new score tensor([6.2032])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 25500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2006])
+tensor(False)
+new score tensor([6.2006])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 26000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2189])
+tensor(False)
+new score tensor([6.2189])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 26500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2305])
+tensor(False)
+new score tensor([6.2305])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 27000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2222])
+tensor(False)
+new score tensor([6.2222])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 27500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0023])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2431])
+tensor(False)
+new score tensor([6.2431])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 28000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2442])
+tensor(False)
+new score tensor([6.2442])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 28500
+Best valid loss: -1075.148193359375
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0024])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2383])
+tensor(False)
+new score tensor([6.2383])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 29000
+Best valid loss: -1101.699462890625
+Best valid loss: -1114.7232666015625
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2602])
+tensor(False)
+new score tensor([6.2602])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 29500
+Best valid loss: -1118.263916015625
+Best valid loss: -1129.865966796875
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2474])
+tensor(False)
+new score tensor([6.2474])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 30000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2318])
+tensor(False)
+new score tensor([6.2318])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 30500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2531])
+tensor(False)
+new score tensor([6.2531])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 31000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2666])
+tensor(False)
+new score tensor([6.2666])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 31500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2538])
+tensor(False)
+new score tensor([6.2538])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 32000
+Best valid loss: -1133.42724609375
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2443])
+tensor(False)
+new score tensor([6.2443])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 32500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2496])
+tensor(False)
+new score tensor([6.2496])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 33000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2330])
+tensor(False)
+new score tensor([6.2330])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 33500
+Best valid loss: -1136.550048828125
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2519])
+tensor(False)
+new score tensor([6.2519])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 34000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2585])
+tensor(False)
+new score tensor([6.2585])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 34500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2331])
+tensor(False)
+new score tensor([6.2331])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 35000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2452])
+tensor(False)
+new score tensor([6.2452])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 35500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2545])
+tensor(False)
+new score tensor([6.2545])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 36000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2568])
+tensor(False)
+new score tensor([6.2568])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 36500
+Best valid loss: -1136.6318359375
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2488])
+tensor(False)
+new score tensor([6.2488])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 37000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2420])
+tensor(False)
+new score tensor([6.2420])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 37500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2304])
+tensor(False)
+new score tensor([6.2304])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 38000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2544])
+tensor(False)
+new score tensor([6.2544])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 38500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2524])
+tensor(False)
+new score tensor([6.2524])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 39000
+Best valid loss: -1138.6868896484375
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2480])
+tensor(False)
+new score tensor([6.2480])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 39500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2375])
+tensor(False)
+new score tensor([6.2375])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 40000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2413])
+tensor(False)
+new score tensor([6.2413])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 40500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2344])
+tensor(False)
+new score tensor([6.2344])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 41000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2486])
+tensor(False)
+new score tensor([6.2486])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 41500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2485])
+tensor(False)
+new score tensor([6.2485])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 42000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2337])
+tensor(False)
+new score tensor([6.2337])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 42500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2428])
+tensor(False)
+new score tensor([6.2428])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 43000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2510])
+tensor(False)
+new score tensor([6.2510])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 43500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2368])
+tensor(False)
+new score tensor([6.2368])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 44000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2370])
+tensor(False)
+new score tensor([6.2370])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 44500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2482])
+tensor(False)
+new score tensor([6.2482])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 45000
+Best valid loss: -1138.769775390625
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2250])
+tensor(False)
+new score tensor([6.2250])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 45500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2533])
+tensor(False)
+new score tensor([6.2533])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 46000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2544])
+tensor(False)
+new score tensor([6.2544])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 46500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2274])
+tensor(False)
+new score tensor([6.2274])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 47000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2573])
+tensor(False)
+new score tensor([6.2573])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 47500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2569])
+tensor(False)
+new score tensor([6.2569])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 48000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2398])
+tensor(False)
+new score tensor([6.2398])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 48500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2337])
+tensor(False)
+new score tensor([6.2337])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 49000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2387])
+tensor(False)
+new score tensor([6.2387])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 49500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2415])
+tensor(False)
+new score tensor([6.2415])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 50000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2458])
+tensor(False)
+new score tensor([6.2458])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 50500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2490])
+tensor(False)
+new score tensor([6.2490])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 51000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2394])
+tensor(False)
+new score tensor([6.2394])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 51500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2353])
+tensor(False)
+new score tensor([6.2353])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 52000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2436])
+tensor(False)
+new score tensor([6.2436])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 52500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2321])
+tensor(False)
+new score tensor([6.2321])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 53000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2436])
+tensor(False)
+new score tensor([6.2436])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 53500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2401])
+tensor(False)
+new score tensor([6.2401])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 54000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2263])
+tensor(False)
+new score tensor([6.2263])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 54500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2308])
+tensor(False)
+new score tensor([6.2308])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 55000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2510])
+tensor(False)
+new score tensor([6.2510])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 55500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2455])
+tensor(False)
+new score tensor([6.2455])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 56000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2468])
+tensor(False)
+new score tensor([6.2468])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 56500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0013])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2376])
+tensor(False)
+new score tensor([6.2376])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 57000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2302])
+tensor(False)
+new score tensor([6.2302])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 57500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2371])
+tensor(False)
+new score tensor([6.2371])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 58000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2432])
+tensor(False)
+new score tensor([6.2432])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 58500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2418])
+tensor(False)
+new score tensor([6.2418])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 59000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2305])
+tensor(False)
+new score tensor([6.2305])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 59500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2523])
+tensor(False)
+new score tensor([6.2523])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 60000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2274])
+tensor(False)
+new score tensor([6.2274])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 60500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2421])
+tensor(False)
+new score tensor([6.2421])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 61000
+Best valid loss: -1141.55517578125
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2446])
+tensor(False)
+new score tensor([6.2446])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 61500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2412])
+tensor(False)
+new score tensor([6.2412])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 62000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2398])
+tensor(False)
+new score tensor([6.2398])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 62500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2453])
+tensor(False)
+new score tensor([6.2453])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 63000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2164])
+tensor(False)
+new score tensor([6.2164])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 63500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2502])
+tensor(False)
+new score tensor([6.2502])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 64000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2491])
+tensor(False)
+new score tensor([6.2491])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 64500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2281])
+tensor(False)
+new score tensor([6.2281])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 65000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2433])
+tensor(False)
+new score tensor([6.2433])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 65500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2457])
+tensor(False)
+new score tensor([6.2457])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 66000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2374])
+tensor(False)
+new score tensor([6.2374])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 66500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2379])
+tensor(False)
+new score tensor([6.2379])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 67000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2377])
+tensor(False)
+new score tensor([6.2377])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 67500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2520])
+tensor(False)
+new score tensor([6.2520])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 68000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2443])
+tensor(False)
+new score tensor([6.2443])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 68500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0014])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2491])
+tensor(False)
+new score tensor([6.2491])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 69000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2229])
+tensor(False)
+new score tensor([6.2229])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 69500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2326])
+tensor(False)
+new score tensor([6.2326])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 70000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2446])
+tensor(False)
+new score tensor([6.2446])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 70500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2482])
+tensor(False)
+new score tensor([6.2482])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 71000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2370])
+tensor(False)
+new score tensor([6.2370])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 71500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2378])
+tensor(False)
+new score tensor([6.2378])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 72000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2339])
+tensor(False)
+new score tensor([6.2339])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 72500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2407])
+tensor(False)
+new score tensor([6.2407])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 73000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2519])
+tensor(False)
+new score tensor([6.2519])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 73500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2232])
+tensor(False)
+new score tensor([6.2232])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 74000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2311])
+tensor(False)
+new score tensor([6.2311])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 74500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2560])
+tensor(False)
+new score tensor([6.2560])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 75000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2442])
+tensor(False)
+new score tensor([6.2442])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 75500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2524])
+tensor(False)
+new score tensor([6.2524])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 76000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0015])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2466])
+tensor(False)
+new score tensor([6.2466])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 76500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2374])
+tensor(False)
+new score tensor([6.2374])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 77000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2346])
+tensor(False)
+new score tensor([6.2346])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 77500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2391])
+tensor(False)
+new score tensor([6.2391])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 78000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2339])
+tensor(False)
+new score tensor([6.2339])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 78500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2489])
+tensor(False)
+new score tensor([6.2489])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 79000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2531])
+tensor(False)
+new score tensor([6.2531])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 79500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2308])
+tensor(False)
+new score tensor([6.2308])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 80000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2369])
+tensor(False)
+new score tensor([6.2369])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 80500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2404])
+tensor(False)
+new score tensor([6.2404])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 81000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2366])
+tensor(False)
+new score tensor([6.2366])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 81500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2378])
+tensor(False)
+new score tensor([6.2378])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 82000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2430])
+tensor(False)
+new score tensor([6.2430])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 82500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2372])
+tensor(False)
+new score tensor([6.2372])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 83000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2450])
+tensor(False)
+new score tensor([6.2450])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 83500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2390])
+tensor(False)
+new score tensor([6.2390])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 84000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2301])
+tensor(False)
+new score tensor([6.2301])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 84500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2461])
+tensor(False)
+new score tensor([6.2461])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 85000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2439])
+tensor(False)
+new score tensor([6.2439])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 85500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2265])
+tensor(False)
+new score tensor([6.2265])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 86000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2480])
+tensor(False)
+new score tensor([6.2480])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 86500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2518])
+tensor(False)
+new score tensor([6.2518])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 87000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2401])
+tensor(False)
+new score tensor([6.2401])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 87500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2342])
+tensor(False)
+new score tensor([6.2342])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 88000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2408])
+tensor(False)
+new score tensor([6.2408])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 88500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2125])
+tensor(False)
+new score tensor([6.2125])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 89000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2488])
+tensor(False)
+new score tensor([6.2488])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 89500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2500])
+tensor(False)
+new score tensor([6.2500])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 90000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2373])
+tensor(False)
+new score tensor([6.2373])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 90500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2358])
+tensor(False)
+new score tensor([6.2358])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 91000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2412])
+tensor(False)
+new score tensor([6.2412])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 91500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2275])
+tensor(False)
+new score tensor([6.2275])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 92000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2470])
+tensor(False)
+new score tensor([6.2470])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 92500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2516])
+tensor(False)
+new score tensor([6.2516])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 93000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2329])
+tensor(False)
+new score tensor([6.2329])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 93500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2392])
+tensor(False)
+new score tensor([6.2392])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 94000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0016])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2425])
+tensor(False)
+new score tensor([6.2425])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 94500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0023])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2438])
+tensor(False)
+new score tensor([6.2438])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 95000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2540])
+tensor(False)
+new score tensor([6.2540])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 95500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0018])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2351])
+tensor(False)
+new score tensor([6.2351])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 96000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0021])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2228])
+tensor(False)
+new score tensor([6.2228])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 96500
+Best valid loss: -1141.6326904296875
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2444])
+tensor(False)
+new score tensor([6.2444])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 97000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0019])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2454])
+tensor(False)
+new score tensor([6.2454])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 97500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2281])
+tensor(False)
+new score tensor([6.2281])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 98000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0017])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2343])
+tensor(False)
+new score tensor([6.2343])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 98500
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0020])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2600])
+tensor(False)
+new score tensor([6.2600])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 99000
+What is the shape of the predictions, once I made it into a tensor? torch.Size([256, 10, 1, 400])
+What is the shape of the mean of the predictions? torch.Size([256, 1, 400])
+What is the shape of the variance of the predictions? torch.Size([256, 1, 400])
+What is the shape when I try to take the mean across the batch and coordinates: tensor([-0.0022])
+Spatial spectra score, lower is better...should be a spectra for each var tensor([6.2272])
+tensor(False)
+new score tensor([6.2272])
+previous best score tensor([6.1523])
+Not plotting predictions.
+****************************************************************************************
+Plotting Iteration 99500
+Thresholding ================
+Saving the decoder, encoder and graphs.
+****************************************************************************************
+
+======== GPU REPORT ========
+
+==============NVSMI LOG==============
+
+Timestamp                                 : Tue Feb 18 20:10:22 2025
+Driver Version                            : 560.35.03
+CUDA Version                              : 12.6
+
+Attached GPUs                             : 1
+GPU 00000000:39:00.0
+    Accounting Mode                       : Enabled
+    Accounting Mode Buffer Size           : 4000
+    Accounted Processes
+        Process ID                        : 2550704
+            GPU Utilization               : 10 %
+            Memory Utilization            : 0 %
+            Max memory usage              : 500 MiB
+            Time                          : 5256317 ms
+            Is Running                    : 0
+
+Tue Feb 18 20:10:22 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 560.35.03              Driver Version: 560.35.03      CUDA Version: 12.6     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Quadro RTX 8000                On  |   00000000:39:00.0 Off |                    0 |
+| 33%   42C    P2             75W /  260W |       1MiB /  46080MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+

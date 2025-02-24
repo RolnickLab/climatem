@@ -184,3 +184,4 @@ notebooks/*.npz
 notebooks/*.png
 notebooks/plots/
 notebooks/rollouts/
+envclimatem/

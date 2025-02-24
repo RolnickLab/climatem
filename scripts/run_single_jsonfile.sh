@@ -17,11 +17,11 @@ module purge
 # 1. Load the required modules
 module --quiet load python/3.10
 
-# 2. Load your environment
-source $HOME/env_climatem/bin/activate
 
+# 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
+source $HOME/env/env_climatem/bin/activate
 
-# Get a unique port for this job based on the job ID
+# 3. Get a unique port for this job based on the job ID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export MASTER_ADDR="127.0.0.1"
 
@@ -29,6 +29,9 @@ export MASTER_ADDR="127.0.0.1"
 export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
 
+echo "=== calling accelerate"
+
+# Make sure to change program file path to correct dir
 accelerate launch \
     --machine_rank=$SLURM_NODEID \
     --num_cpu_threads_per_process=8 \
@@ -37,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/climatem/scripts/main_picabu.py --config-path $HOME/climatem/configs/single_param_file.json
+    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_savar.json
