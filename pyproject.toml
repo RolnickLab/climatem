@@ -46,6 +46,9 @@ cfgrib = "^0.9.15.0"
 cftime = "^1.6.4.post1"
 dask = "^2025.2.0"
 scikit-learn = "^1.6.1"
+jupyter-contrib-nbextensions = "^0.7.0"
+notebook = "^7.3.2"
+jupyterlab-widgets = "^3.0.13"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -56,6 +59,7 @@ pre-commit = "^3.6.2"
 pylint = "^3.2.7"
 flake8 = "^7.1.1"
 mccabe = "^0.7.0"
+jupyter = "^1.1.1"
 
 [build-system]
 requires = ["poetry-core"]

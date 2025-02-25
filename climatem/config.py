@@ -7,7 +7,7 @@ class expParams:
     def __init__(
         self,
         exp_path,
-        _target_,
+        _target_: str = "climatem.data_loader.climate_datamodule.ClimateDataModule",
         latent: bool = True,
         d_z: int = 90,
         d_x: int = 6250,
