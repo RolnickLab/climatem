@@ -49,13 +49,13 @@ class Plotter:
         if learner.latent:
             # save matrix W of the decoder and encoder
             print("Saving the decoder, encoder and graphs.")
-            w_decoder = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+            w_decoder = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_decoder.npy", w_decoder)
-            w_encoder = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+            w_encoder = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_encoder.npy", w_encoder)
 
             # save the graphs G
-            adj = learner.model.get_adj().cpu().detach().numpy()
+            adj = learner.model.module.get_adj().cpu().detach().numpy()
             np.save(learner.plots_path / "graphs.npy", adj)
 
     def load(self, exp_path, data_loader):
@@ -168,12 +168,12 @@ class Plotter:
             )
 
         # plot the adjacency matrix (learned vs ground-truth)
-        adj = learner.model.get_adj().cpu().detach().numpy()
+        adj = learner.model.module.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag
@@ -210,8 +210,8 @@ class Plotter:
             gt_w = None
 
             # for latent models, find the right permutation of the latent
-            adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
         if learner.plot_params.savar:
@@ -368,12 +368,12 @@ class Plotter:
 
         # plot the adjacency matrix (learned vs ground-truth)
         # Here if SAVAR, learner should have GT and gt_dag should be the SAVAR GT
-        adj = learner.model.get_adj().cpu().detach().numpy()
+        adj = learner.model.module.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag
@@ -410,8 +410,8 @@ class Plotter:
             gt_w = None
 
             # for latent models, find the right permutation of the latent
-            adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
         if learner.plot_params.savar:
@@ -1076,8 +1076,8 @@ class Plotter:
         if not os.path.exists(learner.plots_path / "coordinates.npy"):
             np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
-        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-        adj_encoder_w = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+        adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_encoder_w = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
         np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
         np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 
