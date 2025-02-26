@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "/home/mila/j/julien.boussard/scratch/results/SAVAR_DATA_TEST",
+        "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 4,
@@ -15,10 +15,10 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "/network/scratch/j/julien.boussard/data/SAVAR_DATA_TEST", 
+        "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
         "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni", 
         "reload_climate_set_data": false,
-        "icosahedral_coordinates_path": "/network/scratch/j/julien.boussard/data/vertex_lonlat_mapping.npy",
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["savar"],
         "out_var_ids": ["savar"],
         "num_levels": 1,
