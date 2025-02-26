@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "/network/scratch/j/julien.boussard/results/climatem_spectral/var_ts_picontrol",
+        "exp_path": "$SCRATCH/results/climatem_spectral/var_ts_picontrol",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -15,8 +15,8 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "/network/scratch/j/julien.boussard/data/Climateset_DATA_TEST", 
-        "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/structured/picontrol/24_ni", 
+        "data_dir": "$SCRATCH/data/Climateset_DATA_TEST", 
+        "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/picontrol/24_ni", 
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "/home/mila/j/julien.boussard/causal_model/climatem/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["ts"],
