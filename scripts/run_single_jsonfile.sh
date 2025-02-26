@@ -40,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_savar.json
+    $HOME/causal_model/climatem/scripts/main_picabu.py --config-path $HOME/causal_model/climatem/configs/single_param_file.json 
