@@ -3,12 +3,12 @@
 #SBATCH --job-name=run_single                                           # Set name of job
 #SBATCH --output=run_single_output.txt                                  # Set location of output file
 #SBATCH --error=run_single_error.txt                                    # Set location of error file
-#SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
-#SBATCH --cpus-per-task=4                                               # Ask for 4 CPUs
+#SBATCH --gpus-per-task=2                                               # Ask for 1 GPU
+#SBATCH --cpus-per-task=10                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
-#SBATCH --mem=32G                                                       # Ask for 32 GB of RAM
-#SBATCH --time=02:00:00                                                 # The job will run for 2 hours
+#SBATCH --mem=96G                                                       # Ask for 32 GB of RAM
+#SBATCH --time=12:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 
 # 0. Clear the environment
@@ -40,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_savar.json
+    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file.json
