@@ -16,9 +16,9 @@
     },
     "data_params": {
         "data_dir": "$SCRATCH/data/Climateset_DATA_TEST", 
-        "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/picontrol/24_ni", 
-        "reload_climate_set_data": false,
-        "icosahedral_coordinates_path": "/home/mila/j/julien.boussard/causal_model/climatem/mappings/vertex_lonlat_mapping.npy",
+        "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/structured/picontrol/24_ni",
+        "reload_climate_set_data": true,
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["ts"],
         "out_var_ids": ["ts"],
         "num_levels": 1,
@@ -98,7 +98,7 @@
         "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
 
-        "sparsity_mu_init": 0.1,
+        "sparsity_mu_init": 1,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
