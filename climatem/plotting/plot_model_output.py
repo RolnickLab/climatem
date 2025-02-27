@@ -365,7 +365,8 @@ class Plotter:
 
         # Load gt mode weights
         savar_folder = learner.data_params.data_dir
-        savar_fname = f"modes_{learner.d_z}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
+        n_modes = learner.savar_params.n_per_col ** 2
+        savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
         # Get the gt mode weights
         modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
 
@@ -1222,7 +1223,7 @@ class Plotter:
 
                     elif row == 1:
                         sns.heatmap(
-                            mat2[tau - i - 1],
+                            mat2[i],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
@@ -1233,7 +1234,7 @@ class Plotter:
                         )
                     elif row == 2:
                         sns.heatmap(
-                            mat1[tau - i - 1] - mat2[tau - i - 1],
+                            mat1[tau - i - 1] - mat2[i],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
