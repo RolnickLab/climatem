@@ -881,6 +881,7 @@ class CMIP6Dataset(ClimateDataset):
                     self.root_dir / ensemble[0]
                 ]  # THIS USED TO BE THE CASE: Taking specific ensemble member (#TODO: only this ensemble member has historical data...)
         else:
+            # TODO elif self.reload_climate_set_data
             log.warn(
                 "Data loader not properly yet implemented for multiple ensemble members, but we are trying something here."
             )

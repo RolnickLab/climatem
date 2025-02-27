@@ -384,6 +384,7 @@ class LatentTSDCD(nn.Module):
 
         # sample Zs
 
+        # TODO: Can we remove this for loop?
         for i in range(self.d):
             # get params from the encoder q(z^t | x^t)
             for t in range(self.tau):
@@ -432,6 +433,7 @@ class LatentTSDCD(nn.Module):
         #     mu[:, i] = pz_params[:, :, 0]
         #     std[:, i] = torch.exp(0.5 * pz_params[:, :, 1])
 
+        # TODO Can we remove this for loop
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
             # print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
@@ -457,6 +459,7 @@ class LatentTSDCD(nn.Module):
         mu = torch.zeros(z.size(0), self.d, self.d_x)
         std = torch.zeros(z.size(0), self.d, self.d_x)
 
+        # TODO: Can we remove this for loop
         for i in range(self.d):
             # px_mu, px_logvar = self.encoder_decoder(z[:, i], i, encoder=False)
             px_mu, px_logvar = self.autoencoder(z[:, i], i, encode=False)
@@ -650,6 +653,7 @@ class LatentTSDCD(nn.Module):
             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
             z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
 
+            # TODO: Remove this for loop
             for i in range(num_samples):
                 z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
                 samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
@@ -665,6 +669,7 @@ class LatentTSDCD(nn.Module):
             # note this will simply give us chequerboards.
             samples_from_xs = torch.zeros(num_samples, b, self.d, self.d_x)
 
+            # TODO: Remove this for loop
             for i in range(num_samples):
                 samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
 
@@ -696,30 +701,54 @@ class LatentTSDCD(nn.Module):
                 pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
 
             # here I am taking the approach of sampling from the Z distributions, and then decoding.
-            samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
-            z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
+            #             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
+            #             z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
+            #             if with_zs_logprob:
+            #                 z_samples_logprob = torch.zeros(num_samples, b, self.d, self.d_z)
+
+            #             print(f"FOR LOOP MODEL num_samples {num_samples}")
+            #             print(f"z_samples.shape {z_samples.shape}")
+            #             print(f"pz_mu.shape {pz_mu.shape}")
+            #             print(f"pz_std.shape {pz_std.shape}")
+            dim = pz_mu.ndim
+            new_shape = [num_samples]
+            for k in range(dim):
+                new_shape.append(1)
+            z_samples = self.distr_transition(pz_mu.repeat(new_shape), pz_std.repeat(new_shape)).sample()
+            #             for i in trange(num_samples):
+            #                 #TODO: remove this FOR loop
+            #                 z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
+            #                 print(f"z_samples[i].shape {z_samples[i].shape}")
+
             if with_zs_logprob:
-                z_samples_logprob = torch.zeros(num_samples, b, self.d, self.d_z)
+                z_samples_logprob = self.distr_transition(pz_mu.repeat(new_shape), pz_std.repeat(new_shape)).log_prob(
+                    z_samples
+                )
 
-            for i in range(num_samples):
-                z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
-                if with_zs_logprob:
-                    z_samples_logprob[i] = self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i])
                 # self.distr_transition(pz_mu, pz_std).log_prob(z_samples[i]) gives log probability
-                samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
-                # some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
+            samples_from_zs, some_decoded_samples_std = self.decode(
+                z_samples.reshape(z_samples.size(0) * z_samples.size(1), z_samples.size(2), z_samples.size(3))
+            )
+            samples_from_zs = samples_from_zs.reshape(z_samples.size(0), z_samples.size(1), z_samples.size(2), self.d_x)
+            # some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
 
-                # samples_from_zs[i] = some_decoded_samples_mu
+            # samples_from_zs[i] = some_decoded_samples_mu
 
             # decode
-            px_mu, px_std = self.decode(pz_mu)
+            px_mu, px_std = self.decode(pz_mu.unsqueeze(1))
+            px_mu = px_mu.squeeze(1)
+            px_std = px_std.squeeze(1)
 
+            dim = px_mu.ndim
+            new_shape = [num_samples]
+            for k in range(dim):
+                new_shape.append(1)
             # here we decode from pz_mu, and then sample from the distribution over xs.
             # note this will simply give us chequerboards.
             samples_from_xs = torch.zeros(num_samples, b, self.d, self.d_x)
 
-            for i in range(num_samples):
-                samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
+            #             for i in range(num_samples):
+            samples_from_xs = self.distr_decoder(px_mu.repeat(new_shape), px_std.repeat(new_shape)).sample()
 
         if with_zs_logprob:
             return samples_from_xs, samples_from_zs, y, z_samples_logprob
@@ -788,6 +817,7 @@ class LinearAutoEncoder(nn.Module):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
+        print("IS THIS FUNC CALLED")
         w = self.w[i]
         mu = torch.matmul(z, w.T)
         return mu, self.logvar_decoder
@@ -894,15 +924,18 @@ class NonLinearAutoEncoderMLPs(NonLinearAutoEncoder):
         mask = super().get_encode_mask(x.shape[0])
         mu = torch.zeros((x.shape[0], self.d_z))
 
+        # TODO Remove this for loop
         for j in range(self.d_z):
             mask_ = super().select_encoder_mask(mask, i, j)
             mu[:, j] = self.encoder[j](mask_ * x).squeeze()
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
+        print("ius this called bis")
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x))
 
+        # TODO Remove this for loop
         for j in range(self.d_x):
             mask_ = super().select_decoder_mask(mask, i, j)
             mu[:, j] = self.decoder[j](mask_ * z).squeeze()
@@ -938,9 +971,12 @@ class NonLinearAutoEncoderUniqueMLP(NonLinearAutoEncoder):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
+        print("ius this called bis bis")
+
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x))
 
+        # TODO Remove this for loop
         for j in range(self.d_x):
             mask_ = super().select_decoder_mask(mask, i, j)
             embedded_z = self.embedding_encoder(torch.tensor([j])).repeat(z.shape[0], 1)
@@ -989,6 +1025,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
+
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 
@@ -1001,8 +1038,21 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         # Select all decoder masks at once
         mask_ = super().select_decoder_mask(mask, i, j_values)
 
-        # Concatenate along dimension 2
-        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
+        # Concatenate along dimension 2. Can we reduce the memory usage of this?
+        #         print(f"eoh {ojw}")
+
+        if z.ndim < mask_.ndim:
+            z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
+        else:
+            z_expanded = z.expand(-1, self.d_x, -1)
+        z_expanded_copy = z_expanded.clone()
+        z_expanded_copy.mul_(mask_)
+        z_expanded_copy.unsqueeze(2)
+
+        z_ = torch.cat((z_expanded_copy, embedded_z), dim=2)
+
+        del z_expanded
+        del z_expanded_copy
 
         # Apply the decoder to all z_ at once and squeeze the result
         mu = self.decoder(z_).squeeze()
@@ -1047,6 +1097,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop_tisr(NonLinearAutoEncoder):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
+        print("is this called bis bis")
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 

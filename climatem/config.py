@@ -7,7 +7,7 @@ class expParams:
     def __init__(
         self,
         exp_path,  # Path to where the output will be saved i.e. model runs, plots 
-        _target_, 
+        _target_: str = "climatem.data_loader.climate_datamodule.ClimateDataModule", 
         latent: bool = True,  # Are you using latent variables or not (if not, learn causal variables between all observations)
         d_z: int = 90,  # Latent dimension
         d_x: int = 6250, # Observation dimension
