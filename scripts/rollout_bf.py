@@ -16,6 +16,7 @@ from climatem.data_loader.causal_datamodule import CausalClimateDataModule
 from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.rollouts.bayesian_filter import calculate_fft_mean_std_across_all_noresm, logscore_the_samples_for_spatial_spectra_bayesian, particle_filter_weighting_bayesian
 from climatem.config import *
+from climatem.utils import parse_args, update_config_withparse
 
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs

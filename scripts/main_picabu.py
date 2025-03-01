@@ -1,5 +1,4 @@
 # Here we have a quick main where we are testing data loading with different ensemble members and ideally with different climate models.
-import argparse
 import json
 import os
 import time
