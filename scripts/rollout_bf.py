@@ -1,46 +1,47 @@
-# Here we have a quick main where we are testing data loading with different ensemble members and ideally with different climate models.
-import argparse
-import json
+# This is a script to run a particle filtering rollout for a model.
+# We can choose the number of timesteps, and what we want to filter for.
+# Be careful with the number of batches we use for calculating the true data spectra.
+
+# hack to go a couple of directories up if we need to import from python files in some parent directory.
+
 import os
-import time
-import warnings
 from pathlib import Path
+
+import json
 
 import numpy as np
 import torch
+
+from climatem.data_loader.causal_datamodule import CausalClimateDataModule
+from climatem.model.tsdcd_latent import LatentTSDCD
+from climatem.rollouts.bayesian_filter import calculate_fft_mean_std_across_all_noresm, logscore_the_samples_for_spatial_spectra_bayesian, particle_filter_weighting_bayesian
+from climatem.config import *
+
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
-
-from climatem.config import *
-from climatem.data_loader.causal_datamodule import CausalClimateDataModule
-from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
-from climatem.model.train_model import TrainingLatent
-from climatem.model.tsdcd_latent import LatentTSDCD
-from climatem.utils import parse_args, update_config_withparse
-
-torch.set_warn_always(False)
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
 
-class Bunch:
-    """A class that has one variable for each entry of a dictionary."""
+# select 16 random samples from the batch
+def sample_from_tensor_reproducibly(tensor1, tensor2, num_samples, seed=5):
+    if num_samples > tensor1.shape[0]:
+        raise ValueError("Number of samples cannot exceed the tensor's first dimension.")
 
-    def __init__(self, **kwargs):
-        self.__dict__ = kwargs
-
-    def to_dict(self):
-        return self.__dict__
-
-    # def fancy_print(self, prefix=''):
-    #     str_list = []
-    #     for key, val in self.__dict__.items():
-    #         str_list.append(prefix + f"{key} = {val}")
-    #     return '\n'.join(str_list)
-
+    torch.manual_seed(seed)  # Set the random seed
+    indices = torch.randperm(tensor1.shape[0])[:num_samples]
+    return tensor1[indices], tensor2[indices]
 
 def main(
-    experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params
+    experiment_params, 
+    data_params, 
+    gt_params, 
+    train_params, 
+    model_params, 
+    optim_params, 
+    plot_params, 
+    savar_params,
+    rollout_params,
 ):
     """
     :param hp: object containing hyperparameter values
@@ -50,19 +51,13 @@ def main(
     # Control as much randomness as possible
     torch.manual_seed(experiment_params.random_seed)
     np.random.seed(experiment_params.random_seed)
+    
+    device = torch.device("cuda" if (torch.cuda.is_available() and experiment_params.gpu) else "cpu")
 
-    if experiment_params.gpu:
+    if experiment_params.gpu and torch.cuda.is_available():
         torch.set_default_tensor_type("torch.cuda.FloatTensor")
     else:
         torch.set_default_tensor_type("torch.FloatTensor")
-
-    # Create folder
-    # args.exp_path = os.path.join(args.exp_path, f"exp{args.exp_id}")
-    # if not os.path.exists(args.exp_path):
-    #     os.makedirs(args.exp_path)
-
-    # generate data and split train/test
-    device = torch.device("cuda" if (torch.cuda.is_available() and experiment_params.gpu) else "cpu")
 
     if data_params.data_format == "hdf5":
         print("IS HDF5")
@@ -116,10 +111,6 @@ def main(
         )
         datamodule.setup()
 
-    # train_dataloader = iter(datamodule.train_dataloader())
-    # val_dataloader = iter(datamodule.val_dataloader())
-
-    # WE SHOULD REMOVE THIS, and initialize with params
     d = len(data_params.in_var_ids)
     print(f"Using {d} variables")
 
@@ -161,9 +152,13 @@ def main(
         fixed_output_fraction=model_params.fixed_output_fraction,
     )
 
-    # Make folder to save run results
+    # read paths 
+    coordinates = np.load(data_params.icosahedral_coordinates_path)
+
     exp_path = Path(experiment_params.exp_path)
-    os.makedirs(exp_path, exist_ok=True)
+    if not os.path.exists(exp_path): 
+        raise ValueError("Results path doesn't exist. Model should be saved in this folder")
+    
     data_var_ids_str = (
         str(data_params.in_var_ids)[1:-1]
         .translate({ord("'"): None})
@@ -172,150 +167,80 @@ def main(
     )
     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
-    os.makedirs(exp_path, exist_ok=True)
+    if not os.path.exists(exp_path): 
+        raise ValueError("Results path does not exist. Are you using the same parameters?")
 
     # create path to exp and save hyperparameters
-    save_path = exp_path / "training_results"
+    save_path = exp_path / "rollout_trajectories"
     os.makedirs(save_path, exist_ok=True)
-    plots_path = exp_path / "plots"
-    os.makedirs(plots_path, exist_ok=True)
-    # Here could maybe implement a "save()" function inside each class
-    hp = {}
-    hp["exp_params"] = experiment_params.__dict__
-    hp["data_params"] = data_params.__dict__
-    hp["gt_params"] = gt_params.__dict__
-    hp["train_params"] = train_params.__dict__
-    hp["model_params"] = model_params.__dict__
-    hp["optim_params"] = optim_params.__dict__
-    with open(exp_path / "params.json", "w") as file:
-        json.dump(hp, file, indent=4)
 
-    # # load the best metrics
-    # with open(os.path.join(hp.data_path, "best_metrics.json"), 'r') as f:
-    #     best_metrics = json.load(f)
-    best_metrics = {"recons": 0, "kl": 0, "mcc": 0, "elbo": 0}
+    save_path = save_path / "batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
+    os.makedirs(save_path, exist_ok=True)
 
-    # train, always with the latent version
-    trainer = TrainingLatent(
-        model,
-        datamodule,
-        experiment_params,
-        gt_params,
-        model_params,
-        train_params,
-        optim_params,
-        plot_params,
-        save_path,
-        plots_path,
-        best_metrics,
-        d,
-        accelerator,
-        wandbname=name,
+    with open(results_dir_ts_vae / "params.json", "r") as f:
+        hp = json.load(f)
+
+    hp["data_params"]["temp_res"] = "mon"
+    assert hp["data_params"]["seq_len"] == SEQ_LEN_MAPPING[hp["data_params"]["temp_res"]]
+    hp["data_params"].pop('seq_len', None)
+    hp["train_params"].pop('ratio_valid', None)
+
+    y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, accelerator)
+    print("y_true_fft_mean shape:", y_true_fft_mean.shape)
+    print("y_true_fft_std shape:", y_true_fft_std.shape)
+
+    train_dataloader = iter(datamodule.train_dataloader(accelerator))
+    x, y = next(train_dataloader)
+
+    if final_30_years_of_ssps:
+        print("Taking the final 30 years of the SSP data, ~ 2070-2100")
+        x, y = next(train_dataloader)
+        x, y = next(train_dataloader)
+
+
+    x = torch.nan_to_num(x)
+    y = torch.nan_to_num(y)
+    y = y[:, 0]
+    z = None
+
+    x = x.to(device)
+    y = y.to(device)
+
+    # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
+    state_dict_vae_final = torch.load(exp_path / "training_results/model.pth", map_location=device)
+    model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
+
+    # Move the model to the GPU
+    model = model.to(device)
+    print("Where is the model?", next(model.parameters()).device)
+
+    # First call with the seed
+    x_samples, y_samples = sample_from_tensor_reproducibly(x, y, rollout_params.batch_size)
+    np.save(
+        save_path / "forpowerspectra_random1_batch_xs_we_start_with.npy",
+        x_samples.detach().cpu().numpy(),
     )
 
-    # where is the model at this point?
-    print("Where is my model?", next(trainer.model.parameters()).device)
-
-    valid_loss = trainer.train_with_QPM()
-
-    # save final results, (MSE)
-    metrics = {"shd": 0.0, "precision": 0.0, "recall": 0.0, "train_mse": 0.0, "val_mse": 0.0, "mcc": 0.0}
-    # if we have the GT, also compute (SHD, Pr, Re, MCC)
-    if not gt_params.no_gt:
-        # Here can remove this ---
-        if model_params.instantaneous:
-            gt_graph = trainer.gt_dag
-        else:
-            gt_graph = trainer.gt_dag[:-1]  # remove the graph G_t
-
-        learned_graph = trainer.model.get_adj().detach().numpy().reshape(gt_graph.shape[0], gt_graph.shape[1], -1)
-
-        score, cc_program_perm, assignments, z, z_hat, _ = mcc_latent(trainer.model, trainer.data)
-        permutation = np.zeros((gt_graph.shape[1], gt_graph.shape[1]))
-        permutation[np.arange(gt_graph.shape[1]), assignments[1]] = 1
-        gt_graph = permutation.T @ gt_graph @ permutation
-
-        metrics["mcc"] = score
-        metrics["w_mse"] = w_mae(
-            trainer.model.autoencoder.get_w_decoder().detach().numpy()[:, :, assignments[1]], datamodule.gt_w
-        )
-        metrics["shd"] = shd(learned_graph, gt_graph)
-        metrics["precision"], metrics["recall"] = precision_recall(learned_graph, gt_graph)
-        errors = edge_errors(learned_graph, gt_graph)
-        metrics["tp"] = errors["tp"]
-        metrics["fp"] = errors["fp"]
-        metrics["tn"] = errors["tn"]
-        metrics["fn"] = errors["fn"]
-        metrics["n_edge_gt_graph"] = np.sum(gt_graph)
-        metrics["n_edge_learned_graph"] = np.sum(learned_graph)
-        metrics["execution_time"] = time.time() - t0
-
-        for key, val in valid_loss.items():
-            metrics[key] = val
-
-    # assert that trainer.model is in eval mode
-    if trainer.model.training:
-        print("Model is in train mode")
-    else:
-        print("Model is in eval mode")
-
-    # NOTE: just dummies here for now
-    train_mse, train_smape, val_mse, val_smape = 10.0, 10.0, 10.0, 10.0
-
-    # save the metrics
-    metrics["train_mse"] = train_mse
-    metrics["train_smape"] = train_smape
-    metrics["val_mse"] = val_mse
-    metrics["val_smape"] = val_smape
-
-    # save the metrics
-    with open(os.path.join(experiment_params.exp_path, "results.json"), "w") as file:
-        json.dump(metrics, file, indent=4)
-
-    # finally, save the model
-    torch.save(trainer.model.state_dict(), os.path.join(experiment_params.exp_path, "model.pth"))
-
-
-def assert_args(
-    experiment_params,
-    data_params,
-    gt_params,
-    optim_params,
-):
-    """Raise errors or warnings if some args should not take some combination of values."""
-    # raise errors if some args should not take some combination of values
-    if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
-        raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
-
-    if experiment_params.latent and (
-        experiment_params.d_z is None
-        or experiment_params.d_x is None
-        or experiment_params.d_z <= 0
-        or experiment_params.d_x <= 0
-    ):
-        raise ValueError("When using latent model, you need to define d_z and d_x with integer values greater than 0")
-
-    # string input with limited possible values
-    supported_dataformat = ["numpy", "hdf5"]
-    if data_params.data_format not in supported_dataformat:
-        raise ValueError(
-            f"This file format ({data_params.data_format}) is not \
-                         supported. Supported types are: {supported_dataformat}"
-        )
-    supported_optimizer = ["sgd", "rmsprop"]
-    if optim_params.optimizer not in supported_optimizer:
-        raise ValueError(
-            f"This optimizer type ({optim_params.optimizer}) is not \
-                         supported. Supported types are: {supported_optimizer}"
+    with torch.no_grad():
+        final_picontrol_particles = particle_filter_weighting_bayesian(
+            model,
+            x_samples,
+            y_samples,
+            y_true_fft_mean,
+            y_true_fft_std,
+            coordinates,
+            num_particles=rollout_params.num_particles,
+            num_particles_per_particle=rollout_params.num_particles_per_particle,
+            timesteps=rollout_params.num_timesteps,
+            score=rollout_params.score,
+            save_dir=save_path,
+            save_name=f"iteration",
+            batch_size=rollout_params.batch_size,
+            tempering=True,
         )
 
-    # warnings, strange choice of args combination
-    if not experiment_params.latent and gt_params.debug_gt_z:
-        warnings.warn("Are you sure you want to use gt_z even if you don't have latents")
-    if experiment_params.latent and (experiment_params.d_z > experiment_params.d_x):
-        warnings.warn("Are you sure you want to have a higher dimension for d_z than d_x")
+    return final_picontrol_particles
 
-    return
 
 
 if __name__ == "__main__":
@@ -338,7 +263,6 @@ if __name__ == "__main__":
     print ("new exp path:", params["exp_params"]["exp_path"])
 
     # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
-    
     params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path)
     print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
 
@@ -350,6 +274,7 @@ if __name__ == "__main__":
     optim_params = optimParams(**params["optim_params"])
     plot_params = plotParams(**params["plot_params"])
     savar_params = savarParams(**params["savar_params"])
+    rollout_params = rolloutParams(**params["rollout_params"])
 
     #Overwrite arguments if using savar
     if "savar" in data_params.in_var_ids:
@@ -360,12 +285,5 @@ if __name__ == "__main__":
     else:
         plot_params.savar = False
 
-    assert_args(
-        experiment_params,
-        data_params,
-        gt_params,
-        optim_params,
-    )
-
-    main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
+    final_picontrol_particles = main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params)
 

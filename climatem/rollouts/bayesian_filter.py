@@ -2,14 +2,14 @@ import numpy as np
 import torch
 from tqdm import trange
 
-def calculate_fft_mean_std_across_all_noresm(datamodule, accelerator, number_of_batches: int = 18):
+def calculate_fft_mean_std_across_all_noresm(datamodule, accelerator):
 
     # Start again at the beginning of the dataloader.
     train_dataloader = iter(datamodule.train_dataloader(accelerator))
 
     # iterate through the data and append all the y values together
     y_all = []
-    for i in range(number_of_batches):
+    for i in range(len(train_dataloader)):
         _, y_whole_dataloader = next(train_dataloader)
         y_all.append(y_whole_dataloader[:, 0])
     y_all = torch.cat(y_all, dim=0)

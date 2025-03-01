@@ -288,11 +288,12 @@ class rolloutParams:
     def __init__(
         self,
         final_30_years_of_ssps: bool = True,  # Do prediction on the last years?
-        saved_model_path: str = "to_be_propagated",  # path to save the rollout preds
         batch_size: int = 10,  # number of initial conditions to look at the rollout on
         num_particles: int = 50,  # number of particles to propagate at each step
         num_particles_per_particle: int = 10,  # num particles to sample for each particle and compute fft
         num_timesteps: int = 1200,  # Time length of the prediction
+        score: str = "log_bayesian",  # log_bayesian should be used
+        tempering: bool = true # tempering the variance when sampling allows to propagate uncertainty
     ):
         self.num_timesteps = num_timesteps
         self.final_30_years_of_ssps = final_30_years_of_ssps

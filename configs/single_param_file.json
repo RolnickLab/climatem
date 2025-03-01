@@ -132,13 +132,14 @@
         "plot_original_data": true
     },
     "rollout_params": {
-        "save_dir": "/home/mila/j/julien.boussard/scratch/results/inferred_rollouts",
-        "final_30_years_of_ssps": true,
+        "final_30_years_of_ssps": false,
         "saved_model_path": "name_to_be_propagated",
         "batch_size": 10,
         "num_particles": 50,
         "num_particles_per_particle": 10,
-        "num_timesteps": 1200
+        "num_timesteps": 1200,
+        "score": "log_bayesian",
+        "tempering": true
     }
 }
 
