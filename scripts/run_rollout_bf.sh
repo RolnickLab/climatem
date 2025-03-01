@@ -1,14 +1,14 @@
 #!/bin/bash
 
-#SBATCH --job-name=run_single                                           # Set name of job
-#SBATCH --output=run_single_output.txt                                  # Set location of output file
-#SBATCH --error=run_single_error.txt                                    # Set location of error file
-#SBATCH --gpus-per-task=2                                               # Ask for 1 GPU
-#SBATCH --cpus-per-task=10                                               # Ask for 4 CPUs
+#SBATCH --job-name=run_pf                                           # Set name of job
+#SBATCH --output=run_pf_output.txt                                  # Set location of output file
+#SBATCH --error=run_pf_error.txt                                    # Set location of error file
+#SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
+#SBATCH --cpus-per-task=16                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
-#SBATCH --mem=96G                                                       # Ask for 32 GB of RAM
-#SBATCH --time=12:00:00                                                 # The job will run for 2 hours
+#SBATCH --mem=256G                                                       # Ask for 32 GB of RAM
+#SBATCH --time=02:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 
 # 0. Clear the environment
@@ -19,7 +19,7 @@ module --quiet load python/3.10
 
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/env/env_climatem/bin/activate
+source $HOME/causal_model/env_climatem/bin/activate
 
 # 3. Get a unique port for this job based on the job ID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
@@ -40,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/rollout_bf.py --config-path single_param_file.json
+    $HOME/causal_model/climatem/scripts/rollout_bf.py --config-path single_param_file.json

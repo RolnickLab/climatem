@@ -17,7 +17,7 @@
     "data_params": {
         "data_dir": "$SCRATCH/data/Climateset_DATA_TEST", 
         "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/structured/picontrol/24_ni", 
-        "reload_climate_set_data": false,
+        "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["ts"],
         "out_var_ids": ["ts"],
@@ -133,7 +133,6 @@
     },
     "rollout_params": {
         "final_30_years_of_ssps": false,
-        "saved_model_path": "name_to_be_propagated",
         "batch_size": 10,
         "num_particles": 50,
         "num_particles_per_particle": 10,

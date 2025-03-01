@@ -47,7 +47,6 @@ def main(
     """
     :param hp: object containing hyperparameter values
     """
-    t0 = time.time()
 
     # Control as much randomness as possible
     torch.manual_seed(experiment_params.random_seed)
@@ -178,7 +177,7 @@ def main(
     save_path = save_path / "batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
     os.makedirs(save_path, exist_ok=True)
 
-    with open(results_dir_ts_vae / "params.json", "r") as f:
+    with open(exp_path / "params.json", "r") as f:
         hp = json.load(f)
 
     hp["data_params"]["temp_res"] = "mon"
@@ -193,7 +192,7 @@ def main(
     train_dataloader = iter(datamodule.train_dataloader(accelerator))
     x, y = next(train_dataloader)
 
-    if final_30_years_of_ssps:
+    if rollout_params.final_30_years_of_ssps:
         print("Taking the final 30 years of the SSP data, ~ 2070-2100")
         x, y = next(train_dataloader)
         x, y = next(train_dataloader)
@@ -237,7 +236,7 @@ def main(
             save_dir=save_path,
             save_name=f"iteration",
             batch_size=rollout_params.batch_size,
-            tempering=True,
+            tempering=rollout_params.tempering,
         )
 
     return final_picontrol_particles

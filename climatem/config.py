@@ -293,11 +293,12 @@ class rolloutParams:
         num_particles_per_particle: int = 10,  # num particles to sample for each particle and compute fft
         num_timesteps: int = 1200,  # Time length of the prediction
         score: str = "log_bayesian",  # log_bayesian should be used
-        tempering: bool = true # tempering the variance when sampling allows to propagate uncertainty
+        tempering: bool = True,  # tempering the variance when sampling allows to propagate uncertainty
     ):
         self.num_timesteps = num_timesteps
         self.final_30_years_of_ssps = final_30_years_of_ssps
-        self.saved_model_path = saved_model_path
+        self.score = score
+        self.tempering = tempering
         self.batch_size = batch_size
         self.num_particles = num_particles
         self.num_particles_per_particle = num_particles_per_particle
