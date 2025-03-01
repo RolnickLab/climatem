@@ -48,6 +48,8 @@ For overwriting parameters of the json file, you can also add `--hp train_params
 Detailed description of parameters can be found in `climatem/config.py`. 
 `configs/single_param_file.json` and `configs/single_param_file_savar.json` show an example of parameter files used for climate model and synthetic data respectively. 
 
+To run the particle filter, run the bash script scripts/run_rollout_bf.sh using the same param json file. The rollout parameters can be set in the json file as well.  
+
 #### accelerate
 Parallelism is handled by Accelerator https://huggingface.co/docs/accelerate/package_reference/accelerator
 
