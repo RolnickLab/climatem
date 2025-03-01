@@ -133,9 +133,9 @@
     },
     "rollout_params": {
         "final_30_years_of_ssps": false,
-        "batch_size": 10,
+        "batch_size": 5,
         "num_particles": 50,
-        "num_particles_per_particle": 10,
+        "num_particles_per_particle": 5,
         "num_timesteps": 1200,
         "score": "log_bayesian",
         "tempering": true
