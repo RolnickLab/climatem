@@ -8,7 +8,7 @@ This is the code to run experiments to train and evaluate probabilistic generati
 ### Dependencies
 - Python 3.10
 - poetry
-- [accelerate](https://huggingface.co/docs/accelerate/usage_guides)
+- [accelerate](https://huggingface.co/docs/accelerate/index)
 - wandb
 
 ### 1. Clone the repo
