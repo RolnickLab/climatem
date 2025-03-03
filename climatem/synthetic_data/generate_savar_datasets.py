@@ -102,7 +102,7 @@ def generate_save_savar_data(
     n_per_col=2,  # Number of components N = n_per_col**2
     difficulty="easy",
     seasonality=False,
-    overlap=False,
+    overlap=0,
     is_forced=False,
     plotting=True,
 ):
@@ -110,26 +110,40 @@ def generate_save_savar_data(
     # Setup spatial weights of underlying processes
     ny = nx = n_per_col * comp_size
     N = n_per_col**2  # Number of components
+
+    if not (0 <= overlap <= 1): raise ValueError("overlap must be between 0 and 1")
+
     noise_weights = np.zeros((N, nx, ny))
     modes_weights = np.zeros((N, nx, ny))
 
-    if overlap:
-        raise ValueError("SAVAR data with overlapping modes not implemented yet")
 
     # Specify the path where you want to save the data
     npy_name = f"{name}.npy"
     save_path = save_dir_path / npy_name
 
+    # Center starting position (for fully overlapping modes)
+    center_x_start = (nx - comp_size) // 2 
+    center_y_start = (ny - comp_size) // 2
+
     # Create modes weights
     for k in range(n_per_col):
         for j in range(n_per_col):
+            idx = k * n_per_col + j
+            # Original starting position (no overlap)
+            orig_x_start = k * comp_size
+            orig_y_start = j * comp_size
+            # New starting positions (interpolated between original and central)
+            new_x_start = int((1 - overlap) * orig_x_start + overlap * center_x_start)
+            new_y_start = int((1 - overlap) * orig_y_start + overlap * center_y_start)
+            new_x_end = new_x_start + comp_size
+            new_y_end = new_y_start + comp_size
             modes_weights[
-                k * n_per_col + j, k * comp_size : (k + 1) * comp_size, j * comp_size : (j + 1) * comp_size
+                idx, new_x_start : new_x_end, new_y_start : new_y_end
             ] = create_random_mode((comp_size, comp_size), random=True)
-    for k in range(n_per_col):
-        for j in range(n_per_col):
+    #for k in range(n_per_col):
+    #    for j in range(n_per_col):
             noise_weights[
-                k * n_per_col + j, k * comp_size : (k + 1) * comp_size, j * comp_size : (j + 1) * comp_size
+                idx, new_x_start : new_x_end, new_y_start : new_y_end
             ] = create_random_mode((comp_size, comp_size), random=True)
 
     # This is the probabiliity of having a link between latent k and j, with k different from j. latents always have one link with themselves at a previous time.
