@@ -24,13 +24,13 @@ Environment creation, first make sure you have a python installation (or `module
 
 2. `source env_emulator_climatem/bin/activate`
 
-3. `poetry add $(cat requirements_env_emulator.txt)`
-
-4. `poetry install`
+3. `poetry install`
 Run `poetry install --with dev` to use formatting tools for code development
 
 If you do not have poetry yet, follow guidelines in the "Install poetry" section here https://github.com/RolnickLab/lab-basic-template
 This link points you to additional references for setting up your environment correctly. 
+
+If you need a package that is not automatically installed, please run `poetry add $(cat requirements_env_emulator.txt)`
 
 ### 3. Downloading input data
 
