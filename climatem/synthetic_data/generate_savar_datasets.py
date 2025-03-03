@@ -104,6 +104,11 @@ def generate_save_savar_data(
     seasonality=False,
     overlap=0,
     is_forced=False,
+    f_1=1,
+    f_2=2,
+    f_time_1=4000,
+    f_time_2=8000,
+    ramp_type="linear",
     plotting=True,
 ):
 
@@ -163,8 +168,7 @@ def generate_save_savar_data(
     check_stability(links_coeffs)
 
     if is_forced:
-        raise ValueError("SAVAR data with forcings not implemented yet")
-        f_1, f_2, f_time_1, f_time_2 = 1, 2, 4000, 8000  # turn off forcing by setting the time to the last time step
+        # turn off forcing by setting the time to the last time step
         w_f = modes_weights
         # A very simple method for adding a focring term (bias on the mean of the noise term)
         forcing_dict = {
@@ -174,6 +178,7 @@ def generate_save_savar_data(
             "f_time_1": f_time_1,  # The period one goes from t=0  to t=f_time_1
             "f_time_2": f_time_2,  # The period two goes from t= f_time_2 to the end. Between the two periods, the forcing is risen linearly
             "time_len": time_len,
+            "ramp_type": ramp_type,
         }
     if seasonality:
         raise ValueError("SAVAR data with seasonality not implemented yet")
@@ -223,11 +228,11 @@ def generate_save_savar_data(
         "T": time_len,
         "N": N,
         "links_coeffs": links_coeffs,
-        # "f_1": f_1,
-        # "f_2": f_2,
-        # "f_time_1": f_time_1,
-        # "f_time_2": f_time_2,
-        # "time_len": time_len,
+        "f_1": f_1,
+        "f_2": f_2,
+        "f_time_1": f_time_1,
+        "f_time_2": f_time_2,
+        "ramp_type": ramp_type,
         # "season_dict": season_dict,
         # "seasonality" : True,
     }

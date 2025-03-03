@@ -66,6 +66,7 @@ def main(
     # generate data and split train/test
     if experiment_params.gpu and torch.cuda.is_available():
         device = "cuda"
+        print("CUDACUDACUDA")
     else:
         device = "cpu"
 
@@ -117,6 +118,11 @@ def main(
             seasonality=savar_params.seasonality,
             overlap=savar_params.overlap,
             is_forced=savar_params.is_forced,
+            f_1=savar_params.f_1,
+            f_2=savar_params.f_2,
+            f_time_1=savar_params.f_time_1,
+            f_time_2=savar_params.f_time_2,
+            ramp_type=savar_params.ramp_type,
             plot_original_data=savar_params.plot_original_data,
         )
         datamodule.setup()
@@ -175,7 +181,7 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
+    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_overlap_{savar_params.overlap}_forcing_{savar_params.is_forced}"
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 
@@ -192,6 +198,7 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
+    hp["savar_params"] = savar_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 

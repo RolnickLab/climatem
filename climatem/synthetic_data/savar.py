@@ -239,41 +239,56 @@ class SAVAR:
         self.data_field += seasonal_data_field
 
     def _add_external_forcing(self):
-
-        # TODO Make this a torch function
-
+        """
+        Adds external forcing to the data field using PyTorch tensors for GPU acceleration.
+        Allows for both linear and nonlinear ramps.
+        """
         if self.forcing_dict is None:
             raise TypeError("Forcing dict is empty")
 
         w_f = deepcopy(self.forcing_dict.get("w_f"))
-        f_1 = deepcopy(self.forcing_dict.get("f_1"))
-        f_2 = deepcopy(self.forcing_dict.get("f_2"))
-        f_time_1 = deepcopy(self.forcing_dict.get("f_time_1"))
-        f_time_2 = deepcopy(self.forcing_dict.get("f_time_2"))
+        f_1 = self.forcing_dict.get("f_1", 0)
+        f_2 = self.forcing_dict.get("f_2", 0)
+        f_time_1 = self.forcing_dict.get("f_time_1", 0)
+        f_time_2 = self.forcing_dict.get("f_time_2", self.time_length)
+        ramp_type = self.forcing_dict.get("ramp_type", "linear")  # Default to linear
 
+        # Default w_f to mode weights if not provided
         if w_f is None:
             w_f = deepcopy(self.mode_weights)
-            w_f = w_f.astype(bool).astype(int)  # Converts non-zero elements of the weight into 1.
+            w_f = (w_f != 0).astype(int)  # Convert non-zero elements to 1
 
-        w_f_sum = w_f.sum(axis=0)
+        w_f_sum = torch.tensor(w_f.sum(axis=0), dtype=torch.float32, device="cuda")
         f_time_1 += self.transient
         f_time_2 += self.transient
-
-        # Check
         time_length = self.time_length + self.transient
-        trend = np.concatenate(
-            (
-                np.repeat([f_1], f_time_1),
-                np.linspace(f_1, f_2, f_time_2 - f_time_1),
-                np.repeat([f_2], time_length - f_time_2),
-            )
-        ).reshape((1, time_length))
 
-        forcing_field = (w_f_sum.reshape(1, -1) * trend.transpose()).transpose()
-        self.forcing_data_field = forcing_field
+        # Generate the forcing trend using torch tensors
+        if ramp_type == "linear":
+            ramp = torch.linspace(f_1, f_2, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+        elif ramp_type == "quadratic":
+            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            ramp = f_1 + (f_2 - f_1) * t**2
+        elif ramp_type == "exponential":
+            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            ramp = f_1 + (f_2 - f_1) * (torch.exp(t) - 1) / (torch.exp(torch.tensor(1.0)) - 1)
+        else:
+            raise ValueError("Unsupported ramp type. Choose from 'linear', 'quadratic', or 'exponential'.")
+
+        # Generate the forcing trend using torch tensors
+        trend = torch.cat([
+            torch.full((f_time_1,), f_1, dtype=torch.float32, device="cuda"),
+            ramp,
+            torch.full((time_length - f_time_2,), f_2, dtype=torch.float32, device="cuda")
+        ]).reshape(1, time_length)
+
+        # Compute the forcing field on GPU
+        forcing_field = (w_f_sum.reshape(1, -1) * trend.T).T
+        self.forcing_data_field = forcing_field.cpu().numpy()
 
         # Add it to the data field.
-        self.data_field += forcing_field
+        self.data_field += self.forcing_data_field
+
 
     def _create_linear(self):
         """Weights N \times L data_field L \times T."""
