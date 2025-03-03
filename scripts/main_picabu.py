@@ -96,7 +96,7 @@ def main(
             output_save_dir=data_params.data_dir,
             num_ensembles=data_params.num_ensembles,  # 1 for first ensemble, -1 for all
             lon=experiment_params.lon,
-            lat=experiment_params.lon,
+            lat=experiment_params.lat,
             num_levels=data_params.num_levels,
             global_normalization=data_params.global_normalization,
             seasonality_removal=data_params.seasonality_removal,
