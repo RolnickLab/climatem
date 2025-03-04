@@ -88,6 +88,16 @@ Run a quick test to check if it's working:
 
 If this runs smoothly you can go ahead.
 
+#### jupyter
+
+In order to run notebooks, you need to install a jupyter kernel. 
+To do so, first activate yoru environment and run 
+
+```
+python -m pip install jupyter
+python -m ipykernel install --user --name=my_env_name
+```
+
 
 
 
