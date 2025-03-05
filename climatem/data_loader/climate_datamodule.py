@@ -1,6 +1,5 @@
 from typing import List, Optional, Union
 
-import torch
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from torch.utils.data import DataLoader
@@ -93,6 +92,22 @@ class ClimateDataModule(LightningDataModule):
         # self.input_transform = input_transform  # self.hparams.input_transform
         # self.normalizer = normalizer
 
+        self.data_dir = data_dir
+        self.output_save_dir = output_save_dir
+        self.reload_climate_set_data = reload_climate_set_data
+        self.num_ensembles = num_ensembles
+        self.out_var_ids = out_var_ids
+        self.in_var_ids = in_var_ids
+        self.channels_last = channels_last
+        self.seq_to_seq = seq_to_seq
+        self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        self.seq_len = seq_len
+        self.lat = lat
+        self.lon = lon
+        self.global_normalization = True  # self.hparams.global_normalization,
+        self.seasonality_removal = True  # self.hparams.seasonality_removal,
+
+        self.reload_climate_set_data = reload_climate_set_data
         self._data_train: Optional[ClimateDataset] = None
         self._data_val: Optional[ClimateDataset] = None
         self._data_test: Optional[List[ClimateDataset]] = None
@@ -127,19 +142,20 @@ class ClimateDataModule(LightningDataModule):
 
         # shared for all
         dataset_kwargs = dict(
-            output_save_dir=self.hparams.output_save_dir,
-            reload_climate_set_data=self.hparams.reload_climate_set_data,
-            num_ensembles=self.hparams.num_ensembles,
-            out_variables=self.hparams.out_var_ids,
-            in_variables=self.hparams.in_var_ids,
-            channels_last=self.hparams.channels_last,
-            seq_to_seq=self.hparams.seq_to_seq,
-            icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
-            seq_len=self.hparams.seq_len,
-            lat=self.hparams.lat,
-            lon=self.hparams.lon,
-            global_normalization=self.hparams.global_normalization,
-            seasonality_removal=self.hparams.seasonality_removal,
+            data_dir=self.data_dir,
+            output_save_dir=self.output_save_dir,
+            reload_climate_set_data=self.reload_climate_set_data,
+            num_ensembles=self.num_ensembles,
+            out_variables=self.out_var_ids,
+            in_variables=self.in_var_ids,
+            channels_last=self.channels_last,
+            seq_to_seq=self.seq_to_seq,
+            icosahedral_coordinates_path=self.icosahedral_coordinates_path,
+            seq_len=self.seq_len,
+            lat=self.lat,
+            lon=self.lon,
+            global_normalization=True,  # self.hparams.global_normalization,
+            seasonality_removal=True,  # self.hparams.seasonality_removal,
         )
         # create datasets
         # assign to vars
@@ -212,7 +228,7 @@ class ClimateDataModule(LightningDataModule):
     # y: (batch_size, sequence_length, lon, lat, out_vars) if channels_last else (batch_size, sequence_lenght, out_vars, lon, lat)
 
     # Below can have a single function (only the dataset changes)
-    def train_dataloader(self, accelerator):
+    def train_dataloader(self):
 
         # train_sampler = None
         # if multi_gpu:
@@ -222,8 +238,8 @@ class ClimateDataModule(LightningDataModule):
         return DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
-            shuffle=True,
-            generator=torch.Generator(device=accelerator.device),
+            shuffle=False,
+            #             generator=torch.Generator(device=accelerator.device),
             drop_last=True,
             **self._shared_dataloader_kwargs(),
         )

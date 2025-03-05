@@ -138,7 +138,7 @@
         "num_particles_per_particle": 5,
         "num_timesteps": 1200,
         "score": "log_bayesian",
-        "tempering": true
+        "tempering": false
     }
 }
 

@@ -35,6 +35,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         self,
         years: Union[int, str] = "2015-2020",
         mode: str = "train",  # Train or test maybe # deprecated
+        data_dir: Optional[str] = "Climateset_DATA",
         output_save_dir: Optional[str] = "Climateset_DATA",
         reload_climate_set_data: Optional[bool] = True,
         climate_model: str = "NorESM2-LM",  # implementing single model only for now
@@ -138,11 +139,25 @@ class ClimateDataset(torch.utils.data.Dataset):
         # TODO: is that needed?
         # creates on cmip and on input4mip dataset
         # print("creating input4mips")
-        self.input4mips_ds = Input4MipsDataset(variables=in_variables, **ds_kwargs)
+
+        print("Input to CMIP6")
+        print(f"ddata_dir {data_dir}")
+
+        self.input4mips_ds = CMIP6Dataset(
+            climate_model=climate_model,
+            data_dir=data_dir,
+            num_ensembles=num_ensembles,
+            variables=out_variables,
+            **ds_kwargs,
+        )
         # print("creating cmip6")
         # self.cmip6_ds=self.input4mips_ds
         self.cmip6_ds = CMIP6Dataset(
-            climate_model=climate_model, num_ensembles=num_ensembles, variables=out_variables, **ds_kwargs
+            climate_model=climate_model,
+            data_dir=data_dir,
+            num_ensembles=num_ensembles,
+            variables=out_variables,
+            **ds_kwargs,
         )
 
     # NOTE:() changing this so it can deal with with grib files and netcdf files
@@ -831,6 +846,7 @@ class CMIP6Dataset(ClimateDataset):
         self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
         self.root_dir = Path(data_dir) / "outputs/CMIP6"
+        print(f"self.root_dir {self.root_dir}")
         self.input_nc_files = []
         self.output_nc_files = []
         self.in_variables = variables
@@ -919,6 +935,10 @@ class CMIP6Dataset(ClimateDataset):
                 self.Data = self.raw_data
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
+
+            print(f"self.Data.shape {self.Data.shape}")
+            self.Data = self.Data.reshape((-1, 12, 1, 50, 125))
+            print(f"self.Data.shape {self.Data.shape}")
 
             # print("In CMIP6Dataset, just finished removing the seasonality.")
 
@@ -1049,7 +1069,9 @@ class CMIP6Dataset(ClimateDataset):
             self.copy_to_slurm(self.data_path)
             # print("In cmip6, just copied the data to slurm.")
 
-            self.Data = self.norm_data
+            print(f"self.norm_data.shape {self.norm_data.shape}")
+            self.Data = self.norm_data.reshape((-1, 12, 1, 50, 125))
+            print(f"self.Data.shape {self.Data.shape}")
 
         # plot_species(self.Data[:, :, 0, :, :], self.coordinates, variables, "../../TEST_REPO", "before_causal")
         # self.Data = self._reload_data(self.data_path)
@@ -1073,7 +1095,7 @@ class Input4MipsDataset(ClimateDataset):
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
-        data_dir: Optional[str] = "Climateset_DAxTA",
+        data_dir: Optional[str] = "Climateset_DATA",
         variables: List[str] = ["BC_sum"],
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
         channels_last: bool = False,
@@ -1094,7 +1116,8 @@ class Input4MipsDataset(ClimateDataset):
         self.channels_last = channels_last
 
         self.mode = mode
-        self.root_dir = data_dir / "inputs/input4mips"
+        self.root_dir = Path(data_dir) / "/inputs/input4mips"
+
         self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
         self.input_nc_files = []
@@ -1134,6 +1157,9 @@ class Input4MipsDataset(ClimateDataset):
         # Check here if os.path.isfile(data.npz) exists #TODO: check if exists on slurm
         # if it does, use self._reload data(path)
 
+        print(f"File name {output_save_dir / fname}")
+        print(f"Reload? {self.reload_climate_set_data}")
+        assert os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data
         if (
             os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data
         ):  # we first need to get the name here to test that...
@@ -1183,7 +1209,7 @@ class Input4MipsDataset(ClimateDataset):
                     for y in get_years:
                         # print('Input4mips y:', y )
                         var_dir = self.root_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
-                        files = var_dir.glob(f"/**/*{filter_path_by}*.nc", recursive=True)
+                        files = var_dir.glob(f"/**/*{filter_path_by}*.nc")
                         # print('files in input4mips', files)
                         output_nc_files += files
                 files_per_var.append(output_nc_files)
