@@ -94,6 +94,7 @@ def particle_filter_weighting_bayesian(
     save_name: str = None,
     batch_size: int = 16,
     tempering: bool = False,
+    sample_trajectories: bool = False,
 ):
     """
     Implement a particle filter to make a set of autoregressive predictions, where each created sample is evaluated by
@@ -156,7 +157,7 @@ def particle_filter_weighting_bayesian(
                     model.predict_sample_bayesianfiltering(
                         x_reshaped, y_reshaped, num_particles_per_particle, with_zs_logprob=True,
                     )
-                )
+                ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
                 torch.cuda.empty_cache()
                 logscore_samples_fromzs = torch.sum(logscore_samples_fromzs, -1).squeeze()
                 if tempering: 
@@ -238,7 +239,18 @@ def particle_filter_weighting_bayesian(
 
         # REMOVE THIS FOR LOOP IF POSSIBLE
 #         print(f"For loop batch resample batch_size {batch_size}")
-        resampled_indices = torch.multinomial(new_weights.T, num_particles, replacement=True).T
+        if not sample_trajectories:
+            resampled_indices = torch.multinomial(new_weights.T, num_particles, replacement=True).T
+        else:
+            # Here, every num_particles_per_particle we should sample one i.e. we track each trajectory
+            resampled_indices = torch.zeros([num_particles, batch_size], dtype = torch.long)
+            for k in range(num_particles):
+                idx_trajectory = torch.tensor(np.arange(k, k+(num_particles_per_particle)*num_particles, num_particles))
+                print(f"idx_trajectory {idx_trajectory}")
+                print(f"new_weights {new_weights.shape}")
+                print(f"new_weights[idx_trajectory] {new_weights[idx_trajectory].shape}")
+                resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
+
         # for i in range(batch_size):
 
         #     resampled_indices = torch.multinomial(new_weights[:, i], num_particles, replacement=True)
@@ -254,7 +266,7 @@ def particle_filter_weighting_bayesian(
         # assert that the two resampled indices are the same
         # assert torch.all(resampled_indices_array == resampled_indices_array2)
 
-        selected_samples = samples_from_zs[resampled_indices, torch.arange(batch_size), :, :]
+        selected_samples = samples_from_zs[resampled_indices, torch.arange(batch_size)]
         np.save(save_dir / f"{save_name}_{_}.npy", selected_samples.detach().cpu().numpy())
 #         print("Saved the selected samples with name:", f"{save_name}_{_}.npy")
 

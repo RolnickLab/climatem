@@ -1145,8 +1145,14 @@ class TrainingLatent:
         # Calculate the power spectrum
         spectral_loss_recons = torch.abs(fft_recons - fft_true)
         spectral_loss_pred = torch.abs(fft_pred - fft_true)
-
         spectral_loss = spectral_loss_recons + spectral_loss_pred
+
+        if self.optim_params.fraction_highest_wavenumbers is not None:
+            spectral_loss = spectral_loss[
+                :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
+            ]
+        if self.optim_params.fraction_lowest_wavenumbers is not None:
+            spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
 
         spectral_loss = torch.mean(spectral_loss[..., :])
         # print('what is the shape of the spectral loss?', spectral_loss)

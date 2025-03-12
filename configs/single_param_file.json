@@ -39,7 +39,7 @@
         "eval_batch_size": 128,
         "channels_last": false,
         "load_train_into_mem": true,
-        "load_test_into_mem":  true,
+        "load_test_into_mem": true,
         "num_months_aggregated": [1],
         "train_val_interval_length": 40
         }, 
@@ -80,18 +80,21 @@
         
         "use_sparsity_constraint": true,
         "crps_coeff": 1,
-        "spectral_coeff": 20,
+        "spectral_coeff": 1000,
         "temporal_spectral_coeff": 2000,
         "coeff_kl": 1,
 
-        "reg_coeff": 0.01,
+        "fraction_highest_wavenumbers": 0.5,
+        "fraction_lowest_wavenumbers": null,
+
+        "reg_coeff": 0.12801,
         "reg_coeff_connect": 0,
     
         "schedule_reg": 0,
         "schedule_ortho": 0,
         "schedule_sparsity": 0,    
 
-        "ortho_mu_init": 1e5,
+        "ortho_mu_init": 100000.0,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
@@ -99,7 +102,7 @@
         "ortho_min_iter_convergence": 1000,
 
         "sparsity_mu_init": 1,
-        "sparsity_mu_mult_factor": 1.5,
+        "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
@@ -138,7 +141,8 @@
         "num_particles_per_particle": 5,
         "num_timesteps": 1200,
         "score": "log_bayesian",
-        "tempering": true
+        "tempering": true,
+        "sample_trajectories": true
     }
 }
 

@@ -185,6 +185,8 @@ class optimParams:
         coeff_kl: float = 1,  # for KL div
         reg_coeff: float = 0.01,  # for sparsity penalty if penalty
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
+        fraction_highest_wavenumbers: float = None,
+        fraction_lowest_wavenumbers: float = None,
         schedule_reg: int = 0,  # when we start adding penalties to the loss
         schedule_ortho: int = 0,  # when we start adding ortho constraint to the loss
         schedule_sparsity: int = 0,  # when we start adding sparsity constraint to the loss
@@ -218,6 +220,9 @@ class optimParams:
         self.coeff_kl = coeff_kl
         self.reg_coeff = reg_coeff
         self.reg_coeff_connect = reg_coeff_connect
+
+        self.fraction_highest_wavenumbers = fraction_highest_wavenumbers
+        self.fraction_lowest_wavenumbers = fraction_lowest_wavenumbers
 
         self.schedule_reg = schedule_reg
         self.schedule_ortho = schedule_ortho
@@ -294,6 +299,7 @@ class rolloutParams:
         num_timesteps: int = 1200,  # Time length of the prediction
         score: str = "log_bayesian",  # log_bayesian should be used
         tempering: bool = True,  # tempering the variance when sampling allows to propagate uncertainty
+        sample_trajectories: bool = False,  # sample each trajectory separately
     ):
         self.num_timesteps = num_timesteps
         self.final_30_years_of_ssps = final_30_years_of_ssps
@@ -302,3 +308,4 @@ class rolloutParams:
         self.batch_size = batch_size
         self.num_particles = num_particles
         self.num_particles_per_particle = num_particles_per_particle
+        self.sample_trajectories = sample_trajectories

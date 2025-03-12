@@ -165,7 +165,8 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
+    name = "seb_best_model"
+#     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
     if not os.path.exists(exp_path): 
         raise ValueError("Results path does not exist. Are you using the same parameters?")
@@ -174,16 +175,19 @@ def main(
     save_path = exp_path / "rollout_trajectories"
     os.makedirs(save_path, exist_ok=True)
 
-    save_path = save_path / "batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
+    save_path = save_path / f"batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
     os.makedirs(save_path, exist_ok=True)
+    
+    # SHould be model_path = exp_path
+    model_path = Path("/network/scratch/s/sebastian.hickman/results/new_climatem_spectral_high_wavs_fix_penalty/var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.12801_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_2000/")
 
-    with open(exp_path / "params.json", "r") as f:
-        hp = json.load(f)
+#     with open(model_path / "params.json", "r") as f:
+#         hp = json.load(f)
 
-    hp["data_params"]["temp_res"] = "mon"
-    assert hp["data_params"]["seq_len"] == SEQ_LEN_MAPPING[hp["data_params"]["temp_res"]]
-    hp["data_params"].pop('seq_len', None)
-    hp["train_params"].pop('ratio_valid', None)
+#     hp["data_params"]["temp_res"] = "mon"
+#     assert hp["data_params"]["seq_len"] == SEQ_LEN_MAPPING[hp["data_params"]["temp_res"]]
+#     hp["data_params"].pop('seq_len', None)
+#     hp["train_params"].pop('ratio_valid', None)
 
     y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, accelerator)
     print("y_true_fft_mean shape:", y_true_fft_mean.shape)
@@ -207,7 +211,10 @@ def main(
     y = y.to(device)
 
     # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
-    state_dict_vae_final = torch.load(exp_path / "training_results/model.pth", map_location=device)
+    state_dict_vae_final = torch.load(
+        model_path / "model.pth", 
+        map_location=device
+    )
     model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
 
     # Move the model to the GPU
@@ -234,9 +241,10 @@ def main(
             timesteps=rollout_params.num_timesteps,
             score=rollout_params.score,
             save_dir=save_path,
-            save_name=f"iteration",
+            save_name=f"trajectory_iteration",
             batch_size=rollout_params.batch_size,
             tempering=rollout_params.tempering,
+            sample_trajectories=rollout_params.sample_trajectories,
         )
 
     return final_picontrol_particles
