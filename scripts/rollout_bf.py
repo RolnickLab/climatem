@@ -165,7 +165,8 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = "seb_best_model"
+    
+    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_fractionhighwn_{optim_params.fraction_highest_wavenumbers}"
 #     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
     if not os.path.exists(exp_path): 
@@ -179,15 +180,17 @@ def main(
     os.makedirs(save_path, exist_ok=True)
     
     # SHould be model_path = exp_path
-    model_path = Path("/network/scratch/s/sebastian.hickman/results/new_climatem_spectral_high_wavs_fix_penalty/var_['ts']_scenarios_piControl_nonlinear_True_tau_5_z_90_lr_0.001_spreg_0.12801_ormuinit_100000.0_spmuinit_0.1_spthres_0.5_fixed_False_num_ensembles_2_instantaneous_False_crpscoef_1_spcoef_1000_tempspcoef_2000/")
 
-#     with open(model_path / "params.json", "r") as f:
-#         hp = json.load(f)
+    model_path = exp_path / "training_results"
+    model_path = Path(experiment_params.exp_path) / "seb_best_model"
 
-#     hp["data_params"]["temp_res"] = "mon"
-#     assert hp["data_params"]["seq_len"] == SEQ_LEN_MAPPING[hp["data_params"]["temp_res"]]
-#     hp["data_params"].pop('seq_len', None)
-#     hp["train_params"].pop('ratio_valid', None)
+    # with open(model_path / "params.json", "r") as f:
+    #     hp = json.load(f)
+
+    # hp["data_params"]["temp_res"] = "mon"
+    # assert hp["data_params"]["seq_len"] == SEQ_LEN_MAPPING[hp["data_params"]["temp_res"]]
+    # hp["data_params"].pop('seq_len', None)
+    # hp["train_params"].pop('ratio_valid', None)
 
     y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, accelerator)
     print("y_true_fft_mean shape:", y_true_fft_mean.shape)
@@ -245,6 +248,7 @@ def main(
             batch_size=rollout_params.batch_size,
             tempering=rollout_params.tempering,
             sample_trajectories=rollout_params.sample_trajectories,
+            batch_memory=rollout_params.batch_memory,
         )
 
     return final_picontrol_particles
@@ -255,8 +259,10 @@ if __name__ == "__main__":
 
     args = parse_args()
     
-    root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
-    json_path = f"{root_path}/configs/{args.config_path}"
+    cwd = Path.cwd()
+    root_path = cwd.parent
+    config_path = root_path / f"configs"
+    json_path = config_path / args.config_path
     
     with open(json_path, "r") as f:
         params = json.load(f)
@@ -271,7 +277,7 @@ if __name__ == "__main__":
     print ("new exp path:", params["exp_params"]["exp_path"])
 
     # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
-    params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path)
+    params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path.absolute().as_posix())
     print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
 
     experiment_params = expParams(**params["exp_params"])

@@ -1154,7 +1154,7 @@ class TrainingLatent:
         if self.optim_params.fraction_lowest_wavenumbers is not None:
             spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
 
-        spectral_loss = torch.mean(spectral_loss[..., :])
+        spectral_loss = torch.mean(spectral_loss)
         # print('what is the shape of the spectral loss?', spectral_loss)
 
         return spectral_loss

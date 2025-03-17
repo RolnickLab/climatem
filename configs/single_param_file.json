@@ -51,7 +51,6 @@
     },    
     "train_params": {
         "ratio_train": 0.9,
-        "batch_size": 6000,
         "lr": 0.001,
         "lr_scheduler_epochs": [10000, 20000],
         "lr_scheduler_gamma": 1,    
@@ -136,13 +135,14 @@
     },
     "rollout_params": {
         "final_30_years_of_ssps": false,
-        "batch_size": 5,
-        "num_particles": 50,
-        "num_particles_per_particle": 5,
-        "num_timesteps": 1200,
+        "batch_size": 8,
+        "num_particles": 100,
+        "num_particles_per_particle": 10,
+        "num_timesteps": 2400,
         "score": "log_bayesian",
         "tempering": true,
-        "sample_trajectories": true
+        "sample_trajectories": true,
+        "batch_memory": true
     }
 }
 

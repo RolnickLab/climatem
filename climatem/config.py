@@ -121,7 +121,6 @@ class trainParams:
     def __init__(
         self,
         ratio_train: float = 0.9,
-        batch_size: int = 6000,
         lr: float = 0.001,
         lr_scheduler_epochs: List[int] = [10000, 20000],
         lr_scheduler_gamma: float = 1,  # multiply lr by this value at iterations specified in lr_scheduler_epochs
@@ -132,7 +131,6 @@ class trainParams:
     ):
         self.ratio_train = ratio_train
         self.ratio_valid = 1 - self.ratio_train
-        self.batch_size = batch_size
         self.lr = lr
         self.lr_scheduler_epochs = lr_scheduler_epochs
         self.lr_scheduler_gamma = lr_scheduler_gamma
@@ -300,6 +298,7 @@ class rolloutParams:
         score: str = "log_bayesian",  # log_bayesian should be used
         tempering: bool = True,  # tempering the variance when sampling allows to propagate uncertainty
         sample_trajectories: bool = False,  # sample each trajectory separately
+        batch_memory: bool = True,
     ):
         self.num_timesteps = num_timesteps
         self.final_30_years_of_ssps = final_30_years_of_ssps
@@ -309,3 +308,4 @@ class rolloutParams:
         self.num_particles = num_particles
         self.num_particles_per_particle = num_particles_per_particle
         self.sample_trajectories = sample_trajectories
+        self.batch_memory = batch_memory
