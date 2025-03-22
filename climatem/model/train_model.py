@@ -1115,11 +1115,11 @@ class TrainingLatent:
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
+            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
             # calculate the spectra of the reconstructed values
-            fft_recons = torch.mean(torch.abs(torch.fft.rfft(y_recons[:, :, :], dim=3)), dim=0)
+            fft_recons = torch.mean(torch.abs(torch.fft.rfft(y_recons, dim=3)), dim=0)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred[:, :, :], dim=3)), dim=0)
+            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=3)), dim=0)
 
         elif y_true.size(-1) == self.d_x:
 
@@ -1129,11 +1129,11 @@ class TrainingLatent:
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2)), dim=0)
+            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=2)), dim=0)
             # calculate the spectra of the reconstructed values
-            fft_recons = torch.mean(torch.abs(torch.fft.rfft(y_recons[:, :, :], dim=2)), dim=0)
+            fft_recons = torch.mean(torch.abs(torch.fft.rfft(y_recons, dim=2)), dim=0)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred[:, :, :], dim=2)), dim=0)
+            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=2)), dim=0)
         else:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
@@ -1198,7 +1198,7 @@ class TrainingLatent:
         # the shape here is (time/2 + 1, num_vars, coords)
 
         # average across all frequencies, variables and coordinates...
-        temporal_spectral_loss = torch.mean(temporal_spectral_loss[:, :, :])
+        temporal_spectral_loss = torch.mean(temporal_spectral_loss)
 
         return temporal_spectral_loss
 
@@ -1501,10 +1501,10 @@ class TrainingLatent:
 
         # calculate the average spatial spectra of the true values, averaging across the batch
         print("y_true shape:", y_true.shape)
-        fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
+        fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
         # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
         print("y_pred shape:", y_pred_samples.shape)
-        fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3)), dim=0)
+        fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples, dim=3)), dim=0)
 
         # extend fft_true so it is the same value but extended to the same shape as fft_pred
         fft_true = fft_true.repeat(num_samples, 1, 1)

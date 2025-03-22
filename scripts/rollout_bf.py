@@ -176,13 +176,14 @@ def main(
     save_path = exp_path / "rollout_trajectories"
     os.makedirs(save_path, exist_ok=True)
 
-    save_path = save_path / f"batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
+    seed = 1
+    save_path = save_path / f"batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}_seb_model_seed{seed}"
     os.makedirs(save_path, exist_ok=True)
     
     # SHould be model_path = exp_path
 
     model_path = exp_path / "training_results"
-    model_path = Path(experiment_params.exp_path) / "seb_best_model"
+    model_path = Path(experiment_params.exp_path) / f"seb_best_model_seed{seed}"
 
     # with open(model_path / "params.json", "r") as f:
     #     hp = json.load(f)
