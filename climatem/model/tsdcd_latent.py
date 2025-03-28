@@ -1097,7 +1097,6 @@ class NonLinearAutoEncoderUniqueMLP_noloop_tisr(NonLinearAutoEncoder):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
-        print("is this called bis bis")
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 

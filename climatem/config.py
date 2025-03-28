@@ -14,6 +14,7 @@ class expParams:
         lon: int = 144,  # Longitude
         lat: int = 96,  # Latitude
         tau: int = 5,  # Number of timesteps
+        future_timesteps: int = 1,  # Number of future timesteps to include in the future
         random_seed: int = 1,
         gpu: bool = True,  # Running code on GPU?
         num_workers: int = 0,
@@ -28,6 +29,7 @@ class expParams:
         self.lon = lon
         self.lat = lat
         self.tau = tau
+        self.future_timesteps = future_timesteps
         self.random_seed = random_seed
         self.gpu = gpu
         self.num_workers = num_workers
@@ -181,6 +183,7 @@ class optimParams:
         spectral_coeff: float = 20,  # for spatial spectrum
         temporal_spectral_coeff: float = 2000,  # for temporal spectrum
         coeff_kl: float = 1,  # for KL div
+        loss_decay_future_timesteps: float = 1,  # if we predict more than 1 timestep, the loss ecay will reduce the weight of far away timesteps in the loss
         reg_coeff: float = 0.01,  # for sparsity penalty if penalty
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
         fraction_highest_wavenumbers: float = None,
@@ -215,6 +218,7 @@ class optimParams:
         self.crps_coeff = crps_coeff
         self.spectral_coeff = spectral_coeff
         self.temporal_spectral_coeff = temporal_spectral_coeff
+        self.loss_decay_future_timesteps = loss_decay_future_timesteps
         self.coeff_kl = coeff_kl
         self.reg_coeff = reg_coeff
         self.reg_coeff_connect = reg_coeff_connect

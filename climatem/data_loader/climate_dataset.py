@@ -317,7 +317,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         idx_train, idx_valid = np.array(idx_train), np.array(idx_valid)
         return idx_train, idx_valid
 
-    def get_overlapping_sequences(self, data, idxs, tau):
+    def get_overlapping_sequences(self, data, idxs, tau, future_timesteps):
         """
         Given a dataset, time indices, and lag, generate sequences.
 
@@ -326,7 +326,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         x_list, y_list = [], []
         for idx in idxs:
             x_idx = data[idx - tau : idx]  # input includes tau lagged time steps
-            y_idx = data[idx]  # labels are the next time step
+            y_idx = data[idx : idx + future_timesteps]  # labels are the next time step
             x_list.append(x_idx)
             y_list.append(y_idx)
 
@@ -335,6 +335,7 @@ class ClimateDataset(torch.utils.data.Dataset):
     def get_causal_data(
         self,
         tau,
+        future_timesteps,
         channels_last,
         num_vars,
         num_scenarios,
@@ -404,11 +405,10 @@ class ClimateDataset(torch.utils.data.Dataset):
                     # np.random.shuffle(idx_train)
                     # np.random.shuffle(idx_valid)
 
-                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau)
+                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau, future_timesteps)
                     x_train_list.extend(x_train)
                     y_train_list.extend(y_train)
-
-                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau)
+                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau, future_timesteps)
                     x_valid_list.extend(x_valid)
                     y_valid_list.extend(y_valid)
 
@@ -417,11 +417,11 @@ class ClimateDataset(torch.utils.data.Dataset):
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:
                     valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
-                train_y = np.expand_dims(train_y, axis=1)
-                valid_y = np.expand_dims(valid_y, axis=1)
+                # make train_y go from (2550, 4, 96, 144) to (2550, 1, 4, 96, 144)
+                # train_y = np.expand_dims(train_y, axis=1)
+                # valid_y = np.expand_dims(valid_y, axis=1)
 
                 # z-score normalization
-                # make train_y go from (2550, 4, 96, 144) to (2550, 1, 4, 96, 144)
                 mean_x, std_x = self.get_mean_std(train_x)
                 stats_x = {"mean": mean_x, "std": std_x}
 
@@ -449,7 +449,7 @@ class ClimateDataset(torch.utils.data.Dataset):
                 x_test_list, y_test_list = [], []
                 for scenario in data:
                     idx_test = np.arange(tau, scenario.shape[0])
-                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau)
+                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau, future_timesteps)
                     x_test_list.extend(x_test)
                     y_test_list.extend(y_test)
 
@@ -481,11 +481,11 @@ class ClimateDataset(torch.utils.data.Dataset):
                     # np.random.shuffle(idx_train)
                     # np.random.shuffle(idx_valid)
 
-                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau)
+                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau, future_timesteps)
                     x_train_list.extend(x_train)
                     y_train_list.extend(y_train)
 
-                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau)
+                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau, future_timesteps)
                     x_valid_list.extend(x_valid)
                     y_valid_list.extend(y_valid)
 
@@ -494,8 +494,8 @@ class ClimateDataset(torch.utils.data.Dataset):
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:
                     valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
-                train_y = np.expand_dims(train_y, axis=1)
-                valid_y = np.expand_dims(valid_y, axis=1)
+                # train_y = np.expand_dims(train_y, axis=1)
+                # valid_y = np.expand_dims(valid_y, axis=1)
 
                 # # z-score normalization ALREADY DONE
                 # # make train_y go from (2550, 4, 96, 144) to (2550, 1, 4, 96, 144)
@@ -527,7 +527,7 @@ class ClimateDataset(torch.utils.data.Dataset):
                 x_test_list, y_test_list = [], []
                 for scenario in data:
                     idx_test = np.arange(tau, scenario.shape[0])
-                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau)
+                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau, future_timesteps)
                     x_test_list.extend(x_test)
                     y_test_list.extend(y_test)
 
