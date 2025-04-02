@@ -55,8 +55,8 @@ class ClimateDataModule(LightningDataModule):
         reload_climate_set_data=True,
         seasonality_removal=True,
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
-        lon: int = 125,
-        lat: int = 125,
+        lon: int = 144,
+        lat: int = 96,
         icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
         num_levels: int = 1,
         # input_transform: Optional[AbstractTransform] = None,
@@ -235,12 +235,24 @@ class ClimateDataModule(LightningDataModule):
         #     # setup_ddp()
         #     train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
 
+        # print("self._data_train")
+        # print(self._data_train)
+        # print(self._data_train.dataset)
+        # print(self._data_train.indices)
+        # print("in train_dataloader")
+        # for batch in dataloader:
+        #     print(batch.size)
+        #     for item in batch:
+        #         if isinstance(item, list) and len(item) == 0:
+        #             print("Found empty list in batch!")
+        # add other checks for None values, and type inconsistencies.
+
         return DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
             shuffle=False,
             #             generator=torch.Generator(device=accelerator.device),
-            drop_last=True,
+            # drop_last=True,
             **self._shared_dataloader_kwargs(),
         )
 
@@ -250,7 +262,6 @@ class ClimateDataModule(LightningDataModule):
         # if multi_gpu:
         #     # setup_ddp()
         #     valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
-
         return (
             DataLoader(dataset=self._data_val, drop_last=True, **self._shared_eval_dataloader_kwargs())
             if self._data_val is not None

@@ -799,7 +799,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         return X, Y
 
     def __str__(self):
-        s = f" {self.name} dataset: {self.n_years} years used, with a total size of {len(self)} examples."
+        s = f" No name dataset: {self.n_years} years used, with a total size of {len(self)} examples."
         return s
 
     def __len__(self):
@@ -937,7 +937,7 @@ class CMIP6Dataset(ClimateDataset):
                 self.Data = self.remove_seasonality(self.Data)
 
             print(f"self.Data.shape {self.Data.shape}")
-            self.Data = self.Data.reshape((-1, 12, 1, 50, 125))
+            self.Data = self.Data.reshape((-1, 12, 1, self.lon, self.lat))
             print(f"self.Data.shape {self.Data.shape}")
 
             # print("In CMIP6Dataset, just finished removing the seasonality.")
@@ -1048,11 +1048,18 @@ class CMIP6Dataset(ClimateDataset):
                 # self.norm_data = self.normalize_data(self.raw_data, stats)
 
             elif self.mode == "test":
-                if self.global_normalization:
-                    stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                        mode="train+val", file="statistics", kwargs=fname_kwargs
-                    )
+                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                    mode="train+val", file="statistics", kwargs=fname_kwargs
+                )
+                if os.path.isfile(stats_fname) and self.global_normalization:
+                    print("Stats file already exists! Loading from memory.")
                     stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
+                    self.norm_data = self.normalize_data(self.raw_data, stats)
+                elif self.global_normalization:
+                    stat1, stat2 = self.get_dataset_statistics(self.raw_data, "train", mips="cmip6")
+                    stats = {"mean": stat1, "std": stat2}
+                    self.write_dataset_statistics(stats_fname, stats)
+                    self.write_dataset_statistics(coordinates_fname, self.coordinates)
                     self.norm_data = self.normalize_data(self.raw_data, stats)
                 else:
                     self.norm_data = self.raw_data
@@ -1070,7 +1077,7 @@ class CMIP6Dataset(ClimateDataset):
             # print("In cmip6, just copied the data to slurm.")
 
             print(f"self.norm_data.shape {self.norm_data.shape}")
-            self.Data = self.norm_data.reshape((-1, 12, 1, 50, 125))
+            self.Data = self.norm_data.reshape((-1, 12, 1, self.lat, self.lon))
             print(f"self.Data.shape {self.Data.shape}")
 
         # plot_species(self.Data[:, :, 0, :, :], self.coordinates, variables, "../../TEST_REPO", "before_causal")

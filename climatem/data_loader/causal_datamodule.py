@@ -11,7 +11,6 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
 from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
-from climatem.data_loader.savar_dataset import SavarDataset
 
 
 class CausalDataset(torch.utils.data.Dataset):
@@ -78,27 +77,7 @@ class CausalClimateDataModule(ClimateDataModule):
             # Here add an option for SAVAR dataset
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
-            if "savar" in self.hparams.in_var_ids:
-                train_val_input4mips = SavarDataset(
-                    # Make sure these arguments are propagated
-                    output_save_dir=self.hparams.output_save_dir,
-                    lat=self.hparams.lat,
-                    lon=self.hparams.lon,
-                    tau=self.hparams.tau,
-                    global_normalization=self.hparams.global_normalization,
-                    seasonality_removal=self.hparams.seasonality_removal,
-                    reload_climate_set_data=self.hparams.reload_climate_set_data,
-                    time_len=self.hparams.time_len,
-                    comp_size=self.hparams.comp_size,
-                    noise_val=self.hparams.noise_val,
-                    n_per_col=self.hparams.n_per_col,
-                    difficulty=self.hparams.difficulty,
-                    seasonality=self.hparams.seasonality,
-                    overlap=self.hparams.overlap,
-                    is_forced=self.hparams.is_forced,
-                    plot_original_data=self.hparams.plot_original_data,
-                )
-            elif (
+            if (
                 "tas" in self.hparams.in_var_ids
                 or "pr" in self.hparams.in_var_ids
                 or "psl" in self.hparams.in_var_ids
@@ -123,7 +102,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     lon=self.hparams.lon,
                     lat=self.hparams.lat,
                     icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
-                    global_normalization=self.hparams.global_normalization,
+                    global_normalization=True,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
@@ -141,7 +120,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     lon=self.hparams.lon,
                     lat=self.hparams.lat,
                     icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
-                    global_normalization=self.hparams.global_normalization,
+                    global_normalization=True,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
@@ -160,11 +139,6 @@ class CausalClimateDataModule(ClimateDataModule):
                 interval_length=self.train_val_interval_length,
                 mode="train+val",
             )
-            if "savar" in self.hparams.in_var_ids:
-                self.savar_gt_modes = train_val_input4mips.gt_modes
-                self.savar_gt_noise = train_val_input4mips.gt_noise
-                self.savar_gt_adj = train_val_input4mips.gt_adj
-
             train_x, train_y = train
             train_x = train_x.reshape((train_x.shape[0], train_x.shape[1], train_x.shape[2], -1))
             train_y = train_y.reshape((train_y.shape[0], train_y.shape[1], train_y.shape[2], -1))
