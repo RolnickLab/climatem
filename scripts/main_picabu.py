@@ -123,6 +123,8 @@ def main(
             f_time_1=savar_params.f_time_1,
             f_time_2=savar_params.f_time_2,
             ramp_type=savar_params.ramp_type,
+            linearity=savar_params.linearity,
+            poly_degrees=savar_params.poly_degrees,
             plot_original_data=savar_params.plot_original_data,
         )
         datamodule.setup()

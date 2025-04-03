@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import beta
+import matplotlib.animation as animation
 
 from climatem.synthetic_data.savar import SAVAR
 from climatem.synthetic_data.utils import check_stability, create_random_mode
@@ -109,6 +110,8 @@ def generate_save_savar_data(
     f_time_1=4000,
     f_time_2=8000,
     ramp_type="linear",
+    linearity="polynomial",
+    poly_degrees=[2,3],
     plotting=True,
 ):
 
@@ -233,6 +236,8 @@ def generate_save_savar_data(
         "f_time_1": f_time_1,
         "f_time_2": f_time_2,
         "ramp_type": ramp_type,
+        "linearity": linearity,
+        "poly_degrees": poly_degrees,
         # "season_dict": season_dict,
         # "seasonality" : True,
     }
@@ -274,6 +279,8 @@ def generate_save_savar_data(
             noise_strength=noise_val,  # How to play with this parameter?
             # season_dict=season_dict, #turn off by commenting out
             # forcing_dict=forcing_dict #turn off by commenting out
+            linearity=linearity,
+            poly_degrees=poly_degrees,
         )
     else:
         savar_model = SAVAR(
@@ -281,11 +288,13 @@ def generate_save_savar_data(
             time_length=time_len,
             mode_weights=modes_weights,
             noise_strength=noise_val,
-            # season_dict=season_dict, #turn off by commenting out
             forcing_dict=forcing_dict,  # turn off by commenting out
+            linearity=linearity,
+            poly_degrees=poly_degrees,
         )
 
     savar_model.generate_data()  # Remember to generate data, otherwise the data field will be empty
     np.save(save_path, savar_model.data_field)
+
     print(f"{name} DONE!")
     return savar_model.data_field

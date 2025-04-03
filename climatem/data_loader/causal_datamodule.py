@@ -96,6 +96,13 @@ class CausalClimateDataModule(ClimateDataModule):
                     seasonality=self.hparams.seasonality,
                     overlap=self.hparams.overlap,
                     is_forced=self.hparams.is_forced,
+                    f_1=self.hparams.f_1,
+                    f_2=self.hparams.f_2,
+                    f_time_1=self.hparams.f_time_1,
+                    f_time_2=self.hparams.f_time_2,
+                    ramp_type=self.hparams.ramp_type,
+                    linearity=self.hparams.linearity,
+                    poly_degrees=self.hparams.poly_degrees,
                     plot_original_data=self.hparams.plot_original_data,
                 )
             elif (

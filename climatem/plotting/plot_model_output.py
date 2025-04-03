@@ -10,6 +10,7 @@ import seaborn as sns
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.basemap import Basemap
+import matplotlib.animation as animation
 
 from climatem.model.metrics import mcc_latent
 
@@ -364,11 +365,16 @@ class Plotter:
             )
 
         # Load gt mode weights
-        savar_folder = learner.data_params.data_dir
-        n_modes = learner.savar_params.n_per_col ** 2
-        savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
-        # Get the gt mode weights
-        modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
+        if learner.plot_params.savar:
+            savar_folder = learner.data_params.data_dir
+            n_modes = learner.savar_params.n_per_col ** 2
+            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
+            # Get the gt mode weights
+            modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
+            if learner.iteration==500:
+                savar_data = np.load(savar_folder + f"/{savar_fname}.npy")
+                savar_anim_path = savar_folder + f"/{savar_fname}_original_savar_data.gif"
+                self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
 
         # TODO: plot the prediction vs gt
         # plot_compare_prediction(x, x_hat)
@@ -1429,14 +1435,45 @@ class Plotter:
             fig.savefig(exp_path / "mcc.png")
             fig.clf()
 
+    def plot_original_savar(self, data, lat, lon, path):
+        """Plotting the original savar data."""
+        print(f"data shape {data.shape}")
+        # Get the dimensions
+        time_steps = data.shape[1]
+        data_reshaped = data.T.reshape((time_steps, lat, lon))
+
+        # Calculate the average over the time axis
+        avg_data = np.mean(data_reshaped, axis=0)
+
+        # Determine the global min and max from the averaged data for consistent color scaling
+        vmin = np.min(avg_data)
+        vmax = np.max(avg_data)
+
+        fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
+        cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
+        cbar = fig.colorbar(cax, ax=ax)
+
+        def animate(i):
+            cax.set_data(data_reshaped[i])
+            ax.set_title(f"Time step: {i+1}")
+            return (cax,)
+
+        # Create an animation
+        ani = animation.FuncAnimation(fig, animate, frames=100, blit=True)
+
+        # Save the animation as a video file
+        ani.save(path, writer="pillow", fps=10)
+
+        plt.close()
+
+
     # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
 
-    # def plot_original_savar(self, path, lon, lat, savar_path):
+    # def plot_original_savar(self, data, lon, lat, path):
     #     """Plotting the original savar data."""
-    #     data = np.load(f"{savar_path}.npy")
-
+    #     print(f"data shape {data.shape}")
     #     # Get the dimensions
-    #     time_steps = data.shape[1]
+    #     time_steps = data.shape[0]
     #     data_reshaped = data.T.reshape((time_steps, lat, lon))
 
     #     # Calculate the average over the time axis
