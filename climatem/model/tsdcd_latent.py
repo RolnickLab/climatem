@@ -817,7 +817,6 @@ class LinearAutoEncoder(nn.Module):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
-        print("IS THIS FUNC CALLED")
         w = self.w[i]
         mu = torch.matmul(z, w.T)
         return mu, self.logvar_decoder
@@ -1038,9 +1037,6 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         # Select all decoder masks at once
         mask_ = super().select_decoder_mask(mask, i, j_values)
 
-        # Concatenate along dimension 2. Can we reduce the memory usage of this?
-        #         print(f"eoh {ojw}")
-
         if z.ndim < mask_.ndim:
             z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
         else:
@@ -1053,123 +1049,6 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         del z_expanded
         del z_expanded_copy
-
-        # Apply the decoder to all z_ at once and squeeze the result
-        mu = self.decoder(z_).squeeze()
-
-        return mu, self.logvar_decoder
-
-    def forward(self, x, i, encode: bool = False):
-        if encode:
-            return self.encode(x, i)
-        else:
-            return self.decode(x, i)
-
-
-class NonLinearAutoEncoderUniqueMLP_noloop_tisr(NonLinearAutoEncoder):
-
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
-
-        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
-        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
-
-    def encode(self, x, i):
-
-        mask = super().get_encode_mask(x.shape[0])
-        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
-
-        j_values = torch.arange(self.d_z, device=x.device).expand(
-            x.shape[0], -1
-        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
-
-        embedded_x = self.embedding_encoder(j_values)
-
-        mask_ = super().select_encoder_mask(mask, i, j_values)
-
-        # Could I reduce the memory usage of this?
-        x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)  # expand dimensions of x for broadcasting
-
-        mu = self.encoder(x_).squeeze()
-
-        return mu, self.logvar_encoder
-
-    def decode(self, z, i):
-        print("is this called bis bis")
-        mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
-
-        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
-        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
-
-        # Embed all j_values at once
-        embedded_z = self.embedding_encoder(j_values)
-
-        # Select all decoder masks at once
-        mask_ = super().select_decoder_mask(mask, i, j_values)
-
-        # Concatenate along dimension 2
-        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
-
-        # Apply the decoder to all z_ at once and squeeze the result
-        mu = self.decoder(z_).squeeze()
-
-        return mu, self.logvar_decoder
-
-    def forward(self, x, i, encode: bool = False):
-        if encode:
-            return self.encode(x, i)
-        else:
-            return self.decode(x, i)
-
-
-class NonLinearAutoEncoderUniqueMLP_noloop_tisr_co2(NonLinearAutoEncoder):
-
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
-
-        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
-        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
-
-    def encode(self, x, i):
-
-        mask = super().get_encode_mask(x.shape[0])
-        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
-
-        j_values = torch.arange(self.d_z, device=x.device).expand(
-            x.shape[0], -1
-        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
-
-        embedded_x = self.embedding_encoder(j_values)
-
-        mask_ = super().select_encoder_mask(mask, i, j_values)
-
-        # Could I reduce the memory usage of this?
-        x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)  # expand dimensions of x for broadcasting
-
-        mu = self.encoder(x_).squeeze()
-
-        return mu, self.logvar_encoder
-
-    def decode(self, z, i):
-        mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
-
-        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
-        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
-
-        # Embed all j_values at once
-        embedded_z = self.embedding_encoder(j_values)
-
-        # Select all decoder masks at once
-        mask_ = super().select_decoder_mask(mask, i, j_values)
-
-        # Concatenate along dimension 2
-        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
 
         # Apply the decoder to all z_ at once and squeeze the result
         mu = self.decoder(z_).squeeze()
@@ -1197,7 +1076,7 @@ class TransitionModel(nn.Module):
             num_output: number of outputs
         """
         super().__init__()
-        self.d = d
+        self.d = d  # number of variables
         self.d_z = d_z
         self.tau = tau
         output_var = False
