@@ -147,11 +147,12 @@ class modelParams:
         no_w_constraint: bool = False,  # If True, no single parent assumption i.e. no causal graph
         tied_w: bool = False,  # NOT SURE, to clarify
         nonlinear_mixing: bool = True,  # If False, latent dynamics are linear
+        num_hidden_mixing: int = 16,  # MLP params for latent dynamics if non-linear
+        num_layers_mixing: int = 2,
+        nonlinear_dynamics: bool = True,
         num_hidden: int = 8,  # MLP params for mapping from obs to latents. If 0, then linear. SHould add a flag as `nonlinear_mixing`
         num_layers: int = 2,
         num_output: int = 2,  # NOT SURE
-        num_hidden_mixing: int = 16,  # MLP params for latent dynamics if non-linear
-        num_layers_mixing: int = 2,
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
         fixed_output_fraction=None,  # NOT SURE, Remove this?
         tau_neigh: int = 0,  # NOT SURE
@@ -161,6 +162,7 @@ class modelParams:
         self.no_w_constraint = no_w_constraint
         self.tied_w = tied_w
         self.nonlinear_mixing = nonlinear_mixing
+        self.nonlinear_dynamics = nonlinear_dynamics
         self.num_hidden = num_hidden
         self.num_layers = num_layers
         self.num_output = num_output

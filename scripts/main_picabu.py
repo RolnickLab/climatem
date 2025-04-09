@@ -146,6 +146,7 @@ def main(
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
+        nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,
         no_gt=gt_params.no_gt,

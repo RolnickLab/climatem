@@ -203,6 +203,7 @@ class LatentTSDCD(nn.Module):
         tau: int,
         instantaneous: bool,
         nonlinear_mixing: bool,
+        nonlinear_dynamics: bool,
         hard_gumbel: bool,
         no_gt: bool,
         debug_gt_graph: bool,
@@ -264,6 +265,7 @@ class LatentTSDCD(nn.Module):
         self.tau = tau
         self.instantaneous = instantaneous
         self.nonlinear_mixing = nonlinear_mixing
+        self.nonlinear_dynamics = nonlinear_dynamics
         self.hard_gumbel = hard_gumbel
         self.no_gt = no_gt
         self.debug_gt_graph = debug_gt_graph
@@ -348,7 +350,7 @@ class LatentTSDCD(nn.Module):
             self.decoder.w = gt_w
 
         self.transition_model = TransitionModel(
-            self.d, self.d_z, self.total_tau, self.num_layers, self.num_hidden, self.num_output
+            self.d, self.d_z, self.total_tau, self.nonlinear_dynamics, self.num_layers, self.num_hidden, self.num_output
         )
 
         # print("We are setting the Mask here.")
@@ -1066,127 +1068,19 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
             return self.decode(x, i)
 
 
-class NonLinearAutoEncoderUniqueMLP_noloop_tisr(NonLinearAutoEncoder):
-
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
-
-        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
-        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
-
-    def encode(self, x, i):
-
-        mask = super().get_encode_mask(x.shape[0])
-        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
-
-        j_values = torch.arange(self.d_z, device=x.device).expand(
-            x.shape[0], -1
-        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
-
-        embedded_x = self.embedding_encoder(j_values)
-
-        mask_ = super().select_encoder_mask(mask, i, j_values)
-
-        # Could I reduce the memory usage of this?
-        x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)  # expand dimensions of x for broadcasting
-
-        mu = self.encoder(x_).squeeze()
-
-        return mu, self.logvar_encoder
-
-    def decode(self, z, i):
-        print("is this called bis bis")
-        mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
-
-        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
-        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
-
-        # Embed all j_values at once
-        embedded_z = self.embedding_encoder(j_values)
-
-        # Select all decoder masks at once
-        mask_ = super().select_decoder_mask(mask, i, j_values)
-
-        # Concatenate along dimension 2
-        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
-
-        # Apply the decoder to all z_ at once and squeeze the result
-        mu = self.decoder(z_).squeeze()
-
-        return mu, self.logvar_decoder
-
-    def forward(self, x, i, encode: bool = False):
-        if encode:
-            return self.encode(x, i)
-        else:
-            return self.decode(x, i)
-
-
-class NonLinearAutoEncoderUniqueMLP_noloop_tisr_co2(NonLinearAutoEncoder):
-
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
-
-        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
-        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
-
-    def encode(self, x, i):
-
-        mask = super().get_encode_mask(x.shape[0])
-        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
-
-        j_values = torch.arange(self.d_z, device=x.device).expand(
-            x.shape[0], -1
-        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
-
-        embedded_x = self.embedding_encoder(j_values)
-
-        mask_ = super().select_encoder_mask(mask, i, j_values)
-
-        # Could I reduce the memory usage of this?
-        x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)  # expand dimensions of x for broadcasting
-
-        mu = self.encoder(x_).squeeze()
-
-        return mu, self.logvar_encoder
-
-    def decode(self, z, i):
-        mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
-
-        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
-        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
-
-        # Embed all j_values at once
-        embedded_z = self.embedding_encoder(j_values)
-
-        # Select all decoder masks at once
-        mask_ = super().select_decoder_mask(mask, i, j_values)
-
-        # Concatenate along dimension 2
-        z_ = torch.cat((mask_ * z.unsqueeze(1), embedded_z), dim=2)
-
-        # Apply the decoder to all z_ at once and squeeze the result
-        mu = self.decoder(z_).squeeze()
-
-        return mu, self.logvar_decoder
-
-    def forward(self, x, i, encode: bool = False):
-        if encode:
-            return self.encode(x, i)
-        else:
-            return self.decode(x, i)
-
-
 class TransitionModel(nn.Module):
     """Models the transitions between the latent variables Z with neural networks."""
 
-    def __init__(self, d: int, d_z: int, tau: int, num_layers: int, num_hidden: int, num_output: int = 2):
+    def __init__(
+        self,
+        d: int,
+        d_z: int,
+        tau: int,
+        nonlinear_dynamics: bool,
+        num_layers: int,
+        num_hidden: int,
+        num_output: int = 2,
+    ):
         """
         Args:
             d: number of features
@@ -1203,6 +1097,7 @@ class TransitionModel(nn.Module):
         output_var = False
 
         # initialize NNs
+        self.nonlinear_dynamics = nonlinear_dynamics
         self.num_layers = num_layers
         self.num_hidden = num_hidden
         if output_var:
@@ -1212,8 +1107,12 @@ class TransitionModel(nn.Module):
             # self.logvar = torch.ones(1)  * 0. # nn.Parameter(torch.ones(d) * 0.1)
             # self.logvar = nn.Parameter(torch.ones(d) * -4)
             self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
-
-        self.nn = nn.ModuleList(MLP(num_layers, num_hidden, d * d_z * tau, self.num_output) for i in range(d * d_z))
+        if self.nonlinear_dynamics:
+            print("NON LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(MLP(num_layers, num_hidden, d * d_z * tau, self.num_output) for i in range(d * d_z))
+        else:
+            print("LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(MLP(0, num_hidden, d * d_z * tau, self.num_output) for i in range(d * d_z))
         # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
 
     def forward(self, z, mask, i, k):
