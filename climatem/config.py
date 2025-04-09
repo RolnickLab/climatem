@@ -188,6 +188,9 @@ class optimParams:
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
         fraction_highest_wavenumbers: float = None,
         fraction_lowest_wavenumbers: float = None,
+        scheduler_spectra: List[
+            int
+        ] = None,  # the spectra term coefficient in the loss will be linearly increased from 0 to 1 if this is not None, ex: [0, 30_000, 50_000]
         schedule_reg: int = 0,  # when we start adding penalties to the loss
         schedule_ortho: int = 0,  # when we start adding ortho constraint to the loss
         schedule_sparsity: int = 0,  # when we start adding sparsity constraint to the loss
@@ -225,6 +228,7 @@ class optimParams:
 
         self.fraction_highest_wavenumbers = fraction_highest_wavenumbers
         self.fraction_lowest_wavenumbers = fraction_lowest_wavenumbers
+        self.scheduler_spectra = scheduler_spectra
 
         self.schedule_reg = schedule_reg
         self.schedule_ortho = schedule_ortho

@@ -166,7 +166,7 @@ def main(
         .translate({ord(" "): None})
     )
     
-    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_fractionhighwn_{optim_params.fraction_highest_wavenumbers}"
+    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futuretime_{experiment_params.future_timesteps}_lossdecay_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_fractionhighwn_{optim_params.fraction_highest_wavenumbers}"
 #     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
     if not os.path.exists(exp_path): 
@@ -176,14 +176,13 @@ def main(
     save_path = exp_path / "rollout_trajectories"
     os.makedirs(save_path, exist_ok=True)
 
-    seed = 1
-    save_path = save_path / f"batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}_seb_model_seed{seed}"
+    # seed = 1
+    save_path = save_path / f"batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
     os.makedirs(save_path, exist_ok=True)
     
-    # SHould be model_path = exp_path
 
     model_path = exp_path / "training_results"
-    model_path = Path(experiment_params.exp_path) / f"seb_best_model_seed{seed}"
+    # model_path = Path(experiment_params.exp_path) / f"seb_best_model_seed{seed}"
 
     # with open(model_path / "params.json", "r") as f:
     #     hp = json.load(f)
@@ -267,7 +266,7 @@ if __name__ == "__main__":
     
     with open(json_path, "r") as f:
         params = json.load(f)
-    config_obj_list = update_config_withparse(params, args)
+    params = update_config_withparse(params, args)
 
     # get user's scratch directory on Mila cluster:
     scratch_path = os.getenv("SCRATCH")

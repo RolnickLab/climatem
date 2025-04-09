@@ -46,6 +46,12 @@ class TrainingLatent:
         self.exp_params = exp_params
         self.train_params = train_params
         self.optim_params = optim_params
+        self.coefs_scheduler_spectra = (
+            None
+            if optim_params.scheduler_spectra is None
+            else np.linspace(0, 1, len(optim_params.scheduler_spectra), endpoint=True)
+        )
+
         self.plot_params = plot_params
         self.best_metrics = best_metrics
         self.save_path = save_path
@@ -555,12 +561,34 @@ class TrainingLatent:
         temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
 
         # add the spectral loss to the loss
-        loss = (
-            loss
-            + self.optim_params.crps_coeff * crps
-            + self.optim_params.spectral_coeff * spectral_loss
-            + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
-        )
+        if self.optim_params.scheduler_spectra is None:
+            loss = (
+                loss
+                + self.optim_params.crps_coeff * crps
+                + self.optim_params.spectral_coeff * spectral_loss
+                + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+            )
+        else:
+            print(
+                f"scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}!!"
+            )
+            coef = 0
+            update_coef = False
+            for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
+                update_coef = self.iteration >= iter_schedule and not update_coef
+                if update_coef:
+                    coef = new_coef
+                if self.iteration == iter_schedule:
+                    print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
+            loss = (
+                loss
+                + self.optim_params.crps_coeff * crps
+                + coef
+                * (
+                    self.optim_params.spectral_coeff * spectral_loss
+                    + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+                )
+            )
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
