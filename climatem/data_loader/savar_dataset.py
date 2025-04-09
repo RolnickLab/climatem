@@ -109,7 +109,7 @@ class SavarDataset(torch.utils.data.Dataset):
         idx_train, idx_valid = np.array(idx_train), np.array(idx_valid)
         return idx_train, idx_valid
 
-    def get_overlapping_sequences(self, data, idxs, tau):
+    def get_overlapping_sequences(self, data, idxs, tau, future_timesteps):
         """
         Given a dataset, time indices, and lag, generate sequences.
 
@@ -118,7 +118,7 @@ class SavarDataset(torch.utils.data.Dataset):
         x_list, y_list = [], []
         for idx in idxs:
             x_idx = data[idx - tau : idx]  # input includes tau lagged time steps
-            y_idx = data[idx]  # labels are the next time step
+            y_idx = data[idx : idx + future_timesteps]  # labels are the next time step
             x_list.append(x_idx)
             y_list.append(y_idx)
 
@@ -140,6 +140,7 @@ class SavarDataset(torch.utils.data.Dataset):
     def get_causal_data(
         self,
         tau,
+        future_timesteps,
         channels_last,
         num_vars,
         num_scenarios,
@@ -232,11 +233,11 @@ class SavarDataset(torch.utils.data.Dataset):
                     # np.random.shuffle(idx_train)
                     # np.random.shuffle(idx_valid)
 
-                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau)
+                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau, future_timesteps)
                     x_train_list.extend(x_train)
                     y_train_list.extend(y_train)
 
-                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau)
+                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau, future_timesteps)
                     x_valid_list.extend(x_valid)
                     y_valid_list.extend(y_valid)
 
@@ -260,7 +261,7 @@ class SavarDataset(torch.utils.data.Dataset):
                 x_test_list, y_test_list = [], []
                 for scenario in data:
                     idx_test = np.arange(tau, scenario.shape[0])
-                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau)
+                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau, future_timesteps)
                     x_test_list.extend(x_test)
                     y_test_list.extend(y_test)
 
@@ -286,11 +287,11 @@ class SavarDataset(torch.utils.data.Dataset):
                     # np.random.shuffle(idx_train)
                     # np.random.shuffle(idx_valid)
 
-                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau)
+                    x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau, future_timesteps)
                     x_train_list.extend(x_train)
                     y_train_list.extend(y_train)
 
-                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau)
+                    x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau, future_timesteps)
                     x_valid_list.extend(x_valid)
                     y_valid_list.extend(y_valid)
                 train_x, train_y = np.stack(x_train_list), np.stack(y_train_list)
@@ -309,7 +310,7 @@ class SavarDataset(torch.utils.data.Dataset):
                 x_test_list, y_test_list = [], []
                 for scenario in data:
                     idx_test = np.arange(tau, scenario.shape[0])
-                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau)
+                    x_test, y_test = self.get_overlapping_sequences(scenario, idx_test, tau, future_timesteps)
                     x_test_list.extend(x_test)
                     y_test_list.extend(y_test)
 

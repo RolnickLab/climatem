@@ -819,7 +819,6 @@ class LinearAutoEncoder(nn.Module):
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
-        print("IS THIS FUNC CALLED")
         w = self.w[i]
         mu = torch.matmul(z, w.T)
         return mu, self.logvar_decoder
@@ -1040,9 +1039,6 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         # Select all decoder masks at once
         mask_ = super().select_decoder_mask(mask, i, j_values)
 
-        # Concatenate along dimension 2. Can we reduce the memory usage of this?
-        #         print(f"eoh {ojw}")
-
         if z.ndim < mask_.ndim:
             z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
         else:
@@ -1091,7 +1087,7 @@ class TransitionModel(nn.Module):
             num_output: number of outputs
         """
         super().__init__()
-        self.d = d
+        self.d = d  # number of variables
         self.d_z = d_z
         self.tau = tau
         output_var = False
