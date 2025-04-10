@@ -484,8 +484,6 @@ class TrainingLatent:
 
         try:
             x, y = next(self.data_loader_train)
-            print(f"x.shape {x.shape}")
-            print(f"y.shape {y.shape}")
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
         except StopIteration:
@@ -514,11 +512,8 @@ class TrainingLatent:
             y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
             y_pred_all[:, k] = y_pred
             x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
-            print(f"y_pred_recons shape {y_pred_recons.shape}")
         del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
-        print(f"y_pred_all.shape {y_pred_all.shape}")
-        print(f"y.shape {y.shape}")
         assert y.shape == y_pred_all.shape
 
         # compute regularisations constraints/penalties (sparsity and connectivity)
@@ -569,16 +564,13 @@ class TrainingLatent:
                 + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
             )
         else:
-            print(
-                f"scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}!!"
-            )
-            coef = 0
-            update_coef = False
             for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
-                update_coef = self.iteration >= iter_schedule and not update_coef
-                if update_coef:
+                if self.iteration >= iter_schedule:
                     coef = new_coef
                 if self.iteration == iter_schedule:
+                    print(
+                        f"Scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}"
+                    )
                     print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
             loss = (
                 loss
@@ -633,7 +625,8 @@ class TrainingLatent:
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
 
-        if self.iteration % self.plot_params.print_freq == 0:
+        if self.iteration % self.plot_params.plot_freq == 0:
+            # TODO integrate below in Plotter()
 
             np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_train.npy", y.cpu().detach().numpy())

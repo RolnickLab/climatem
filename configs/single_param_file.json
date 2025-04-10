@@ -8,7 +8,7 @@
         "lon": 144, 
         "lat": 96,    
         "tau": 5,
-        "future_timesteps": 2,
+        "future_timesteps": 1,
         "random_seed": 1,
         "gpu": true,
         "num_workers":  0,
