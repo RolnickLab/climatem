@@ -9,7 +9,6 @@ import numpy as np
 import seaborn as sns
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.basemap import Basemap
 
 from climatem.model.metrics import mcc_latent
 
@@ -497,42 +496,52 @@ class Plotter:
             x: ground-truth x (for a specific physical variable)
             x_past: ground-truth x at (t-1)
             x_hat: x predicted by the model
-            coordinates: xxx
+            coordinates: array of shape (N, 2), with [lat, lon] or [lon, lat]
             path: path where to save the plot
         """
+        fig, axes = plt.subplots(nrows=3, ncols=1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 15))
+        fig.suptitle("Ground-truth vs prediction", fontsize=16)
 
-        fig = plt.figure()
-        fig.suptitle("Ground-truth vs prediction")
+        # Ensure coordinates are in the right order (lon, lat)
+        if np.max(coordinates[:, 0]) > 91:
+            coordinates = np.flip(coordinates, axis=1)
 
         lat = np.unique(coordinates[:, 0])
         lon = np.unique(coordinates[:, 1])
         X, Y = np.meshgrid(lon, lat)
 
-        for i in range(3):
+        for i, ax in enumerate(axes):
+            ax.set_global()
+            ax.coastlines()
+            ax.add_feature(cfeature.BORDERS, linestyle=":")
+            ax.add_feature(cfeature.COASTLINE)
+            ax.add_feature(cfeature.LAND, edgecolor="black")
+            ax.gridlines(draw_labels=False)
+
             if i == 0:
-                z = x_past
-                axes = fig.add_subplot(311)
-                axes.set_title("Previous GT")
-            if i == 1:
-                z = x
-                axes = fig.add_subplot(312)
-                axes.set_title("Ground-truth")
-            if i == 2:
-                z = x_hat
-                axes = fig.add_subplot(313)
-                axes.set_title("Prediction")
+                Z = x_past
+                ax.set_title("Previous GT")
+            elif i == 1:
+                Z = x
+                ax.set_title("Ground-truth")
+            elif i == 2:
+                Z = x_hat
+                ax.set_title("Prediction")
 
-            map = Basemap(projection="robin", lon_0=0)
-            map.drawcoastlines()
-            map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-            # map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
+            cs = ax.pcolormesh(
+                X,
+                Y,
+                Z.reshape(X.shape[0], X.shape[1]),
+                transform=ccrs.PlateCarree(),
+                cmap="RdBu_r",
+                vmin=-3.5,
+                vmax=3.5,
+            )
 
-            Z = z.reshape(X.shape[0], X.shape[1])
+        # Add colorbar
+        fig.colorbar(cs, ax=axes.ravel().tolist(), shrink=0.7, orientation="horizontal", label="Normalized value")
 
-            map.contourf(X, Y, Z, latlon=True)
-
-        # plt.colorbar()
-        plt.savefig(path, "prediction.png", format="png")
+        plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
     def plot_compare_predictions_regular_grid(
