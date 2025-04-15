@@ -155,6 +155,7 @@ class modelParams:
         num_hidden: int = 8,  # MLP params for mapping from obs to latents. If 0, then linear. SHould add a flag as `nonlinear_mixing`
         num_layers: int = 2,
         num_output: int = 2,  # NOT SURE
+        position_embedding_dim: int = 100,  # Dimension of positional embedding
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
         fixed_output_fraction=None,  # NOT SURE, Remove this?
         tau_neigh: int = 0,  # NOT SURE
@@ -170,6 +171,7 @@ class modelParams:
         self.num_output = num_output
         self.num_hidden_mixing = num_hidden_mixing
         self.num_layers_mixing = num_layers_mixing
+        self.position_embedding_dim = position_embedding_dim
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh

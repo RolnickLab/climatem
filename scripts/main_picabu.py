@@ -137,6 +137,7 @@ def main(
         num_output=2,  # This should be parameterized somewhere?
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
+        position_embedding_dim=model_params.position_embedding_dim,
         coeff_kl=optim_params.coeff_kl,
         d=d,
         distr_z0="gaussian",
@@ -171,7 +172,7 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinmix_{model_params.nonlinear_mixing}_nonlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futurt_{experiment_params.future_timesteps}_ldecay_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nensembles_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhighwn_{optim_params.fraction_highest_wavenumbers}"
+    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinmix_{model_params.nonlinear_mixing}_nonlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futurt_{experiment_params.future_timesteps}_ldecay_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nensembles_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhighwn_{optim_params.fraction_highest_wavenumbers}_embeddim_{model_params.position_embedding_dim}"
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 

@@ -128,6 +128,7 @@ def main(
         num_output=2,  # This should be parameterized somewhere?
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
+        position_embedding_dim=model_params.num_hidden_mixing,
         coeff_kl=optim_params.coeff_kl,
         d=d,
         distr_z0="gaussian",
@@ -138,6 +139,7 @@ def main(
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
+        nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,
         no_gt=gt_params.no_gt,
@@ -151,7 +153,7 @@ def main(
         fixed=model_params.fixed,
         fixed_output_fraction=model_params.fixed_output_fraction,
     )
-
+    
     # read paths 
     coordinates = np.load(data_params.icosahedral_coordinates_path)
 
@@ -166,7 +168,7 @@ def main(
         .translate({ord(" "): None})
     )
     
-    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futuretime_{experiment_params.future_timesteps}_lossdecay_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_fractionhighwn_{optim_params.fraction_highest_wavenumbers}"
+    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinmix_{model_params.nonlinear_mixing}_nonlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futurt_{experiment_params.future_timesteps}_ldecay_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nensembles_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhighwn_{optim_params.fraction_highest_wavenumbers}"
 #     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
     if not os.path.exists(exp_path): 

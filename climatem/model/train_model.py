@@ -625,7 +625,7 @@ class TrainingLatent:
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
 
-        if self.iteration % self.plot_params.plot_freq == 0:
+        if self.iteration % self.plot_params.print_freq == 0:
             # TODO integrate below in Plotter()
 
             np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
@@ -682,47 +682,48 @@ class TrainingLatent:
 
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
-            if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=False,
-                    plot_through_time=True,
-                )
+            if self.iteration % self.plot_params.plot_freq == 0:
+                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=False,
-                    plot_through_time=True,
-                )
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=False,
-                    plot_through_time=True,
-                )
-            else:
-                print("Not plotting predictions.")
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=True,
+                    )
+                else:
+                    print("Not plotting predictions.")
 
         # note that this has been changed to y_pred_recons
         # return x, y, y_pred_all
@@ -766,7 +767,7 @@ class TrainingLatent:
                 y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
                 y_pred_all[:, k] = y_pred
                 x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
-                print(f"y_pred_recons shape {y_pred_recons.shape}")
+                # print(f"y_pred_recons shape {y_pred_recons.shape}")
             del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
             # compute regularisations (sparsity and connectivity)

@@ -192,6 +192,7 @@ class LatentTSDCD(nn.Module):
         num_output: int,
         num_layers_mixing: int,
         num_hidden_mixing: int,
+        position_embedding_dim: int,
         coeff_kl: float,
         distr_z0: str,
         distr_encoder: str,
@@ -257,6 +258,7 @@ class LatentTSDCD(nn.Module):
         self.num_output = num_output
         self.num_layers_mixing = num_layers_mixing
         self.num_hidden_mixing = num_hidden_mixing
+        self.position_embedding_dim = position_embedding_dim
         self.coeff_kl = coeff_kl
 
         self.d = d
@@ -321,26 +323,9 @@ class LatentTSDCD(nn.Module):
                 self.num_layers_mixing,
                 use_gumbel_mask=False,
                 tied=tied_w,
-                embedding_dim=100,
+                embedding_dim=self.position_embedding_dim,
                 gt_w=None,
             )
-
-            # print("Using non-linear mixing, and using the NonLinearAutoEncoderUniqueMLP_noloop autoencoder, which has this embedding dimension.")
-            # self.autoencoder = NonLinearAutoEncoderMLPs(d, d_x, d_z,
-            #                                            self.num_hidden_mixing,
-            #                                            self.num_layers_mixing,
-            #                                            use_gumbel_mask=False,
-            #                                            tied=tied_w,
-            #                                            gt_w=None)
-
-            # self.autoencoder = NonLinearAutoEncoderUniqueMLP(d, d_x, d_z,
-            #                                            self.num_hidden_mixing,
-            #                                            self.num_layers_mixing,
-            #                                            tied=tied_w,
-            #                                            use_gumbel_mask=False,
-            #                                            embedding_dim=100,
-            #                                            gt_w=None)
-
         else:
             # print('Using linear mixing')
             print("LINEAR MIXING")
@@ -464,7 +449,12 @@ class LatentTSDCD(nn.Module):
         # TODO: Can we remove this for loop
         for i in range(self.d):
             # px_mu, px_logvar = self.encoder_decoder(z[:, i], i, encoder=False)
+
             px_mu, px_logvar = self.autoencoder(z[:, i], i, encode=False)
+            if px_mu.ndim == mu.ndim:  # In case of linear mixing with one variable, second dimension is too much
+                # Check that linear autoencoder corresponds to PF when multi varia/bles
+                px_mu = px_mu.squeeze()
+
             mu[:, i] = px_mu
             std[:, i] = torch.exp(0.5 * px_logvar)
 
@@ -915,93 +905,18 @@ class NonLinearAutoEncoder(nn.Module):
         return mask
 
 
-class NonLinearAutoEncoderMLPs(NonLinearAutoEncoder):
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w=None):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = nn.ModuleList(MLP(num_layer, num_hidden, d_x, 1) for i in range(d_z))
-        self.decoder = nn.ModuleList(MLP(num_layer, num_hidden, d_z, 1) for i in range(d_x))
-
-    def encode(self, x, i):
-        mask = super().get_encode_mask(x.shape[0])
-        mu = torch.zeros((x.shape[0], self.d_z))
-
-        # TODO Remove this for loop
-        for j in range(self.d_z):
-            mask_ = super().select_encoder_mask(mask, i, j)
-            mu[:, j] = self.encoder[j](mask_ * x).squeeze()
-        return mu, self.logvar_encoder
-
-    def decode(self, z, i):
-        print("ius this called bis")
-        mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x))
-
-        # TODO Remove this for loop
-        for j in range(self.d_x):
-            mask_ = super().select_decoder_mask(mask, i, j)
-            mu[:, j] = self.decoder[j](mask_ * z).squeeze()
-        return mu, self.logvar_decoder
-
-    def forward(self, x, i, encode: bool = False):
-        if encode:
-            return self.encode(x, i)
-        else:
-            return self.decode(x, i)
-
-
-# Replaced this the NonLinearAutoEncoderUniqueMLP_noloop function below.
-class NonLinearAutoEncoderUniqueMLP(NonLinearAutoEncoder):
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
-
-        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
-        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
-
-    def encode(self, x, i):
-        mask = super().get_encode_mask(x.shape[0])
-        mu = torch.zeros((x.shape[0], self.d_z))
-
-        for j in range(self.d_z):
-            mask_ = super().select_encoder_mask(mask, i, j)
-            embedded_x = self.embedding_encoder(torch.tensor([j])).repeat(x.shape[0], 1)
-            x_ = torch.cat((mask_ * x, embedded_x), dim=1)
-            mu[:, j] = self.encoder(x_).squeeze()
-
-        return mu, self.logvar_encoder
-
-    def decode(self, z, i):
-        print("ius this called bis bis")
-
-        mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x))
-
-        # TODO Remove this for loop
-        for j in range(self.d_x):
-            mask_ = super().select_decoder_mask(mask, i, j)
-            embedded_z = self.embedding_encoder(torch.tensor([j])).repeat(z.shape[0], 1)
-            z_ = torch.cat((mask_ * z, embedded_z), dim=1)
-            mu[:, j] = self.decoder(z_).squeeze()
-
-        return mu, self.logvar_decoder
-
-    def forward(self, x, i, encode: bool = False):
-        if encode:
-            return self.encode(x, i)
-        else:
-            return self.decode(x, i)
-
-
 class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
+    # TODO: SURELY A BUG??? EMBEDDING DECODER/ENCODER not correctly used?
+
     def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
         super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        self.embedding_encoder = nn.Embedding(d_x, embedding_dim)
+        embedding_dim_encoding = d_z // 10
+        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim_encoding, 1)
+        self.embedding_encoder = nn.Embedding(d_z, embedding_dim_encoding)
 
         self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
-        self.embedding_decoder = nn.Embedding(d_z, embedding_dim)
+        self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
 
     def encode(self, x, i):
 
@@ -1010,13 +925,18 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         j_values = torch.arange(self.d_z, device=x.device).expand(
             x.shape[0], -1
-        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
+        )  # create a 2D tensor with shape (x.shape[0], self.d_z) # Is this batch size * d_z? or is d_z here the dimn of observations?
 
-        embedded_x = self.embedding_encoder(j_values)
+        # For each latent, create an embedding of dimension 100
+        embedded_x = self.embedding_encoder(j_values)  # size b * d_z * embedding_dim
 
-        mask_ = super().select_encoder_mask(mask, i, j_values)
+        # for each latent, select the locations it is mapped to
+        mask_ = super().select_encoder_mask(mask, i, j_values)  # mask[i, j_values]
 
         # Could I reduce the memory usage of this?
+        # each location create a lask in latents b * d_z * d_x
+        # Then concatenate in the last axis (d_x) with the embedding of the latents?
+        # x_ = mask_ * x.unsqueeze(1)
         x_ = torch.cat(
             (mask_ * x.unsqueeze(1), embedded_x), dim=2
         )  # expand dimensions of x for broadcasting - looks good.
@@ -1034,7 +954,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
 
         # Embed all j_values at once
-        embedded_z = self.embedding_encoder(j_values)
+        embedded_z = self.embedding_decoder(j_values)
 
         # Select all decoder masks at once
         mask_ = super().select_decoder_mask(mask, i, j_values)
@@ -1108,7 +1028,7 @@ class TransitionModel(nn.Module):
             self.nn = nn.ModuleList(MLP(num_layers, num_hidden, d * d_z * tau, self.num_output) for i in range(d * d_z))
         else:
             print("LINEAR DYNAMICS")
-            self.nn = nn.ModuleList(MLP(0, num_hidden, d * d_z * tau, self.num_output) for i in range(d * d_z))
+            self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau, self.num_output) for i in range(d * d_z))
         # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
 
     def forward(self, z, mask, i, k):
