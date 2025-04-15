@@ -323,11 +323,6 @@ class LatentTSDCD(nn.Module):
         else:
             raise NotImplementedError(f"Decoder distribution '{distr_decoder}' is not implemented.")
 
-        if distr_decoder == "gaussian":
-            self.distr_decoder = distr.normal.Normal
-        else:
-            raise NotImplementedError("This distribution is not implemented yet.")
-
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
             print("NON-LINEAR MIXING")
