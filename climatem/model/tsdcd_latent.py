@@ -249,6 +249,7 @@ class LatentTSDCD(nn.Module):
             debug_gt_w: if True, set the matrices W to the ground-truth W (gt_w)
             gt_graph: Ground-truth graphes, only used if debug_gt_graph is True
             gt_w: Ground-truth W, only used if debug_gt_w is True
+            gev_learn_xi: if True, GEV will take learned xi
 
             # including the option for a fixed causal graph for experiments
             fixed: if True, fix the mask (in simple case to all ones)
@@ -280,7 +281,6 @@ class LatentTSDCD(nn.Module):
         self.debug_gt_w = debug_gt_w
         self.tied_w = tied_w
         self.gev_learn_xi = gev_learn_xi
-
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
 
@@ -326,8 +326,9 @@ class LatentTSDCD(nn.Module):
 
         elif distr_decoder == "gaussian":
             self.distr_decoder = torch.distributions.Normal
+
         else:
-            raise NotImplementedError("This distribution is not implemented yet.")
+            raise NotImplementedError(f"Decoder distribution '{distr_decoder}' is not implemented.")
 
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
@@ -506,10 +507,10 @@ class LatentTSDCD(nn.Module):
             xi = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
             px_distr = self.distr_decoder(px_mu, px_std, xi)
             # Use CRPS instead of log-likelihood
-            # recons = -px_distr.crps(y).mean()
+            recons = -px_distr.crps(y).mean()
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
-        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
+            recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
 
         # compute the KL, the reconstruction and the ELBO
         # kl = distr.kl_divergence(q, p).mean()
@@ -522,8 +523,6 @@ class LatentTSDCD(nn.Module):
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
         assert kl >= 0, f"KL={kl} has to be >= 0"
-
-        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
 
         # TODO: remove - option to change the coefficient of the KL term
         self.coeff_kl = 1.0
@@ -1248,6 +1247,121 @@ class GEVDistribution(Distribution):
             # computed only for the subset of values where xi ≈ 0.
             z_gumbel = torch.exp(-(y[near_zero] - mu[near_zero]) / sigma[near_zero])
             # Gumbel CRPS approximation
+            crps_gumbel = (
+                sigma[near_zero] *
+                (z_gumbel * (2 * torch.log(z_gumbel) + 1) + 2 * torch.exp(-z_gumbel) - euler_mascheroni)
+            )
+            crps[near_zero] = crps_gumbel
+
+        return crps
+
+
+class GEVDistribution(Distribution):
+    arg_constraints = {}
+    has_rsample = False
+    support = torch.distributions.constraints.real
+
+    def __init__(self, mu, sigma, xi, validate_args=None):
+        """
+        Generalized Extreme Value (GEV) distribution.
+
+        Args:
+            mu: location parameter
+            sigma: scale parameter (must be > 0)
+            xi: shape parameter
+        """
+        self.mu = mu
+        self.sigma = sigma
+        self.xi = xi
+        batch_shape = torch.broadcast_shapes(mu.shape, sigma.shape, xi.shape)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    def _standardized(self, value):
+        """Transform to standardized variable z = (x - mu)/sigma"""
+        return (value - self.mu) / self.sigma
+
+    def log_prob(self, value):
+        z = self._standardized(value)
+        eps = 1e-8
+
+        if torch.any(self.sigma <= 0):
+            raise ValueError("Sigma must be positive")
+
+        if torch.any(self.xi.abs() < eps):
+            # Gumbel case: xi ~ 0
+            return -z - torch.exp(-z) - torch.log(self.sigma)
+        else:
+            t = 1 + self.xi * z
+            logt = torch.log(t.clamp(min=eps))
+            log_pdf = -((1 + 1 / self.xi) * logt) - t.pow(-1 / self.xi) - torch.log(self.sigma)
+            log_pdf = torch.where(t > 0, log_pdf, torch.tensor(float("-inf"), device=value.device))
+            return log_pdf
+
+    def sample(self, sample_shape=torch.Size()):
+        """
+        Inverse transform sampling from the GEV distribution.
+        """
+        u = torch.rand(sample_shape + self.mu.shape, device=self.mu.device).clamp(1e-6, 1 - 1e-6)
+
+        if torch.any(self.xi.abs() < 1e-8):
+            # Gumbel case
+            return self.mu - self.sigma * torch.log(-torch.log(u))
+        else:
+            return self.mu + self.sigma * ((-torch.log(u)).pow(-self.xi) - 1) / self.xi
+
+    def mean(self):
+        """Return mean if defined (xi < 1)"""
+        from math import pi
+        gamma = 0.57721566490153286060  # Euler-Mascheroni constant
+        if torch.any(self.xi >= 1):
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            return self.mu + self.sigma * gamma
+        else:
+            return torch.tensor(float("nan"), device=self.mu.device)  # Can extend using scipy.special.gamma
+
+    def variance(self):
+        """Return variance if defined (xi < 0.5)"""
+        from math import pi
+        if torch.any(self.xi >= 0.5):
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            return (pi**2 / 6) * self.sigma**2
+        else:
+            return torch.tensor(float("nan"), device=self.mu.device)
+
+    def crps(self, y, eps=1e-8):
+        """
+        Compute CRPS loss for the GEV distribution.
+        Args:
+            y: observed values (same shape as mu/sigma/xi)
+        Returns:
+            CRPS value per sample (same shape as y)
+        """
+        from torch.special import gamma
+
+        mu, sigma, xi = self.mu, self.sigma, self.xi
+        t = (y - mu) / sigma
+
+        near_zero = torch.abs(xi) < 1e-6
+        xi_safe = xi.clone()
+        xi_safe[near_zero] = 1e-6
+
+        z = 1 + xi_safe * t
+        z = torch.clamp(z, min=eps)
+
+        term1 = z ** (-1 / xi_safe)
+        term2 = gamma(1 - xi_safe)
+        term3 = gamma(1 - 2 * xi_safe)
+
+        crps = sigma * (
+            term1 * (2 * term2 - term1) - (1 - 2**xi_safe) * term2**2 / (2**xi_safe - 1)
+        ) / xi_safe
+
+        # Gumbel limit (xi ~ 0)
+        if torch.any(near_zero):
+            euler_mascheroni = 0.57721566490153286060
+            z_gumbel = torch.exp(-(y[near_zero] - mu[near_zero]) / sigma[near_zero])
             crps_gumbel = (
                 sigma[near_zero] *
                 (z_gumbel * (2 * torch.log(z_gumbel) + 1) + 2 * torch.exp(-z_gumbel) - euler_mascheroni)
