@@ -1,11 +1,15 @@
 # Adapted from the original code for CDSD, Brouillard et al., 2024.
 
 from collections import OrderedDict
+from math import pi
 
 import torch
+from scipy.special import gamma
 import torch.distributions as distr
+from torch.distributions import Distribution
 import torch.nn as nn
 
+euler_mascheroni = 0.57721566490153286060
 
 class Mask(nn.Module):
     def __init__(
@@ -213,6 +217,7 @@ class LatentTSDCD(nn.Module):
         gt_graph: torch.tensor = None,
         gt_w: torch.tensor = None,
         tied_w: bool = False,
+        gev_learn_xi: bool = False,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
     ):
@@ -274,6 +279,7 @@ class LatentTSDCD(nn.Module):
         self.debug_gt_z = debug_gt_z
         self.debug_gt_w = debug_gt_w
         self.tied_w = tied_w
+        self.gev_learn_xi = gev_learn_xi
 
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
@@ -306,8 +312,20 @@ class LatentTSDCD(nn.Module):
         else:
             raise NotImplementedError("This distribution is not implemented yet.")
 
-        if distr_decoder == "gaussian":
-            self.distr_decoder = distr.normal.Normal
+        if distr_decoder == "gev":
+            self.distr_decoder = GEVDistribution
+
+            if gev_learn_xi:
+                # Learn a xi for each variable/grid point (or customize shape as needed)
+                self.xi = nn.Parameter(torch.zeros(d, d_x))  # shape matches px_mu
+            else:
+                # Use fixed xi (e.g., Gumbel limit)
+                self.xi = torch.tensor(0.0)
+
+            self.gev_learn_xi = gev_learn_xi
+
+        elif distr_decoder == "gaussian":
+            self.distr_decoder = torch.distributions.Normal
         else:
             raise NotImplementedError("This distribution is not implemented yet.")
 
@@ -460,7 +478,7 @@ class LatentTSDCD(nn.Module):
 
         return mu, std
 
-    def forward(self, x, y, gt_z, iteration):
+    def forward(self, x, y, gt_z, iteration, xi=None):
 
         b = x.size(0)
 
@@ -484,7 +502,14 @@ class LatentTSDCD(nn.Module):
         px_mu, px_std = self.decode(z[:, -1])
 
         # set distribution with obtained parameters
-        px_distr = self.distr_decoder(px_mu, px_std)
+        if self.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
+            px_distr = self.distr_decoder(px_mu, px_std, xi)
+            # Use CRPS instead of log-likelihood
+            # recons = -px_distr.crps(y).mean()
+        else:
+            px_distr = self.distr_decoder(px_mu, px_std)
+        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
 
         # compute the KL, the reconstruction and the ELBO
         # kl = distr.kl_divergence(q, p).mean()
@@ -663,7 +688,13 @@ class LatentTSDCD(nn.Module):
 
             # TODO: Remove this for loop
             for i in range(num_samples):
-                samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
+                if self.distr_decoder.__name__ == "GEVDistribution":
+                    xi = self.xi
+                    if isinstance(xi, torch.Tensor) and xi.ndim < px_mu.ndim:
+                        xi = xi.expand_as(px_mu)  # ensure broadcast shape
+                    samples_from_xs[i] = self.distr_decoder(px_mu, px_std, xi).sample()
+                else:
+                    samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
 
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
@@ -1082,3 +1113,145 @@ class TransitionModel(nn.Module):
         # param_z = self.nn(masked_z)
 
         return param_z
+
+
+class GEVDistribution(Distribution):
+    arg_constraints = {}
+    has_rsample = False
+    support = torch.distributions.constraints.real
+
+    def __init__(self, mu, sigma, xi, validate_args=None):
+        """
+        Generalized Extreme Value (GEV) distribution.
+
+        Args:
+            mu: location parameter
+            sigma: scale parameter (must be > 0)
+            xi: shape parameter
+        """
+        self.mu = mu
+        self.sigma = sigma
+        self.xi = xi
+        batch_shape = torch.broadcast_shapes(mu.shape, sigma.shape, xi.shape)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    def _standardized(self, value):
+        """Transform to standardized variable z = (x - mu)/sigma"""
+        return (value - self.mu) / self.sigma
+
+    def log_prob(self, value):
+        z = self._standardized(value)
+        eps = 1e-8
+
+        if torch.any(self.sigma <= 0):
+            raise ValueError("Sigma must be positive")
+
+        if torch.any(self.xi.abs() < eps):
+            # Gumbel case: xi ~ 0
+            # xi ≈ 0	Use Gumbel formula for log PDF
+
+            return -z - torch.exp(-z) - torch.log(self.sigma)
+        else:
+            # xi ≠ 0	Use general GEV formula
+            # t = 1 + xi * z	Intermediate value used in GEV expression
+            t = 1 + self.xi * z
+            # torch.clamp(..., min=eps)	Prevent numerical errors like log(0)
+            logt = torch.log(t.clamp(min=eps))
+            # log of the general GEV PDF
+            log_pdf = -((1 + 1 / self.xi) * logt) - t.pow(-1 / self.xi) - torch.log(self.sigma)
+            # torch.where(t > 0, ...)	Ensures PDF is only defined for valid values (t > 0), else return -inf
+            log_pdf = torch.where(t > 0, log_pdf, torch.tensor(float("-inf"), device=value.device))
+            return log_pdf
+
+    def sample(self, sample_shape=torch.Size()):
+        """
+        Inverse transform sampling from the GEV distribution.
+        """
+        # Sample u ~ Uniform(0, 1) broadcasted over sample_shape + mu.shape
+        # Clamped to avoid issues with log(0) — both log(u) and log(log(u)) would be undefined at u = 0 or u = 1.
+        u = torch.rand(sample_shape + self.mu.shape, device=self.mu.device).clamp(1e-6, 1 - 1e-6)
+        # Return x = F^⁻¹(u) where F⁻¹ is the inverse CDF
+        if torch.any(self.xi.abs() < 1e-8):
+            # Gumbel inverse CDF
+            return self.mu - self.sigma * torch.log(-torch.log(u))
+        else:
+            # inverse CDF for the GEV distribution
+            return self.mu + self.sigma * ((-torch.log(u)).pow(-self.xi) - 1) / self.xi
+
+    def mean(self):
+        """Return mean if defined (xi < 1)"""
+        # mu = location parameter
+        # sigma = scale parameter
+        # xi = shape parameter
+        # gamma = gamma function
+        # hardcodes the Euler–Mascheroni constant, which is the mean of the Gumbel distribution — the special case of GEV when ξ = 0.
+        if torch.any(self.xi >= 1):
+            # xi values are ≥ 1
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            # xi is approximately zero, this returns the Gumbel mean
+            return self.mu + self.sigma * euler_mascheroni
+        else:
+            # general GEV cases where 0 < xi < 1,
+            return torch.tensor(float("nan"), device=self.mu.device)  # Can extend using scipy.special.gamma
+
+    def variance(self):
+        """Return variance if defined (xi < 0.5)"""
+        if torch.any(self.xi >= 0.5):
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            # closed-form variance of the Gumbel distribution
+            return (pi**2 / 6) * self.sigma**2
+        else:
+            # 0 < xi < 0.5 — currently not implemented
+            return torch.tensor(float("nan"), device=self.mu.device)
+
+    def crps(self, y, eps=1e-8):
+        """
+        Compute CRPS loss for the GEV distribution.
+        Args:
+            y: observed values (same shape as mu/sigma/xi)
+        Returns:
+            CRPS value per sample (same shape as y)
+        """
+        mu, sigma, xi = self.mu, self.sigma, self.xi
+        # standardize
+        t = (y - mu) / sigma
+        # GEV CRPS formula
+        near_zero = torch.abs(xi) < 1e-6
+        xi_safe = xi.clone()
+        xi_safe[near_zero] = 1e-6
+
+        z = 1 + xi_safe * t
+        z = torch.clamp(z, min=eps) # ensure positivity for log/pow
+
+        term1 = z ** (-1 / xi_safe)
+
+        term2 = torch.tensor(
+            gamma((1 - xi_safe).detach().cpu().numpy()),
+            device=xi_safe.device,
+            dtype=xi_safe.dtype,
+        )
+
+        term3 = torch.tensor(
+            gamma((1 - 2 * xi_safe).detach().cpu().numpy()),
+            device=xi_safe.device,
+            dtype=xi_safe.dtype,
+        )
+        # closed-form expression for the CRPS of the GEV distribution when xi ≠ 0.
+        crps = sigma * (
+            term1 * (2 * term2 - term1) - (1 - 2**xi_safe) * term2**2 / (2**xi_safe - 1)
+        ) / xi_safe
+
+        # Gumbel limit (xi ~ 0)
+        if torch.any(near_zero):
+            # computed only for the subset of values where xi ≈ 0.
+            z_gumbel = torch.exp(-(y[near_zero] - mu[near_zero]) / sigma[near_zero])
+            # Gumbel CRPS approximation
+            crps_gumbel = (
+                sigma[near_zero] *
+                (z_gumbel * (2 * torch.log(z_gumbel) + 1) + 2 * torch.exp(-z_gumbel) - euler_mascheroni)
+            )
+            crps[near_zero] = crps_gumbel
+
+        return crps

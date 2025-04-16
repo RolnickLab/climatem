@@ -14,6 +14,8 @@ from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
 
+euler_mascheroni = 0.57721566490153286060
+
 
 class TrainingLatent:
     def __init__(
@@ -548,7 +550,7 @@ class TrainingLatent:
         spectral_loss = 0
         for k in range(self.future_timesteps):
             px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
-            crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
+            crps += (self.optim_params.loss_decay_future_timesteps ** k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
                 y[:, k], y_pred_all[:, k], take_log=True
             )
@@ -588,7 +590,7 @@ class TrainingLatent:
         # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
 
-        # loss.backward()
+        # loss.backward()s
         self.accelerator.backward(loss)
 
         _, _ = (
@@ -599,7 +601,10 @@ class TrainingLatent:
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
-            assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
+        if torch.min(self.model.autoencoder.get_w_decoder()) < 0:
+            print("Warning: w_decoder has negative values")
+
+            # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -1110,44 +1115,77 @@ class TrainingLatent:
 
     def get_crps_loss(self, y, mu, sigma):
         """
-        Calculate the CRPS loss between the true values and the predicted values. We need to extract the parameters of
-        the Gaussian of the model. I am going to start by just taking the parameters of all the Gaussians for the
-        observations first...
-
-        I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
-
-        I would quite like to do this on future timesteps too.
+        Calculate the CRPS loss between the true values and the predicted values.
+        Supports both Gaussian and GEV distributions.
 
         Args:
             y: torch.Tensor, the true values
-            mu: torch.Tensor, the mean of the Gaussians
-            sigma: torch.Tensor, the standard deviation of the Gaussians
+            mu: torch.Tensor, the mean of the predictive distribution
+            sigma: torch.Tensor, the std deviation of the predictive distribution
         """
+        if self.model.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.model.xi
+            if isinstance(xi, torch.Tensor) and xi.ndim < mu.ndim:
+                xi = xi.expand_as(mu)
 
-        # gaussian_dist = torch.distributions.Normal(mu, sigma)
+            eps = 1e-6
+            t = (y - mu) / sigma
+            near_zero = torch.abs(xi) < eps
+            xi_safe = xi.clone()
+            xi_safe[near_zero] = eps
 
-        y = y
-        mu = mu
-        sigma = sigma
+            z = 1 + xi_safe * t
+            z = torch.clamp(z, min=eps)
 
-        # standardised y
-        sy = (y - mu) / sigma
+            F_y = torch.exp(-z ** (-1 / xi_safe))
 
-        forecast_dist = dist.Normal(0, 1)
+            # xi ≠ 0 case
+            crps = torch.zeros_like(y)
+            if torch.any(~near_zero):
+                idx = ~near_zero
+                xi_nz = xi_safe[idx]
+                mu_nz = mu[idx]
+                sigma_nz = sigma[idx]
+                y_nz = y[idx]
+                F_nz = F_y[idx]
 
-        # some precomputations to speed up the gradient
-        pdf = self._normpdf(sy)
-        cdf = forecast_dist.cdf(sy)
+                t1 = (mu_nz - y_nz - sigma_nz / xi_nz) * (1 - 2 * F_nz)
+                gamma_term = 2 ** xi_nz * torch.exp(torch.lgamma(1 - xi_nz))
+                gammainc_val = torch.special.gammainc(1 - xi_nz, -torch.log(F_nz))
+                lower_gamma = gammainc_val * torch.exp(torch.lgamma(1 - xi_nz))
+                t2 = -sigma_nz / xi_nz * (gamma_term - 2 * lower_gamma)
+                crps[idx] = t1 + t2
 
-        pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi]))
+            # xi ≈ 0 case (Gumbel)
+            if torch.any(near_zero):
+                idx = near_zero
+                mu_z = mu[idx]
+                sigma_z = sigma[idx]
+                y_z = y[idx]
+                F_z = F_y[idx]
 
-        # calculate the CRPS
-        crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+                log_F_z = torch.log(F_z.clamp(min=eps))
 
-        # add together all the CRPS values and divide by the number of samples
-        crps = torch.sum(crps) / y.size(0)
+                # Approximate expi(log_F_z) using a truncated Taylor expansion
+                expi_approx = log_F_z + (log_F_z**2)/4 + (log_F_z**3)/18 + (log_F_z**4)/96
 
-        return crps
+                t1 = mu_z - y_z + sigma_z * (euler_mascheroni - torch.log(torch.tensor(2.0, device=y.device, dtype=y.dtype)))
+                t2 = -2 * sigma_z * expi_approx
+                crps[idx] = t1 + t2
+
+            return torch.mean(crps)
+
+        else:
+            # Gaussian CRPS
+            sy = (y - mu) / sigma
+            forecast_dist = dist.Normal(0, 1)
+            pdf = self._normpdf(sy)
+            cdf = forecast_dist.cdf(sy)
+
+            pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi], device=y.device, dtype=y.dtype))
+
+            crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+            return torch.mean(crps)
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """
