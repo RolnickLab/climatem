@@ -1125,22 +1125,35 @@ class TrainingLatent:
         """
         if self.model.distr_decoder.__name__ == "GEVDistribution":
             xi = self.model.xi
+            # Expand xi if it's lower dimensional than mu
             if isinstance(xi, torch.Tensor) and xi.ndim < mu.ndim:
                 xi = xi.expand_as(mu)
 
             eps = 1e-6
+            # Standardized residual
             t = (y - mu) / sigma
+            # Identify values close to zero for special handling
             near_zero = torch.abs(xi) < eps
             xi_safe = xi.clone()
-            xi_safe[near_zero] = eps
+            xi_safe[near_zero] = eps  # avoid division by zero
 
+            # Compute transformed variable z = 1 + xi * t
             z = 1 + xi_safe * t
-            z = torch.clamp(z, min=eps)
+            z = torch.clamp(z, min=eps)  # ensure positivity
 
+            # This is F_GEV(y)
             F_y = torch.exp(-z ** (-1 / xi_safe))
+            # Debug values before using in CRPS expression
+            if torch.isnan(t).any():
+                print("NaNs in t = (y - mu) / sigma")
+            if torch.isnan(z).any():
+                print("NaNs in z = 1 + xi * t")
+            if torch.isnan(F_y).any():
+                print("NaNs in F_y = exp(-z ** (-1 / xi))")
 
-            # xi ≠ 0 case
+            # Initialize CRPS tensor
             crps = torch.zeros_like(y)
+            # Handle case where xi ≠ 0
             if torch.any(~near_zero):
                 idx = ~near_zero
                 xi_nz = xi_safe[idx]
@@ -1149,30 +1162,45 @@ class TrainingLatent:
                 y_nz = y[idx]
                 F_nz = F_y[idx]
 
+                # First term: [mu - y - sigma / xi] * [1 - 2F(y)]
                 t1 = (mu_nz - y_nz - sigma_nz / xi_nz) * (1 - 2 * F_nz)
+                # Gamma terms: 2^xi * Gamma(1 - xi)
                 gamma_term = 2 ** xi_nz * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Lower incomplete gamma: gammainc * Gamma = Gamma_l
                 gammainc_val = torch.special.gammainc(1 - xi_nz, -torch.log(F_nz))
                 lower_gamma = gammainc_val * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Second term: -sigma / xi * [gamma_term - 2 * lower_gamma]
                 t2 = -sigma_nz / xi_nz * (gamma_term - 2 * lower_gamma)
                 crps[idx] = t1 + t2
 
-            # xi ≈ 0 case (Gumbel)
+            # Handle case where xi ≈ 0 (Gumbel)
             if torch.any(near_zero):
                 idx = near_zero
                 mu_z = mu[idx]
                 sigma_z = sigma[idx]
                 y_z = y[idx]
                 F_z = F_y[idx]
+                
+                log_F_z = torch.log(F_z.clamp(min=eps)).clamp(min=-20.0, max=-1e-3)
 
-                log_F_z = torch.log(F_z.clamp(min=eps))
-
-                # Approximate expi(log_F_z) using a truncated Taylor expansion
-                expi_approx = log_F_z + (log_F_z**2)/4 + (log_F_z**3)/18 + (log_F_z**4)/96
+                # Swamee and Ohija approximation
+                A = torch.log(((0.56146 / log_F_z) + 0.65) * (1 + log_F_z))
+                B = (log_F_z ** 4) * torch.exp(7.7 * log_F_z) * (2 + log_F_z) ** 3.7
+                expi_approx = (A ** -7.7 + B) ** -0.13
+                expi_approx = torch.nan_to_num(expi_approx, nan=0.0, posinf=1e3, neginf=-1e3)
 
                 t1 = mu_z - y_z + sigma_z * (euler_mascheroni - torch.log(torch.tensor(2.0, device=y.device, dtype=y.dtype)))
                 t2 = -2 * sigma_z * expi_approx
                 crps[idx] = t1 + t2
-
+            if torch.isnan(crps).any():
+                print("NaNs in CRPS loss!")
+                print("Inputs:")
+                print("y:", y)
+                print("mu:", mu)
+                print("sigma:", sigma)
+                raise ValueError("CRPS produced NaNs.")
             return torch.mean(crps)
 
         else:
@@ -1181,7 +1209,6 @@ class TrainingLatent:
             forecast_dist = dist.Normal(0, 1)
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
-
             pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi], device=y.device, dtype=y.dtype))
 
             crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)

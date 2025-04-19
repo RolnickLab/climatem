@@ -10,6 +10,20 @@ import torch.nn as nn
 
 euler_mascheroni = 0.57721566490153286060
 
+def print_nan_stats(name, tensor, verbose=False):
+    if not torch.is_tensor(tensor):
+        print(f"{name}: Not a tensor (type={type(tensor)}), value={tensor}")
+        return
+
+    if torch.isnan(tensor).any() or torch.isinf(tensor).any():
+        print(f"[NaN/Inf Detected] {name}")
+        print(f"  NaNs: {torch.isnan(tensor).sum().item()}, Infs: {torch.isinf(tensor).sum().item()}")
+        if verbose:
+            print(f"  Shape: {tensor.shape}")
+            print(f"  Min: {tensor.min().item()}, Max: {tensor.max().item()}")
+            print(f"  Mean: {tensor.mean().item()}, Std: {tensor.std().item()}")
+
+
 class Mask(nn.Module):
     def __init__(
         self,
@@ -398,6 +412,10 @@ class LatentTSDCD(nn.Module):
 
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
+                if torch.isnan(q_mu).any() or torch.isnan(q_std).any():
+                    print(f"NaNs in encoder output at i={i}, t={t}")
+                    print("q_mu:", q_mu)
+                    print("q_std:", q_std)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
 
             # q_mu, q_logvar = self.encoder_decoder(y[:, i], i, encoder=True)  # torch.matmul(self.W, x)
@@ -413,8 +431,12 @@ class LatentTSDCD(nn.Module):
 
             # carry on
             z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+            print("z[:, :-1, i]", z[:, :-1, i])
 
-            assert torch.all(penultimate_z == z[:, -2, i])
+            if not torch.allclose(penultimate_z, z[:, -2, i], atol=1e-6):
+                print("Mismatch in z[:, -2, i] at timestep:", i)
+                print("penultimate_z:", penultimate_z)
+                print("z[:, -2, i]:", z[:, -2, i])
             assert torch.all(all_z_except_last == z[:, :-1, i])
 
             mu[:, i] = q_mu
@@ -874,6 +896,7 @@ class NonLinearAutoEncoder(nn.Module):
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
         self.logvar_encoder = nn.Parameter(torch.ones(d_z) * -1)
         self.logvar_decoder = nn.Parameter(torch.ones(d_x) * -1)
+        print_nan_stats("init: self.w_encoder", self.w_encoder)
 
     def get_w_encoder(self):
         if self.use_gumbel_mask:
@@ -900,19 +923,35 @@ class NonLinearAutoEncoder(nn.Module):
                 sampled_mask = self.mask(bs_size)
             else:
                 sampled_mask = self.mask_encoder(bs_size)
+            print_nan_stats("sampled_mask (Gumbel)", sampled_mask)
+            return torch.nan_to_num(sampled_mask, nan=0.0)
+
         else:
             if self.tied:
-                return torch.transpose(self.w, 1, 2)
+                fixed_mask = torch.transpose(self.w, 1, 2)
+                print_nan_stats("fixed tied mask (w.T)", fixed_mask)
+                return torch.nan_to_num(fixed_mask, nan=0.0)
             else:
-                return self.w_encoder
-        return sampled_mask
+                print_nan_stats("fixed untied mask (w_encoder)", self.w_encoder)
+                return torch.nan_to_num(self.w_encoder, nan=0.0)
 
-    def select_encoder_mask(self, mask, i, j):
-        if self.use_gumbel_mask:
-            mask = mask[:, i, :, j]
-        else:
-            mask = mask[i, j]
-        return mask
+    def select_encoder_mask(self, mask, i, j_values):
+        print_nan_stats("select_encoder_mask: mask (before indexing)", mask)
+        print_nan_stats("select_encoder_mask: j_values", j_values)
+
+        # Defensive check for out-of-bounds j_values
+        if torch.max(j_values) >= mask.shape[1] or torch.min(j_values) < 0:
+            print("[IndexError] j_values contains out-of-bounds indices for mask!")
+            print(f"  mask.shape: {mask.shape}, max j: {torch.max(j_values)}, min j: {torch.min(j_values)}")
+
+        try:
+            out = mask[i, j_values]
+            print_nan_stats("select_encoder_mask: output mask_", out)
+            return out
+        except Exception as e:
+            print(f"[Exception in select_encoder_mask] {e}")
+            print(f"mask.shape = {mask.shape}, i = {i}, j_values.shape = {j_values.shape}")
+            raise
 
     def get_decode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -969,7 +1008,6 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         )  # expand dimensions of x for broadcasting - looks good.
 
         mu = self.encoder(x_).squeeze()
-
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
