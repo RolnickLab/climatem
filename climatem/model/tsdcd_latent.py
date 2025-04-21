@@ -7,6 +7,7 @@ import torch
 import torch.distributions as distr
 from torch.distributions import Distribution
 import torch.nn as nn
+import torch.nn.functional as F
 
 euler_mascheroni = 0.57721566490153286060
 
@@ -23,6 +24,8 @@ def print_nan_stats(name, tensor, verbose=False):
             print(f"  Min: {tensor.min().item()}, Max: {tensor.max().item()}")
             print(f"  Mean: {tensor.mean().item()}, Std: {tensor.std().item()}")
 
+
+euler_mascheroni = 0.57721566490153286060
 
 class Mask(nn.Module):
     def __init__(
@@ -233,6 +236,7 @@ class LatentTSDCD(nn.Module):
         gev_learn_xi: bool = False,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
+        gev_learn_xi: bool = False,
     ):
         """
         Args:
@@ -267,6 +271,7 @@ class LatentTSDCD(nn.Module):
             # including the option for a fixed causal graph for experiments
             fixed: if True, fix the mask (in simple case to all ones)
             fixed_output_fraction: fraction of ones in the fixed
+            gev_learn_xi: if True, GEV will take learned xi
         """
         super().__init__()
 
@@ -296,6 +301,7 @@ class LatentTSDCD(nn.Module):
         self.gev_learn_xi = gev_learn_xi
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
+        self.gev_learn_xi = gev_learn_xi
 
         if self.instantaneous:
             self.total_tau = tau + 1
@@ -338,8 +344,12 @@ class LatentTSDCD(nn.Module):
             self.gev_learn_xi = gev_learn_xi
 
         elif distr_decoder == "gaussian":
+<<<<<<< Updated upstream
             self.distr_decoder = torch.distributions.Normal
 
+=======
+            self.distr_decoder = distr.normal.Normal
+>>>>>>> Stashed changes
         else:
             raise NotImplementedError(f"Decoder distribution '{distr_decoder}' is not implemented.")
 
@@ -409,7 +419,6 @@ class LatentTSDCD(nn.Module):
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
-
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
                 if torch.isnan(q_mu).any() or torch.isnan(q_std).any():
@@ -433,14 +442,24 @@ class LatentTSDCD(nn.Module):
             z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
             print("z[:, :-1, i]", z[:, :-1, i])
 
+<<<<<<< Updated upstream
             if not torch.allclose(penultimate_z, z[:, -2, i], atol=1e-6):
                 print("Mismatch in z[:, -2, i] at timestep:", i)
                 print("penultimate_z:", penultimate_z)
                 print("z[:, -2, i]:", z[:, -2, i])
+=======
+        if self.distr_decoder.__name__ == "distr.normal.Normal":
+            assert torch.all(penultimate_z == z[:, -2, i])
+>>>>>>> Stashed changes
             assert torch.all(all_z_except_last == z[:, :-1, i])
+        if self.distr_decoder.__name__ == "GEVDistribution":
+            if not torch.allclose(penultimate_z, z[:, -2, i], atol=1e-6):
+                print("penultimate_z mismatch at timestep -2 for variable", i)
+                print("Expected:", penultimate_z)
+                print("Got     :", z[:, -2, i])
 
-            mu[:, i] = q_mu
-            std[:, i] = q_std
+        mu[:, i] = q_mu
+        std[:, i] = q_std
 
         return z, mu, std
 
@@ -501,7 +520,10 @@ class LatentTSDCD(nn.Module):
         return mu, std
 
     def forward(self, x, y, gt_z, iteration, xi=None):
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
         b = x.size(0)
 
         # sample Zs (based on X)
@@ -524,6 +546,7 @@ class LatentTSDCD(nn.Module):
         px_mu, px_std = self.decode(z[:, -1])
 
         # set distribution with obtained parameters
+<<<<<<< Updated upstream
         if self.distr_decoder.__name__ == "GEVDistribution":
             xi = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
             px_distr = self.distr_decoder(px_mu, px_std, xi)
@@ -538,6 +561,37 @@ class LatentTSDCD(nn.Module):
             + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
             - 0.5
         )
+=======
+        # set distribution with obtained parameters
+        if self.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
+            px_distr = self.distr_decoder(px_mu, px_std, xi)
+            eps = 1e-6
+            q_std_y_safe = q_std_y.clamp(min=eps)
+            pz_std_safe = pz_std.clamp(min=eps)
+            kl_raw = (
+                0.5 * (torch.log(pz_std_safe**2) - torch.log(q_std_y_safe**2))
+                + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / pz_std_safe**2
+                - 0.5
+            )
+            if torch.isnan(kl_raw).any():
+                print("[NaN DETECTED] In KL raw terms")
+                print("q_std_y_safe:", q_std_y_safe)
+                print("pz_std_safe:", pz_std_safe)
+                print("q_mu_y:", q_mu_y)
+                print("pz_mu:", pz_mu)
+                raise ValueError("NaNs in kl_raw")
+        else:
+            px_distr = self.distr_decoder(px_mu, px_std)
+
+            # compute the KL, the reconstruction and the ELBO
+            # kl = distr.kl_divergence(q, p).mean()
+            kl_raw = (
+                0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2))
+                + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
+                - 0.5
+            )
+>>>>>>> Stashed changes
         kl = torch.sum(kl_raw, dim=[2]).mean()
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
@@ -706,6 +760,7 @@ class LatentTSDCD(nn.Module):
 
             # TODO: Remove this for loop
             for i in range(num_samples):
+<<<<<<< Updated upstream
                 if self.distr_decoder.__name__ == "GEVDistribution":
                     xi = self.xi
                     if isinstance(xi, torch.Tensor) and xi.ndim < px_mu.ndim:
@@ -713,6 +768,9 @@ class LatentTSDCD(nn.Module):
                     samples_from_xs[i] = self.distr_decoder(px_mu, px_std, xi).sample()
                 else:
                     samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
+=======
+                samples_from_xs[i] = self.distr_decoder(px_mu, px_std, self.xi).sample()
+>>>>>>> Stashed changes
 
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
@@ -915,7 +973,7 @@ class NonLinearAutoEncoder(nn.Module):
         if self.use_gumbel_mask:
             return self.mask.param
         else:
-            return self.w
+            return torch.nan_to_num(self.w, nan=0.0).clamp(min=0.0)
 
     def get_encode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -1174,6 +1232,7 @@ class GEVDistribution(Distribution):
         return (value - self.mu) / self.sigma
 
     def log_prob(self, value):
+<<<<<<< Updated upstream
         z = self._standardized(value)
         eps = 1e-8
 
@@ -1195,12 +1254,63 @@ class GEVDistribution(Distribution):
             log_pdf = -((1 + 1 / self.xi) * logt) - t.pow(-1 / self.xi) - torch.log(self.sigma)
             # torch.where(t > 0, ...)	Ensures PDF is only defined for valid values (t > 0), else return -inf
             log_pdf = torch.where(t > 0, log_pdf, torch.tensor(float("-inf"), device=value.device))
+=======
+        eps = 1e-6  # larger epsilon to prevent tiny xi/sigma
+        z = self._standardized(value)  # (value - mu) / sigma
+        z = z.clamp(min=-1e4, max=1e4)  # avoid overflow
+
+        sigma = self.sigma.clamp(min=eps)
+        xi = self.xi
+        xi_safe = xi.clone()
+        xi_safe = xi_safe.clamp(min=-1e2, max=1e2)
+
+        t = (1 + xi_safe * z).clamp(min=eps, max=1e6)  # stability in log/pow
+
+        gumbel_mask = xi.abs() < eps
+        log_pdf_gumbel = -z - torch.exp(-z.clamp(min=-100, max=100)) - torch.log(sigma)
+
+        if torch.all(gumbel_mask):
+            return log_pdf_gumbel
+
+        elif torch.all(~gumbel_mask):
+            inv_xi = (1 / xi_safe).clamp(min=-1e2, max=1e2)
+            logt = torch.log(t)
+            pow_term = torch.nan_to_num(t.pow(-inv_xi), nan=1e3, posinf=1e3, neginf=1e3)
+            log_pdf_gev = -((1 + inv_xi) * logt) - pow_term - torch.log(sigma)
+            return log_pdf_gev
+
+        else:
+            log_pdf = torch.empty_like(log_pdf_gumbel)
+
+            # Fill Gumbel values
+            log_pdf[gumbel_mask] = log_pdf_gumbel[gumbel_mask]
+
+            # GEV values
+            gev_mask = ~gumbel_mask
+            xi_gev = xi_safe[gev_mask]
+            sigma_gev = sigma[gev_mask]
+            z_gev = z[gev_mask]
+
+            t_gev = (1 + xi_gev * z_gev).clamp(min=eps, max=1e6)
+            inv_xi_gev = (1 / xi_gev).clamp(min=-1e2, max=1e2)
+
+            logt_gev = torch.log(t_gev)
+            pow_term = torch.nan_to_num(t_gev.pow(-inv_xi_gev), nan=1e3, posinf=1e3, neginf=1e3)
+
+            log_pdf_gev = -((1 + inv_xi_gev) * logt_gev) - pow_term - torch.log(sigma_gev)
+            log_pdf[gev_mask] = log_pdf_gev
+
+            if torch.isnan(log_pdf).any():
+                print("[NaN DETECTED] in GEV log_prob!")
+
+>>>>>>> Stashed changes
             return log_pdf
 
     def sample(self, sample_shape=torch.Size()):
         """
         Inverse transform sampling from the GEV distribution.
         """
+<<<<<<< Updated upstream
         # Sample u ~ Uniform(0, 1) broadcasted over sample_shape + mu.shape
         # Clamped to avoid issues with log(0) — both log(u) and log(log(u)) would be undefined at u = 0 or u = 1.
         u = torch.rand(sample_shape + self.mu.shape, device=self.mu.device).clamp(1e-6, 1 - 1e-6)
@@ -1210,10 +1320,19 @@ class GEVDistribution(Distribution):
             return self.mu - self.sigma * torch.log(-torch.log(u))
         else:
             # inverse CDF for the GEV distribution
+=======
+        u = torch.rand(sample_shape + self.mu.shape, device=self.mu.device).clamp(1e-6, 1 - 1e-6)
+
+        if torch.any(self.xi.abs() < 1e-8):
+            # Gumbel case
+            return self.mu - self.sigma * torch.log(-torch.log(u))
+        else:
+>>>>>>> Stashed changes
             return self.mu + self.sigma * ((-torch.log(u)).pow(-self.xi) - 1) / self.xi
 
     def mean(self):
         """Return mean if defined (xi < 1)"""
+<<<<<<< Updated upstream
         # mu = location parameter
         # sigma = scale parameter
         # xi = shape parameter
@@ -1228,14 +1347,28 @@ class GEVDistribution(Distribution):
         else:
             # general GEV cases where 0 < xi < 1,
             return torch.tensor(float("nan"), device=self.mu.device)
+=======
+        if torch.any(self.xi >= 1):
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            return self.mu + self.sigma * euler_mascheroni
+        else:
+            return torch.tensor(float("nan"), device=self.mu.device)  # Can extend using scipy.special.gamma
+>>>>>>> Stashed changes
 
     def variance(self):
         """Return variance if defined (xi < 0.5)"""
         if torch.any(self.xi >= 0.5):
             return torch.tensor(float("nan"), device=self.mu.device)
         if torch.all(self.xi.abs() < 1e-8):
+<<<<<<< Updated upstream
             # closed-form variance of the Gumbel distribution
             return (pi**2 / 6) * self.sigma**2
         else:
             # 0 < xi < 0.5 — currently not implemented
             return torch.tensor(float("nan"), device=self.mu.device)
+=======
+            return (pi**2 / 6) * self.sigma**2
+        else:
+            return torch.tensor(float("nan"), device=self.mu.device)
+>>>>>>> Stashed changes

@@ -1,0 +1,26 @@
+Test models: None
+TEST SET NAMES ['ssp370_NorESM2-LM', 'ssp126_NorESM2-LM']
+1941-2000
+1941-2000
+self.fname_kwargs instantiated
+coordinates_fname climate_model_ERA5_num_ensembles_0_years_1941-2000_historical_years_1941-2000_variables_t2m_scenarios_ERA5_DATA_TEST_channels_last_False_seq_to_seq_True_train+val_coordinates.npy
+I completed the normalisation of the data.
+=== REMOVE SEASONALITY ===
+Initial data shape: (60, 365, 1, 6250)
+Checking for NaNs in input data:
+  Any NaNs?  False
+  Mean: -8.943165e-06
+  Std: 0.99999905
+  Min: -5.8625536
+  Max: 2.1728492
+
+=== Output checks ===
+Deseasonalized shape: (60, 365, 1, 6250)
+Any NaNs? False
+Mean: -7.434154e-08
+Std: 1.0
+Min: -6.233017
+Max: 6.270091
+I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!
+NON-LINEAR MIXING
+Sampling from 49 bbox grid points
