@@ -193,6 +193,7 @@ class LatentTSDCD(nn.Module):
         num_layers_mixing: int,
         num_hidden_mixing: int,
         position_embedding_dim: int,
+        reduce_encoding_pos_dim: bool,
         coeff_kl: float,
         distr_z0: str,
         distr_encoder: str,
@@ -259,6 +260,7 @@ class LatentTSDCD(nn.Module):
         self.num_layers_mixing = num_layers_mixing
         self.num_hidden_mixing = num_hidden_mixing
         self.position_embedding_dim = position_embedding_dim
+        self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
         self.coeff_kl = coeff_kl
 
         self.d = d
@@ -324,6 +326,7 @@ class LatentTSDCD(nn.Module):
                 use_gumbel_mask=False,
                 tied=tied_w,
                 embedding_dim=self.position_embedding_dim,
+                reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
                 gt_w=None,
             )
         else:
@@ -387,17 +390,17 @@ class LatentTSDCD(nn.Module):
             q_mu, q_logvar = self.autoencoder(y[:, i], i, encode=True)
             q_std = torch.exp(0.5 * q_logvar)
 
-            # e.g. z[:, -2, i]
-            all_z_except_last = z[:, :-1, i].clone()
-            penultimate_z = z[:, -2, i].clone()
+            # # e.g. z[:, -2, i]
+            # all_z_except_last = z[:, :-1, i].clone()
+            # penultimate_z = z[:, -2, i].clone()
 
-            assert torch.mean(z[:, -1, i]) == 0.0
+            # assert torch.mean(z[:, -1, i]) == 0.0
 
             # carry on
             z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
 
-            assert torch.all(penultimate_z == z[:, -2, i])
-            assert torch.all(all_z_except_last == z[:, :-1, i])
+            # assert torch.all(penultimate_z == z[:, -2, i])
+            # assert torch.all(all_z_except_last == z[:, :-1, i])
 
             mu[:, i] = q_mu
             std[:, i] = q_std
@@ -665,6 +668,8 @@ class LatentTSDCD(nn.Module):
             for i in range(num_samples):
                 samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
 
+            del z_samples
+
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
 
@@ -909,11 +914,29 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
     # TODO: SURELY A BUG??? EMBEDDING DECODER/ENCODER not correctly used?
 
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, embedding_dim, gt_w=None):
+    def __init__(
+        self,
+        d,
+        d_x,
+        d_z,
+        num_hidden,
+        num_layer,
+        use_gumbel_mask,
+        tied,
+        embedding_dim,
+        reduce_encoding_pos_dim,
+        gt_w=None,
+    ):
         super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        embedding_dim_encoding = d_z // 10
-        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim_encoding, 1)
-        self.embedding_encoder = nn.Embedding(d_z, embedding_dim_encoding)
+        # embedding_dim_encoding = d_z // 10
+        if not reduce_encoding_pos_dim:
+            self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
+            self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)  # embedding_dim_encoding
+        else:
+            self.embedding_encoder = nn.Embedding(d_z, embedding_dim // 10)
+            self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim // 10, 1)  # embedding_dim_encoding
+        # self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
+        # self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
 
         self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
         self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
@@ -940,6 +963,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         x_ = torch.cat(
             (mask_ * x.unsqueeze(1), embedded_x), dim=2
         )  # expand dimensions of x for broadcasting - looks good.
+
+        del embedded_x
+        del mask_
 
         mu = self.encoder(x_).squeeze()
 

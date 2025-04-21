@@ -130,6 +130,7 @@ class trainParams:
         patience: int = 5000,  # Only learn mapping from obs to latents for patience iteration
         patience_post_thresh: int = 50,  # NOT SURE: if mapping converges before patience, and for patience_post_thresh it's stable, then optimize everything
         valid_freq: int = 5,  # get validation metrics every valid_freq iteration
+        # here valid_freq is critical for updating the parameters of the ALM method as they get updated every valid_freq
     ):
         self.ratio_train = ratio_train
         self.ratio_valid = 1 - self.ratio_train
@@ -156,6 +157,7 @@ class modelParams:
         num_layers: int = 2,
         num_output: int = 2,  # NOT SURE
         position_embedding_dim: int = 100,  # Dimension of positional embedding
+        reduce_encoding_pos_dim: bool = False,
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
         fixed_output_fraction=None,  # NOT SURE, Remove this?
         tau_neigh: int = 0,  # NOT SURE
@@ -172,6 +174,7 @@ class modelParams:
         self.num_hidden_mixing = num_hidden_mixing
         self.num_layers_mixing = num_layers_mixing
         self.position_embedding_dim = position_embedding_dim
+        self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh
@@ -183,6 +186,7 @@ class optimParams:
         self,
         optimizer: str = "rmsprop",
         use_sparsity_constraint: bool = True,  # If False, use sparsity penalty
+        binarize_transition: bool = True,  # If True, start adding the variance term of the matrix instead of the sparsity once constraint has been achieved
         crps_coeff: float = 1,  # Loss penalty coefficient for CRPS
         spectral_coeff: float = 20,  # for spatial spectrum
         temporal_spectral_coeff: float = 2000,  # for temporal spectrum
@@ -222,6 +226,7 @@ class optimParams:
     ):
         self.optimizer = optimizer
         self.use_sparsity_constraint = use_sparsity_constraint
+        self.binarize_transition = binarize_transition
         self.crps_coeff = crps_coeff
         self.spectral_coeff = spectral_coeff
         self.temporal_spectral_coeff = temporal_spectral_coeff
