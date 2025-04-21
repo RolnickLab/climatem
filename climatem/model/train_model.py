@@ -183,6 +183,24 @@ class TrainingLatent:
             self.data_loader_train, self.model, self.optimizer, self.scheduler
         )
 
+        # Check that model and everything is on gpu
+        # print("\nModel Parameter Devices after moving to GPU:")
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name}: {param.device}")
+
+        # # Check the device of a sample batch (after iterating through the prepared dataloader)
+        # for batch in self.data_loader_train:
+        #     inputs, labels = batch
+        #     print(f"Input tensor device: {inputs.device}")
+        #     print(f"Label tensor device: {labels.device}")
+        #     break
+
+        # # Check the device of the optimizer's state (this might vary)
+        # for group in self.optimizer.param_groups:
+        #     for param in group['params']:
+        #         if param in self.optimizer.state:
+        #             print(f"Optimizer state for parameter '{param.shape}': {self.optimizer.state[param].get('step', torch.tensor(0)).device}")
+
         # compute constraint normalization
         with torch.no_grad():
             d = model.d * model.d_z
@@ -267,12 +285,14 @@ class TrainingLatent:
             prof = torch.profiler.profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=5, warmup=5, active=1, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler("./log/profiler_traces"),
                 # using the torch tensorboard handler
                 # on_trace_ready=torch.profiler.export_chrome_trace(self.profiler_path),
                 # on_trace_ready=trace_handler,
                 profile_memory=True,
                 record_shapes=True,
                 with_stack=True,
+                use_cuda=True,
             )
             prof.start()
             # print out the output of the profiler
@@ -471,7 +491,6 @@ class TrainingLatent:
 
         # I guess this is just making sure...
         if self.profiler:
-            # prof.export_chrome_trace("./log/trace.json")
             prof.stop()
 
         return valid_loss
@@ -652,9 +671,9 @@ class TrainingLatent:
             self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
             self.train_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
 
-            self.train_mse_recons = torch.mean((y_original_recons - y_original) ** 2).item()
-            self.train_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
-            self.train_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
+            self.train_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
+            self.train_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
+            self.train_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
 
             # include the variance of the predictions
             self.train_var_original = torch.var(y_original)
@@ -839,9 +858,9 @@ class TrainingLatent:
             self.val_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
             self.val_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
 
-            self.val_mse_recons = torch.mean((y_original_recons - y_original) ** 2).item()
-            self.val_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
-            self.val_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
+            self.val_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
+            self.val_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
+            self.val_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
 
             # include the variance of the predictions
             self.val_var_original = torch.var(y_original)
@@ -1079,7 +1098,7 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
-        return torch.norm(adj - adj**2, p=1) / self.sparsity_normalization
+        return torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
         """
@@ -1534,7 +1553,7 @@ class TrainingLatent:
             # print('Overall MSE:', mse1)
 
             # check
-            mse = torch.mean(torch.sum(0.5 * (y_original - y_original_pred) ** 2, dim=2))
+            mse = torch.mean(torch.sum(0.5 * torch.square(y_original - y_original_pred), dim=2))
             # print("MSE:", mse)
             # print("MSE shape:", mse.shape)
 

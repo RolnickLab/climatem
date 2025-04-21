@@ -214,6 +214,7 @@ def main(
         d,
         accelerator,
         wandbname=name,
+        profiler=False,
     )
 
     # where is the model at this point?
