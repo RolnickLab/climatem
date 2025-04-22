@@ -111,6 +111,7 @@ class TrainingLatent:
         self.train_temporal_spectral_loss_list = []
 
         self.train_sparsity_cons_list = []
+        self.train_transition_var_list = []
         self.mu_sparsity_list = []
         self.gamma_sparsity_list = []
 
@@ -124,6 +125,7 @@ class TrainingLatent:
         self.valid_ortho_vector_cons_list = []
         self.valid_acyclic_cons_list = []
         self.valid_sparsity_cons_list = []
+        self.valid_transition_var_list = []
 
         self.best_spatial_spectra_score = None
 
@@ -465,6 +467,7 @@ class TrainingLatent:
             "valid_sparsity_reg": self.valid_sparsity_reg,
             "valid_ortho_cons": torch.sum(self.valid_ortho_cons).item(),
             "valid_sparsity_cons": self.valid_sparsity_cons,
+            "valid_transition_var": self.valid_transition_var,
         }
 
         # I guess this is just making sure...
@@ -523,6 +526,10 @@ class TrainingLatent:
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
+            if self.optim_params.binarize_transition and h_sparsity == 0:
+                h_variance = self.adj_transition_variance()
+                sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
+
         else:
             sparsity_reg = self.get_regularisation()
         connect_reg = torch.tensor([0.0])
@@ -621,6 +628,7 @@ class TrainingLatent:
 
         # adding the sparsity constraint to the logs
         self.train_sparsity_cons = h_sparsity  # .detach()
+        self.train_transition_var = self.adj_transition_variance()
 
         # adding the crps loss to the logs
         self.train_crps_loss = crps.item()
@@ -798,6 +806,7 @@ class TrainingLatent:
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
+            h_transition_var = self.adj_transition_variance()
 
             # compute total loss
             loss = nll + connect_reg  # + sparsity_reg - for now we are removing the sparsity regularisation
@@ -820,6 +829,7 @@ class TrainingLatent:
 
             # adding the sparsity constraint to the logs
             self.valid_sparsity_cons = h_sparsity  # .detach()
+            self.valid_transition_var = h_transition_var
 
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
@@ -872,46 +882,46 @@ class TrainingLatent:
 
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
+            if self.iteration % self.plot_params.plot_freq == 0:
+                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=True,
+                    )
 
-            if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=True,
-                    plot_through_time=True,
-                )
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=True,
-                    plot_through_time=True,
-                )
-
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=True,
-                    plot_through_time=True,
-                )
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=True,
+                    )
 
         # return x, y, y_pred_all
 
@@ -972,7 +982,9 @@ class TrainingLatent:
         self.gamma_ortho_list.append(self.ALM_ortho.gamma)
 
         self.train_sparsity_cons_list.append(self.train_sparsity_cons)
+        self.train_transition_var_list.append(self.train_transition_var)
         self.valid_sparsity_cons_list.append(self.valid_sparsity_cons)
+        self.valid_transition_var_list.append(self.valid_transition_var)
 
         # adding crps
         self.train_crps_loss_list.append(self.train_crps_loss)
@@ -1076,6 +1088,10 @@ class TrainingLatent:
     # NOTE Previously we did model.get_adj() as an argument. I am changing this to just be self...
     # more like get_regularisation, which is what we want to copy closely.
 
+    def adj_transition_variance(self) -> float:
+        adj = self.model.get_adj()
+        return torch.norm(adj - adj**2, p=1) / self.sparsity_normalization
+
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
         """
         Calculate the number of causal links in the adjacency matrix, and constrain this to be less than a certain
@@ -1109,8 +1125,6 @@ class TrainingLatent:
 
         else:
             h = torch.tensor([0.0])
-
-        assert torch.is_tensor(h)
 
         return h
 

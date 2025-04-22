@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/climatem_spectral/var_ts_picontrol",
+        "exp_path": "$SCRATCH/results/climatem_spectral/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -53,7 +53,7 @@
     "train_params": {
         "ratio_train": 0.9,
         "lr": 0.0001,
-        "lr_scheduler_epochs": [10000, 20000],
+        "lr_scheduler_epochs": [10000, 25000, 50000],
         "lr_scheduler_gamma": 1,    
         "max_iteration": 200000,
         "patience": 5000,
@@ -68,9 +68,11 @@
         "num_hidden_mixing": 16,
         "num_layers_mixing": 2,    
         "nonlinear_dynamics": true,
-        "num_hidden": 8,
+        "num_hidden": 16,
         "num_layers": 2,
         "num_output": 2,
+        "position_embedding_dim": 100,
+        "reduce_encoding_pos_dim": false,
         "fixed": false,
         "fixed_output_fraction": null,
         "tau_neigh": 0,
@@ -80,6 +82,7 @@
         "optimizer": "rmsprop",
         
         "use_sparsity_constraint": true,
+        "binarize_transition": true,
         "crps_coeff": 1,
         "spectral_coeff": 1000,
         "temporal_spectral_coeff": 2000,
@@ -142,9 +145,9 @@
     "rollout_params": {
         "final_30_years_of_ssps": false,
         "batch_size": 8,
-        "num_particles": 100,
+        "num_particles": 50,
         "num_particles_per_particle": 10,
-        "num_timesteps": 2400,
+        "num_timesteps": 1200,
         "score": "log_bayesian",
         "tempering": true,
         "sample_trajectories": true,

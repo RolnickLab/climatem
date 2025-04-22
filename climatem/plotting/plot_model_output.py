@@ -311,6 +311,7 @@ class Plotter:
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
+                {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
                 # {"name": "gamma ortho", "data": learner.gamma_ortho_list, "s": ":"},
                 # {"name": "gamma sparsity", "data": learner.gamma_sparsity_list, "s": ":"},
