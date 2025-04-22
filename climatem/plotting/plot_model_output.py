@@ -490,7 +490,6 @@ class Plotter:
     
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path):
         """
-<<<<<<< Updated upstream
         Plot the predicted x_hat compared to the ground-truth x
         Args:
             x: ground-truth x (for a specific physical variable)
@@ -541,32 +540,6 @@ class Plotter:
         # Add colorbar
         fig.colorbar(cs, ax=axes.ravel().tolist(), shrink=0.7, orientation="horizontal", label="Normalized value")
 
-=======
-        Plot the predicted x_hat compared to the ground-truth x using Cartopy.
-        """
-        fig, axs = plt.subplots(3, 1, subplot_kw={'projection': ccrs.Robinson()}, figsize=(12, 12))
-
-        titles = ["Previous GT", "Ground-truth", "Prediction"]
-        data = [x_past, x, x_hat]
-
-        lon = coordinates[:, 0]
-        lat = coordinates[:, 1]
-        X, Y = np.meshgrid(np.unique(lon), np.unique(lat))
-
-        for ax, title, z in zip(axs, titles, data):
-            ax.set_global()
-            ax.coastlines()
-            ax.add_feature(cfeature.BORDERS, linestyle=":")
-            ax.add_feature(cfeature.LAND, edgecolor="black")
-            ax.gridlines(draw_labels=False)
-
-            Z = z.reshape(Y.shape)
-            pcm = ax.pcolormesh(X, Y, Z, cmap="RdBu_r", vmin=-3.5, vmax=3.5, transform=ccrs.PlateCarree())
-            ax.set_title(title)
-
-        fig.colorbar(pcm, ax=axs, orientation='vertical', shrink=0.7, label="Normalized value")
-        plt.suptitle("Ground-truth vs prediction", fontsize=16)
->>>>>>> Stashed changes
         plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
