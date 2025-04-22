@@ -1139,7 +1139,7 @@ class TrainingLatent:
     def _normpdf(self, x):
         """Probability density function of a univariate standard Gaussian distribution with zero mean and unit
         variance."""
-        return (1.0 / torch.sqrt(torch.tensor(2.0 * torch.pi))) * torch.exp(torch.tensor(-(x * x) / 2.0))
+        return (1.0 / torch.sqrt(2.0 * torch.pi)) * torch.exp(-torch.square(x) / 2.0)
 
     def get_crps_loss(self, y, mu, sigma):
         """
@@ -1172,7 +1172,7 @@ class TrainingLatent:
         pdf = self._normpdf(sy)
         cdf = forecast_dist.cdf(sy)
 
-        pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi]))
+        pi_inv = 1.0 / torch.sqrt(torch.pi)
 
         # calculate the CRPS
         crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)

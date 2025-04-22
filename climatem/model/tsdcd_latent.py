@@ -1180,12 +1180,7 @@ class TransitionModelParamSharing(nn.Module):
             z.shape[0], -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z)
         embedded_z = self.embedding_transition(j_values)
-        print(f"embedded_z.shape {embedded_z.shape}")
-        print(f"mask.shape {mask.shape}")
-        print(f"z.shape {z.shape}")
-
         masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
-        print(f"masked_z.shape {masked_z.shape}")
         z_ = torch.cat((masked_z, embedded_z), dim=2)
 
         param_z = self.nn[i * self.d_z](z_)
