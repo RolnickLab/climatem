@@ -18,6 +18,7 @@ class Mask(nn.Module):
         drawhard: bool,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
+        nodiag: bool = False,
     ):
         super().__init__()
 
@@ -35,8 +36,15 @@ class Mask(nn.Module):
 
         # Here we could change how the mask is instantiated in the causal graph.
         if self.latent:
-            self.param = nn.Parameter(torch.ones((self.tau, d * d_x, d * d_x)) * 5)
-            self.fixed_mask = torch.ones_like(self.param)
+            if not nodiag:
+                self.param = nn.Parameter(torch.ones((self.tau, d * d_x, d * d_x)) * 5)
+                self.fixed_mask = torch.ones_like(self.param)
+            else:
+                param = torch.ones((self.tau, d * d_x, d * d_x))
+                param[:, torch.arange(d * d_x), torch.arange(d * d_x)] = -1
+                self.param = nn.Parameter(param * 5)
+                self.fixed_mask = torch.ones_like(self.param)
+                self.fixed_mask[:, torch.arange(self.fixed_mask.size(1)), torch.arange(self.fixed_mask.size(2))] = 0
             if self.instantaneous:
                 # TODO: G[0] or G[-1]
                 self.fixed_mask[-1, torch.arange(self.fixed_mask.size(1)), torch.arange(self.fixed_mask.size(2))] = 0
@@ -289,8 +297,8 @@ class LatentTSDCD(nn.Module):
             self.gt_w = None
             self.gt_graph = None
         else:
-            self.gt_w = torch.tensor(gt_w).double()
-            self.gt_graph = torch.tensor(gt_graph).double()
+            self.gt_w = torch.as_tensor(gt_w).double()
+            self.gt_graph = torch.as_tensor(gt_graph).double()
 
         if distr_z0 == "gaussian":
             self.distr_z0 = torch.normal
@@ -337,8 +345,15 @@ class LatentTSDCD(nn.Module):
         if debug_gt_w:
             self.decoder.w = gt_w
 
-        self.transition_model = TransitionModel(
-            self.d, self.d_z, self.total_tau, self.nonlinear_dynamics, self.num_layers, self.num_hidden, self.num_output
+        self.transition_model = TransitionModelParamSharing(
+            self.d,
+            self.d_z,
+            self.total_tau,
+            self.nonlinear_dynamics,
+            self.num_layers,
+            self.num_hidden,
+            self.num_output,
+            self.position_embedding_dim,
         )
 
         # print("We are setting the Mask here.")
@@ -427,13 +442,13 @@ class LatentTSDCD(nn.Module):
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
             # print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
-            for k in range(self.d_z):
-                # print("Doing the transition, and this is the k at the moment.", k)
-                # print("**************************************************")
-                # print("What is the shape of the mask?", mask.shape)
-                # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
-                # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
-                pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
+            # for k in range(self.d_z):
+            # print("Doing the transition, and this is the k at the moment.", k)
+            # print("**************************************************")
+            # print("What is the shape of the mask?", mask.shape)
+            # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
+            # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
+            pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
 
             # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
             # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
@@ -786,10 +801,10 @@ class LinearAutoEncoder(nn.Module):
         self.tied = tied
         self.use_grad_project = True
         unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-        self.w = nn.Parameter(unif / torch.tensor(d_z))
+        self.w = nn.Parameter(unif / torch.as_tensor(d_z))
         if not tied:
             unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-            self.w_encoder = nn.Parameter(unif / torch.tensor(d_x))
+            self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
@@ -843,10 +858,10 @@ class NonLinearAutoEncoder(nn.Module):
                 self.mask_encoder = MixingMask(d, d_x, d_z, gt_w)
         else:
             unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-            self.w = nn.Parameter(unif / torch.tensor(d_z))
+            self.w = nn.Parameter(unif / torch.as_tensor(d_z))
             if not tied:
                 unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-                self.w_encoder = nn.Parameter(unif / torch.tensor(d_x))
+                self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
@@ -1102,6 +1117,85 @@ class TransitionModel(nn.Module):
         # print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
 
         param_z = self.nn[i * self.d_z + k](masked_z)
+
+        # print("What is the shape of param_z?", param_z.size())
+
+        # param_z = self.nn(masked_z)
+
+        return param_z
+
+
+class TransitionModelParamSharing(nn.Module):
+    """Models the transitions between the latent variables Z with neural networks."""
+
+    # Attempt at parameter sharing in the transition model
+
+    def __init__(
+        self,
+        d: int,
+        d_z: int,
+        tau: int,
+        nonlinear_dynamics: bool,
+        num_layers: int,
+        num_hidden: int,
+        num_output: int = 2,
+        embedding_dim: int = 100,
+    ):
+        """
+        Args:
+            d: number of features
+            d_z: number of latent variables
+            tau: size of the timewindow
+            num_layers: number of layers for the neural networks
+            num_hidden: number of hidden units
+            num_output: number of outputs
+        """
+        super().__init__()
+        self.d = d  # number of variables
+        self.d_z = d_z
+        self.tau = tau
+        output_var = False
+
+        # initialize NNs
+        self.nonlinear_dynamics = nonlinear_dynamics
+        self.num_layers = num_layers
+        self.num_hidden = num_hidden
+        self.embedding_dim = embedding_dim
+        self.embedding_transition = nn.Embedding(d_z, embedding_dim)
+
+        if output_var:
+            self.num_output = num_output
+        else:
+            self.num_output = 1
+            # self.logvar = torch.ones(1)  * 0. # nn.Parameter(torch.ones(d) * 0.1)
+            # self.logvar = nn.Parameter(torch.ones(d) * -4)
+            self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
+        if self.nonlinear_dynamics:
+            print("NON LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(
+                MLP(num_layers, num_hidden, d * d_z * tau + embedding_dim, self.num_output) for i in range(d)
+            )
+        else:
+            print("LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau + embedding_dim, self.num_output) for i in range(d))
+        # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
+
+    def forward(self, z, mask, i):
+        """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
+        ..., G_{tau-k} * z_{t-k})"""
+
+        j_values = torch.arange(self.d_z, device=z.device).expand(
+            z.shape[0], -1
+        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
+        embedded_z = self.embedding_transition(j_values)
+        masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
+        z_ = torch.cat((masked_z, embedded_z), dim=2)
+
+        param_z = self.nn[i * self.d_z](z_)
+
+        del embedded_z
+        del masked_z
+        del z_
 
         # print("What is the shape of param_z?", param_z.size())
 

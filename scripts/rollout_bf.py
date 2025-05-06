@@ -160,7 +160,7 @@ def main(
 
     exp_path = Path(experiment_params.exp_path)
     if not os.path.exists(exp_path): 
-        raise ValueError("Results path doesn't exist. Model should be saved in this folder")
+        raise ValueError(f"Results path {exp_path} doesn't exist. Model should be saved in this folder")
     
     data_var_ids_str = (
         str(data_params.in_var_ids)[1:-1]
@@ -173,14 +173,14 @@ def main(
 #     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
     if not os.path.exists(exp_path): 
-        raise ValueError("Results path does not exist. Are you using the same parameters?")
+        raise ValueError(f"Results path {exp_path} does not exist. Are you using the same parameters?")
 
     # create path to exp and save hyperparameters
-    save_path = exp_path / "rollout_trajectories"
+    save_path = exp_path / "rollouts"
     os.makedirs(save_path, exist_ok=True)
 
     # seed = 1
-    save_path = save_path / f"batch_size_{rollout_params.batch_size}_num_particles_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_num_timesteps_{rollout_params.num_timesteps}_score_{rollout_params.score}_tempering_{rollout_params.tempering}"
+    save_path = save_path / f"bs_{rollout_params.batch_size}_np_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_t_{rollout_params.num_timesteps}_sc_{rollout_params.score}_temp_{rollout_params.tempering}"
     os.makedirs(save_path, exist_ok=True)
     
 
