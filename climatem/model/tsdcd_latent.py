@@ -18,6 +18,7 @@ class Mask(nn.Module):
         drawhard: bool,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
+        nodiag: bool = False,
     ):
         super().__init__()
 
@@ -35,8 +36,15 @@ class Mask(nn.Module):
 
         # Here we could change how the mask is instantiated in the causal graph.
         if self.latent:
-            self.param = nn.Parameter(torch.ones((self.tau, d * d_x, d * d_x)) * 5)
-            self.fixed_mask = torch.ones_like(self.param)
+            if not nodiag:
+                self.param = nn.Parameter(torch.ones((self.tau, d * d_x, d * d_x)) * 5)
+                self.fixed_mask = torch.ones_like(self.param)
+            else:
+                param = torch.ones((self.tau, d * d_x, d * d_x))
+                param[:, torch.arange(d * d_x), torch.arange(d * d_x)] = -1
+                self.param = nn.Parameter(param * 5)
+                self.fixed_mask = torch.ones_like(self.param)
+                self.fixed_mask[:, torch.arange(self.fixed_mask.size(1)), torch.arange(self.fixed_mask.size(2))] = 0
             if self.instantaneous:
                 # TODO: G[0] or G[-1]
                 self.fixed_mask[-1, torch.arange(self.fixed_mask.size(1)), torch.arange(self.fixed_mask.size(2))] = 0
@@ -289,8 +297,8 @@ class LatentTSDCD(nn.Module):
             self.gt_w = None
             self.gt_graph = None
         else:
-            self.gt_w = torch.tensor(gt_w).double()
-            self.gt_graph = torch.tensor(gt_graph).double()
+            self.gt_w = torch.as_tensor(gt_w).double()
+            self.gt_graph = torch.as_tensor(gt_graph).double()
 
         if distr_z0 == "gaussian":
             self.distr_z0 = torch.normal
@@ -793,10 +801,10 @@ class LinearAutoEncoder(nn.Module):
         self.tied = tied
         self.use_grad_project = True
         unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-        self.w = nn.Parameter(unif / torch.tensor(d_z))
+        self.w = nn.Parameter(unif / torch.as_tensor(d_z))
         if not tied:
             unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-            self.w_encoder = nn.Parameter(unif / torch.tensor(d_x))
+            self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
@@ -850,10 +858,10 @@ class NonLinearAutoEncoder(nn.Module):
                 self.mask_encoder = MixingMask(d, d_x, d_z, gt_w)
         else:
             unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-            self.w = nn.Parameter(unif / torch.tensor(d_z))
+            self.w = nn.Parameter(unif / torch.as_tensor(d_z))
             if not tied:
                 unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-                self.w_encoder = nn.Parameter(unif / torch.tensor(d_x))
+                self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
