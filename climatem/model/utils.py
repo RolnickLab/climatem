@@ -14,7 +14,7 @@ class ALM:
         omega_mu: float,
         h_threshold: float,
         min_iter_convergence: int,
-        dim_gamma=(1),
+        dim_gamma=(1,),
     ):
         self.gamma = torch.zeros(*dim_gamma)
         self.delta_gamma = -np.inf
