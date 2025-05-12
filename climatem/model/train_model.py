@@ -1252,7 +1252,7 @@ class TrainingLatent:
                 crps[idx] = t1 + t2
 
             if torch.isnan(crps).any():
-                print("[NaN] Final CRPS")
+                raise ValueError("[NaN] Final CRPS")
 
             # Clamp final CRPS to ensure numerical validity
             crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)

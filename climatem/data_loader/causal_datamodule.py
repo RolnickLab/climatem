@@ -10,7 +10,8 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
-from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
+from climatem.data_loader.cmip6_dataset import CMIP6Dataset
+from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.savar_dataset import SavarDataset
 
 
