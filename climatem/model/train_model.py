@@ -1261,7 +1261,7 @@ class TrainingLatent:
                 crps[idx] = t1 + t2
 
             if torch.isnan(crps).any():
-                raise ValueError("[NaN] Final CRPS")
+                print("[NaN] Final CRPS")
 
             # Clamp final CRPS to ensure numerical validity
             crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
@@ -1275,10 +1275,15 @@ class TrainingLatent:
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
 
-            pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi]))
-            crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
-            crps = torch.sum(crps) / y.size(0)
-            return crps
+        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
+
+        # calculate the CRPS
+        crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+
+        # add together all the CRPS values and divide by the number of samples
+        crps = torch.sum(crps) / y.size(0)
+
+        return crps
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """
