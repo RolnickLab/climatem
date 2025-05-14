@@ -303,6 +303,7 @@ def particle_filter_weighting_bayesian(
         new_weights = new_weights / torch.sum(new_weights, dim=0)
         # clip the new_weights to avoid numerical instability
         new_weights = torch.clamp(new_weights, min=1e-8, max=1.0)
+        new_weights = new_weights / torch.sum(new_weights, dim=0)
 
         # REMOVE THIS FOR LOOP IF POSSIBLE
 #         print(f"For loop batch resample batch_size {batch_size}")
@@ -312,7 +313,7 @@ def particle_filter_weighting_bayesian(
             # Here, every num_particles_per_particle we should sample one i.e. we track each trajectory
             resampled_indices = torch.zeros([num_particles, batch_size], dtype = torch.long)
             for k in range(num_particles):
-                idx_trajectory = torch.tensor(np.arange(k, k+(num_particles_per_particle)*num_particles, num_particles))
+                idx_trajectory = torch.arange(k, k+(num_particles_per_particle)*num_particles, num_particles)
                 resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
 
         # for i in range(batch_size):
