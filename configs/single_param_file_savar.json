@@ -123,7 +123,7 @@
     "savar_params": {
         "time_len": 10000,
         "comp_size": 10,
-        "noise_val": 0.2,
+        "noise_val": 0.25,
         "n_per_col": 3,
         "difficulty": "easy",
         "seasonality": false,
@@ -138,6 +138,5 @@
         "poly_degrees": [2,3],
         "plot_original_data": true
     }
-
 }
 

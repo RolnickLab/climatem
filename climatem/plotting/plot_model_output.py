@@ -96,6 +96,7 @@ class Plotter:
         self.gt_w = data_loader.gt_w
         self.gt_graph = data_loader.gt_dag
 
+
     def plot(self, learner, save=False):
         """
         Main plotting function.
@@ -1153,6 +1154,8 @@ class Plotter:
                 mat1[k] = mat1[k][np.ix_(permutation_list, permutation_list)]
 
             print("PERMUTED THE MATRICES")
+
+            #np.save(learner.plots_path / f"adjacency_{name_suffix}_permuted.npy", mat1)
 
 
         subfig_names = [
