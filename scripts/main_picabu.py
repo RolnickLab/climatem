@@ -144,7 +144,7 @@ def main(
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
-        distr_decoder="gaussian",
+        distr_decoder="gev",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
@@ -214,6 +214,7 @@ def main(
         d,
         accelerator,
         wandbname=name,
+        profiler=False,
     )
 
     # where is the model at this point?

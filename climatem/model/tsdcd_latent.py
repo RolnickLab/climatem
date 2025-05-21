@@ -1,10 +1,28 @@
 # Adapted from the original code for CDSD, Brouillard et al., 2024.
 
 from collections import OrderedDict
+from math import pi
 
 import torch
 import torch.distributions as distr
 import torch.nn as nn
+from torch.distributions import Distribution
+
+euler_mascheroni = 0.57721566490153286060
+
+
+def print_nan_stats(name, tensor, verbose=False):
+    if not torch.is_tensor(tensor):
+        print(f"{name}: Not a tensor (type={type(tensor)}), value={tensor}")
+        return
+
+    if torch.isnan(tensor).any() or torch.isinf(tensor).any():
+        print(f"[NaN/Inf Detected] {name}")
+        print(f"  NaNs: {torch.isnan(tensor).sum().item()}, Infs: {torch.isinf(tensor).sum().item()}")
+        if verbose:
+            print(f"  Shape: {tensor.shape}")
+            print(f"  Min: {tensor.min().item()}, Max: {tensor.max().item()}")
+            print(f"  Mean: {tensor.mean().item()}, Std: {tensor.std().item()}")
 
 
 class Mask(nn.Module):
@@ -18,6 +36,7 @@ class Mask(nn.Module):
         drawhard: bool,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
+        nodiag: bool = False,
     ):
         super().__init__()
 
@@ -35,8 +54,15 @@ class Mask(nn.Module):
 
         # Here we could change how the mask is instantiated in the causal graph.
         if self.latent:
-            self.param = nn.Parameter(torch.ones((self.tau, d * d_x, d * d_x)) * 5)
-            self.fixed_mask = torch.ones_like(self.param)
+            if not nodiag:
+                self.param = nn.Parameter(torch.ones((self.tau, d * d_x, d * d_x)) * 5)
+                self.fixed_mask = torch.ones_like(self.param)
+            else:
+                param = torch.ones((self.tau, d * d_x, d * d_x))
+                param[:, torch.arange(d * d_x), torch.arange(d * d_x)] = -1
+                self.param = nn.Parameter(param * 5)
+                self.fixed_mask = torch.ones_like(self.param)
+                self.fixed_mask[:, torch.arange(self.fixed_mask.size(1)), torch.arange(self.fixed_mask.size(2))] = 0
             if self.instantaneous:
                 # TODO: G[0] or G[-1]
                 self.fixed_mask[-1, torch.arange(self.fixed_mask.size(1)), torch.arange(self.fixed_mask.size(2))] = 0
@@ -216,6 +242,7 @@ class LatentTSDCD(nn.Module):
         tied_w: bool = False,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
+        gev_learn_xi: bool = False,
     ):
         """
         Args:
@@ -249,6 +276,7 @@ class LatentTSDCD(nn.Module):
             # including the option for a fixed causal graph for experiments
             fixed: if True, fix the mask (in simple case to all ones)
             fixed_output_fraction: fraction of ones in the fixed
+            gev_learn_xi: if True, GEV will take learned xi
         """
         super().__init__()
 
@@ -276,9 +304,9 @@ class LatentTSDCD(nn.Module):
         self.debug_gt_z = debug_gt_z
         self.debug_gt_w = debug_gt_w
         self.tied_w = tied_w
-
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
+        self.gev_learn_xi = gev_learn_xi
 
         if self.instantaneous:
             self.total_tau = tau + 1
@@ -289,8 +317,8 @@ class LatentTSDCD(nn.Module):
             self.gt_w = None
             self.gt_graph = None
         else:
-            self.gt_w = torch.tensor(gt_w).double()
-            self.gt_graph = torch.tensor(gt_graph).double()
+            self.gt_w = torch.as_tensor(gt_w).double()
+            self.gt_graph = torch.as_tensor(gt_graph).double()
 
         if distr_z0 == "gaussian":
             self.distr_z0 = torch.normal
@@ -308,10 +336,22 @@ class LatentTSDCD(nn.Module):
         else:
             raise NotImplementedError("This distribution is not implemented yet.")
 
-        if distr_decoder == "gaussian":
+        if distr_decoder == "gev":
+            self.distr_decoder = GEVDistribution
+
+            if gev_learn_xi:
+                # Learn a xi for each variable/grid point (or customize shape as needed)
+                self.xi = nn.Parameter(torch.zeros(d, d_x))  # shape matches px_mu
+            else:
+                # Use fixed xi (e.g., Gumbel limit)
+                self.xi = torch.tensor(0.0)
+
+            self.gev_learn_xi = gev_learn_xi
+
+        elif distr_decoder == "gaussian":
             self.distr_decoder = distr.normal.Normal
         else:
-            raise NotImplementedError("This distribution is not implemented yet.")
+            raise NotImplementedError(f"Decoder distribution '{distr_decoder}' is not implemented.")
 
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
@@ -337,8 +377,15 @@ class LatentTSDCD(nn.Module):
         if debug_gt_w:
             self.decoder.w = gt_w
 
-        self.transition_model = TransitionModel(
-            self.d, self.d_z, self.total_tau, self.nonlinear_dynamics, self.num_layers, self.num_hidden, self.num_output
+        self.transition_model = TransitionModelParamSharing(
+            self.d,
+            self.d_z,
+            self.total_tau,
+            self.nonlinear_dynamics,
+            self.num_layers,
+            self.num_hidden,
+            self.num_output,
+            self.position_embedding_dim,
         )
 
         # print("We are setting the Mask here.")
@@ -380,9 +427,12 @@ class LatentTSDCD(nn.Module):
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
-
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
+                if torch.isnan(q_mu).any() or torch.isnan(q_std).any():
+                    print(f"NaNs in encoder output at i={i}, t={t}")
+                    print("q_mu:", q_mu)
+                    print("q_std:", q_std)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
 
             # q_mu, q_logvar = self.encoder_decoder(y[:, i], i, encoder=True)  # torch.matmul(self.W, x)
@@ -398,12 +448,13 @@ class LatentTSDCD(nn.Module):
 
             # carry on
             z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+            print("z[:, :-1, i]", z[:, :-1, i])
 
             # assert torch.all(penultimate_z == z[:, -2, i])
             # assert torch.all(all_z_except_last == z[:, :-1, i])
 
-            mu[:, i] = q_mu
-            std[:, i] = q_std
+        mu[:, i] = q_mu
+        std[:, i] = q_std
 
         return z, mu, std
 
@@ -427,13 +478,13 @@ class LatentTSDCD(nn.Module):
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
             # print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
-            for k in range(self.d_z):
-                # print("Doing the transition, and this is the k at the moment.", k)
-                # print("**************************************************")
-                # print("What is the shape of the mask?", mask.shape)
-                # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
-                # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
-                pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
+            # for k in range(self.d_z):
+            # print("Doing the transition, and this is the k at the moment.", k)
+            # print("**************************************************")
+            # print("What is the shape of the mask?", mask.shape)
+            # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
+            # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
+            pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
 
             # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
             # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
@@ -463,8 +514,7 @@ class LatentTSDCD(nn.Module):
 
         return mu, std
 
-    def forward(self, x, y, gt_z, iteration):
-
+    def forward(self, x, y, gt_z, iteration, xi=None):
         b = x.size(0)
 
         # sample Zs (based on X)
@@ -487,8 +537,27 @@ class LatentTSDCD(nn.Module):
         px_mu, px_std = self.decode(z[:, -1])
 
         # set distribution with obtained parameters
-        px_distr = self.distr_decoder(px_mu, px_std)
-
+        if self.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
+            px_distr = self.distr_decoder(px_mu, px_std, xi)
+            eps = 1e-6
+            q_std_y_safe = q_std_y.clamp(min=eps)
+            pz_std_safe = pz_std.clamp(min=eps)
+            kl_raw = (
+                0.5 * (torch.log(pz_std_safe**2) - torch.log(q_std_y_safe**2))
+                + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / pz_std_safe**2
+                - 0.5
+            )
+            if torch.isnan(kl_raw).any():
+                print("[NaN DETECTED] In KL raw terms")
+                print("q_std_y_safe:", q_std_y_safe)
+                print("pz_std_safe:", pz_std_safe)
+                print("q_mu_y:", q_mu_y)
+                print("pz_mu:", pz_mu)
+                raise ValueError("NaNs in kl_raw")
+        else:
+            px_distr = self.distr_decoder(px_mu, px_std)
+        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
         # compute the KL, the reconstruction and the ELBO
         # kl = distr.kl_divergence(q, p).mean()
         kl_raw = (
@@ -500,8 +569,6 @@ class LatentTSDCD(nn.Module):
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
         assert kl >= 0, f"KL={kl} has to be >= 0"
-
-        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
 
         # TODO: remove - option to change the coefficient of the KL term
         self.coeff_kl = 1.0
@@ -666,7 +733,13 @@ class LatentTSDCD(nn.Module):
 
             # TODO: Remove this for loop
             for i in range(num_samples):
-                samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
+                if self.distr_decoder.__name__ == "GEVDistribution":
+                    xi = self.xi
+                    if isinstance(xi, torch.Tensor) and xi.ndim < px_mu.ndim:
+                        xi = xi.expand_as(px_mu)  # ensure broadcast shape
+                    samples_from_xs[i] = self.distr_decoder(px_mu, px_std, xi).sample()
+                else:
+                    samples_from_xs[i] = self.distr_decoder(px_mu, px_std).sample()
 
             del z_samples
 
@@ -786,10 +859,10 @@ class LinearAutoEncoder(nn.Module):
         self.tied = tied
         self.use_grad_project = True
         unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-        self.w = nn.Parameter(unif / torch.tensor(d_z))
+        self.w = nn.Parameter(unif / torch.as_tensor(d_z))
         if not tied:
             unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-            self.w_encoder = nn.Parameter(unif / torch.tensor(d_x))
+            self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
@@ -843,15 +916,16 @@ class NonLinearAutoEncoder(nn.Module):
                 self.mask_encoder = MixingMask(d, d_x, d_z, gt_w)
         else:
             unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-            self.w = nn.Parameter(unif / torch.tensor(d_z))
+            self.w = nn.Parameter(unif / torch.as_tensor(d_z))
             if not tied:
                 unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-                self.w_encoder = nn.Parameter(unif / torch.tensor(d_x))
+                self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
         self.logvar_encoder = nn.Parameter(torch.ones(d_z) * -1)
         self.logvar_decoder = nn.Parameter(torch.ones(d_x) * -1)
+        print_nan_stats("init: self.w_encoder", self.w_encoder)
 
     def get_w_encoder(self):
         if self.use_gumbel_mask:
@@ -870,7 +944,7 @@ class NonLinearAutoEncoder(nn.Module):
         if self.use_gumbel_mask:
             return self.mask.param
         else:
-            return self.w
+            return torch.nan_to_num(self.w, nan=0.0).clamp(min=0.0)
 
     def get_encode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -878,19 +952,35 @@ class NonLinearAutoEncoder(nn.Module):
                 sampled_mask = self.mask(bs_size)
             else:
                 sampled_mask = self.mask_encoder(bs_size)
+            print_nan_stats("sampled_mask (Gumbel)", sampled_mask)
+            return torch.nan_to_num(sampled_mask, nan=0.0)
+
         else:
             if self.tied:
-                return torch.transpose(self.w, 1, 2)
+                fixed_mask = torch.transpose(self.w, 1, 2)
+                print_nan_stats("fixed tied mask (w.T)", fixed_mask)
+                return torch.nan_to_num(fixed_mask, nan=0.0)
             else:
-                return self.w_encoder
-        return sampled_mask
+                print_nan_stats("fixed untied mask (w_encoder)", self.w_encoder)
+                return torch.nan_to_num(self.w_encoder, nan=0.0)
 
-    def select_encoder_mask(self, mask, i, j):
-        if self.use_gumbel_mask:
-            mask = mask[:, i, :, j]
-        else:
-            mask = mask[i, j]
-        return mask
+    def select_encoder_mask(self, mask, i, j_values):
+        print_nan_stats("select_encoder_mask: mask (before indexing)", mask)
+        print_nan_stats("select_encoder_mask: j_values", j_values)
+
+        # Defensive check for out-of-bounds j_values
+        if torch.max(j_values) >= mask.shape[1] or torch.min(j_values) < 0:
+            print("[IndexError] j_values contains out-of-bounds indices for mask!")
+            print(f"  mask.shape: {mask.shape}, max j: {torch.max(j_values)}, min j: {torch.min(j_values)}")
+
+        try:
+            out = mask[i, j_values]
+            print_nan_stats("select_encoder_mask: output mask_", out)
+            return out
+        except Exception as e:
+            print(f"[Exception in select_encoder_mask] {e}")
+            print(f"mask.shape = {mask.shape}, i = {i}, j_values.shape = {j_values.shape}")
+            raise
 
     def get_decode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -1108,3 +1198,196 @@ class TransitionModel(nn.Module):
         # param_z = self.nn(masked_z)
 
         return param_z
+
+
+class TransitionModelParamSharing(nn.Module):
+    """Models the transitions between the latent variables Z with neural networks."""
+
+    # Attempt at parameter sharing in the transition model
+
+    def __init__(
+        self,
+        d: int,
+        d_z: int,
+        tau: int,
+        nonlinear_dynamics: bool,
+        num_layers: int,
+        num_hidden: int,
+        num_output: int = 2,
+        embedding_dim: int = 100,
+    ):
+        """
+        Args:
+            d: number of features
+            d_z: number of latent variables
+            tau: size of the timewindow
+            num_layers: number of layers for the neural networks
+            num_hidden: number of hidden units
+            num_output: number of outputs
+        """
+        super().__init__()
+        self.d = d  # number of variables
+        self.d_z = d_z
+        self.tau = tau
+        output_var = False
+
+        # initialize NNs
+        self.nonlinear_dynamics = nonlinear_dynamics
+        self.num_layers = num_layers
+        self.num_hidden = num_hidden
+        self.embedding_dim = embedding_dim
+        self.embedding_transition = nn.Embedding(d_z, embedding_dim)
+
+        if output_var:
+            self.num_output = num_output
+        else:
+            self.num_output = 1
+            # self.logvar = torch.ones(1)  * 0. # nn.Parameter(torch.ones(d) * 0.1)
+            # self.logvar = nn.Parameter(torch.ones(d) * -4)
+            self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
+        if self.nonlinear_dynamics:
+            print("NON LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(
+                MLP(num_layers, num_hidden, d * d_z * tau + embedding_dim, self.num_output) for i in range(d)
+            )
+        else:
+            print("LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau + embedding_dim, self.num_output) for i in range(d))
+        # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
+
+    def forward(self, z, mask, i):
+        """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
+        ..., G_{tau-k} * z_{t-k})"""
+
+        j_values = torch.arange(self.d_z, device=z.device).expand(
+            z.shape[0], -1
+        )  # create a 2D tensor with shape (x.shape[0], self.d_z)
+        embedded_z = self.embedding_transition(j_values)
+        masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
+        z_ = torch.cat((masked_z, embedded_z), dim=2)
+
+        param_z = self.nn[i * self.d_z](z_)
+
+        del embedded_z
+        del masked_z
+        del z_
+
+        # print("What is the shape of param_z?", param_z.size())
+
+        # param_z = self.nn(masked_z)
+
+        return param_z
+
+
+class GEVDistribution(Distribution):
+    arg_constraints = {}
+    has_rsample = False
+    support = torch.distributions.constraints.real
+
+    def __init__(self, mu, sigma, xi, validate_args=None):
+        """
+        Generalized Extreme Value (GEV) distribution.
+
+        Args:
+            mu: location parameter
+            sigma: scale parameter (must be > 0)
+            xi: shape parameter
+        """
+        self.mu = mu
+        self.sigma = sigma
+        self.xi = xi
+        batch_shape = torch.broadcast_shapes(mu.shape, sigma.shape, xi.shape)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    def _standardized(self, value):
+        """Transform to standardized variable z = (x - mu)/sigma"""
+        return (value - self.mu) / self.sigma
+
+    def log_prob(self, value):
+        eps = 1e-6  # larger epsilon to prevent tiny xi/sigma
+        z = self._standardized(value)  # (value - mu) / sigma
+        z = z.clamp(min=-1e4, max=1e4)  # avoid overflow
+
+        sigma = self.sigma.clamp(min=eps)
+        xi = self.xi
+        xi_safe = xi.clone()
+        xi_safe = xi_safe.clamp(min=-1e2, max=1e2)
+
+        t = (1 + xi_safe * z).clamp(min=eps, max=1e6)  # stability in log/pow
+
+        gumbel_mask = xi.abs() < eps
+        log_pdf_gumbel = -z - torch.exp(-z.clamp(min=-100, max=100)) - torch.log(sigma)
+
+        if torch.all(gumbel_mask):
+            return log_pdf_gumbel
+
+        elif torch.all(~gumbel_mask):
+            inv_xi = (1 / xi_safe).clamp(min=-1e2, max=1e2)
+            logt = torch.log(t)
+            pow_term = torch.nan_to_num(t.pow(-inv_xi), nan=1e3, posinf=1e3, neginf=1e3)
+            log_pdf_gev = -((1 + inv_xi) * logt) - pow_term - torch.log(sigma)
+            return log_pdf_gev
+
+        else:
+            log_pdf = torch.empty_like(log_pdf_gumbel)
+
+            # Fill Gumbel values
+            log_pdf[gumbel_mask] = log_pdf_gumbel[gumbel_mask]
+
+            # GEV values
+            gev_mask = ~gumbel_mask
+            xi_gev = xi_safe[gev_mask]
+            sigma_gev = sigma[gev_mask]
+            z_gev = z[gev_mask]
+
+            t_gev = (1 + xi_gev * z_gev).clamp(min=eps, max=1e6)
+            inv_xi_gev = (1 / xi_gev).clamp(min=-1e2, max=1e2)
+
+            logt_gev = torch.log(t_gev)
+            pow_term = torch.nan_to_num(t_gev.pow(-inv_xi_gev), nan=1e3, posinf=1e3, neginf=1e3)
+
+            log_pdf_gev = -((1 + inv_xi_gev) * logt_gev) - pow_term - torch.log(sigma_gev)
+            log_pdf[gev_mask] = log_pdf_gev
+
+            if torch.isnan(log_pdf).any():
+                print("[NaN DETECTED] in GEV log_prob!")
+
+            return log_pdf
+
+    def sample(self, sample_shape=torch.Size()):
+        """Inverse transform sampling from the GEV distribution."""
+        u = torch.rand(sample_shape + self.mu.shape, device=self.mu.device).clamp(1e-6, 1 - 1e-6)
+
+        if torch.any(self.xi.abs() < 1e-8):
+            # Gumbel case
+            return self.mu - self.sigma * torch.log(-torch.log(u))
+        else:
+            return self.mu + self.sigma * ((-torch.log(u)).pow(-self.xi) - 1) / self.xi
+
+    def mean(self):
+        """Return mean if defined (xi < 1)"""
+        # mu = location parameter
+        # sigma = scale parameter
+        # xi = shape parameter
+        # gamma = gamma function
+        # hardcodes the Euler–Mascheroni constant, which is the mean of the Gumbel distribution — the special case of GEV when ξ = 0.
+        if torch.any(self.xi >= 1):
+            # xi values are ≥ 1
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            # xi is approximately zero, this returns the Gumbel mean
+            return self.mu + self.sigma * euler_mascheroni
+        else:
+            # general GEV cases where 0 < xi < 1,
+            return torch.tensor(float("nan"), device=self.mu.device)
+
+    def variance(self):
+        """Return variance if defined (xi < 0.5)"""
+        if torch.any(self.xi >= 0.5):
+            return torch.tensor(float("nan"), device=self.mu.device)
+        if torch.all(self.xi.abs() < 1e-8):
+            # closed-form variance of the Gumbel distribution
+            return (pi**2 / 6) * self.sigma**2
+        else:
+            # 0 < xi < 0.5 — currently not implemented
+            return torch.tensor(float("nan"), device=self.mu.device)

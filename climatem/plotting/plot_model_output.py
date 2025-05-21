@@ -488,34 +488,59 @@ class Plotter:
             axes[1].set_title(f"GT mixing. j={j}, val={gt_w[0, i, j]:.2f}")
 
             plt.savefig(path / f"learned_mixing_x{i}.png")
-            plt.close()
-
+    
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path):
         """
-        Plot the predicted x_hat compared to the ground-truth x using Cartopy.
+        Plot the predicted x_hat compared to the ground-truth x
+        Args:
+            x: ground-truth x (for a specific physical variable)
+            x_past: ground-truth x at (t-1)
+            x_hat: x predicted by the model
+            coordinates: array of shape (N, 2), with [lat, lon] or [lon, lat]
+            path: path where to save the plot
         """
-        fig, axs = plt.subplots(3, 1, subplot_kw={'projection': ccrs.Robinson()}, figsize=(12, 12))
+        fig, axes = plt.subplots(nrows=3, ncols=1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 15))
+        fig.suptitle("Ground-truth vs prediction", fontsize=16)
 
-        titles = ["Previous GT", "Ground-truth", "Prediction"]
-        data = [x_past, x, x_hat]
+        # Ensure coordinates are in the right order (lon, lat)
+        if np.max(coordinates[:, 0]) > 91:
+            coordinates = np.flip(coordinates, axis=1)
 
         lon = coordinates[:, 0]
         lat = coordinates[:, 1]
         X, Y = np.meshgrid(np.unique(lon), np.unique(lat))
 
-        for ax, title, z in zip(axs, titles, data):
+        for i, ax in enumerate(axes):
             ax.set_global()
             ax.coastlines()
             ax.add_feature(cfeature.BORDERS, linestyle=":")
+            ax.add_feature(cfeature.COASTLINE)
             ax.add_feature(cfeature.LAND, edgecolor="black")
             ax.gridlines(draw_labels=False)
 
-            Z = z.reshape(Y.shape)
-            pcm = ax.pcolormesh(X, Y, Z, cmap="RdBu_r", vmin=-3.5, vmax=3.5, transform=ccrs.PlateCarree())
-            ax.set_title(title)
+            if i == 0:
+                Z = x_past
+                ax.set_title("Previous GT")
+            elif i == 1:
+                Z = x
+                ax.set_title("Ground-truth")
+            elif i == 2:
+                Z = x_hat
+                ax.set_title("Prediction")
 
-        fig.colorbar(pcm, ax=axs, orientation='vertical', shrink=0.7, label="Normalized value")
-        plt.suptitle("Ground-truth vs prediction", fontsize=16)
+            cs = ax.pcolormesh(
+                X,
+                Y,
+                Z.reshape(X.shape[0], X.shape[1]),
+                transform=ccrs.PlateCarree(),
+                cmap="RdBu_r",
+                vmin=-3.5,
+                vmax=3.5,
+            )
+
+        # Add colorbar
+        fig.colorbar(cs, ax=axes.ravel().tolist(), shrink=0.7, orientation="horizontal", label="Normalized value")
+
         plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
