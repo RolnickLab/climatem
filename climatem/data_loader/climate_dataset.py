@@ -150,80 +150,72 @@ class ClimateDataset(torch.utils.data.Dataset):
     # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
     def load_into_mem(
         self,
-        paths: List[List[str]],
-        num_vars: int,
-        channels_last=True,
-        seq_to_seq=True,
-        get_years=None,
+        paths: List[str],
+        variables: List[str],
+        channels_last: bool = True,
+        seq_to_seq: bool = True,
+        get_years: Optional[List[int]] = None,
     ):
         """
-        Take a file structure of netcdf or grib files and load them into memory.
+        Load multiple variables from single-file datasets (e.g., NetCDF or GRIB).
 
         Args:
-            paths (List[List[str]]): one list of filepaths per variable
-            num_vars (int): number of input variables
-            channels_last (bool): unused for now
-            seq_to_seq (bool): whether to retain full sequence or only last timestep
-            get_years (Optional[List[int]]): list of years (used to determine n_timesteps)
+            paths: List of file paths (each containing all requested variables).
+            variables: List of variable names to extract.
+            channels_last: Whether to keep channel dimension last.
+            seq_to_seq: Whether to retain full sequence or just final timestep.
+            get_years: If provided, used to trim to expected number of time steps.
         """
-        array_list = []
-        self.input_var_shapes = {}
-        n_timesteps = len(get_years) if get_years else None
-        expected_timesteps = n_timesteps * self.seq_len if n_timesteps else None
+        all_arrays = []
+        self.input_var_shapes = {}  # {var: flattened size}
 
-        for i, vlist in enumerate(paths):
-            if not vlist:
-                raise ValueError(f"Empty path list for variable index {i}")
+        for var in variables:
+            var_data_list = []
+            for file in paths:
+                suffix = Path(file).suffix.lower()
+                engine = "cfgrib" if suffix in [".grib", ".grib2"] else None
+                ds = xr.open_dataset(file, engine=engine).compute()
+                if var not in ds:
+                    raise ValueError(f"Variable '{var}' not found in {file}")
+                data = ds[var].to_numpy()
+                if data.ndim == 2:
+                    data = data[None, ...]  # shape (1, lat, lon)
+                elif data.ndim == 3:
+                    pass  # shape (T, lat, lon)
+                else:
+                    raise ValueError(f"Unsupported shape {data.shape} for variable '{var}'")
+                var_data_list.append(data)
 
-            first_file = Path(vlist[0])
-            suffix = first_file.suffix.lower()
+            full_data = np.concatenate(var_data_list, axis=0)  # (T, lat, lon)
+            self.input_var_shapes[var] = np.prod(full_data.shape[1:])  # flatten spatial dims
+            all_arrays.append(full_data[None, ...])  # → (1, T, lat, lon)
 
-            # Open NetCDF or GRIB
-            if suffix == ".nc":
-                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
-                if "bnds" in temp_data.dims:
-                    temp_data = temp_data.drop_dims("bnds")
-                data_array = temp_data.to_array().to_numpy()  # shape (1, T, ...)
-            elif suffix in [".grib", ".grib2"]:
-                temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
-                data_array = temp_data.to_array().to_numpy()  # shape (1, T, ...)
-            else:
-                raise ValueError(f"Unsupported file format: {suffix}")
+        data = np.concatenate(all_arrays, axis=0)  # (V, T, lat, lon)
+        total_timesteps = data.shape[1]
 
-            if data_array.ndim not in [3, 4]:
-                raise ValueError(f"Unsupported shape {data_array.shape} for variable index {i}")
+        if get_years is not None:
+            n_timesteps = len(get_years)
+            expected_timesteps = n_timesteps * self.seq_len
+            data = data[:, :expected_timesteps, ...]
+        else:
+            n_timesteps = total_timesteps // self.seq_len
+            expected_timesteps = n_timesteps * self.seq_len
+            data = data[:, :expected_timesteps, ...]
 
-            spatial_dims = data_array.shape[2:]
-            self.input_var_shapes[i] = spatial_dims
-
-            # Check or trim time
-            total_timesteps = data_array.shape[1]
-            if expected_timesteps:
-                if total_timesteps < expected_timesteps:
-                    raise ValueError(f"Too few timesteps: {total_timesteps} < {expected_timesteps}")
-                elif total_timesteps > expected_timesteps:
-                    print(f"Trimming data for var {i}: {total_timesteps} → {expected_timesteps}")
-                    data_array = data_array[:, :expected_timesteps]
-            else:
-                n_timesteps = total_timesteps // self.seq_len
-                expected_timesteps = n_timesteps * self.seq_len
-                if total_timesteps > expected_timesteps:
-                    print(f"[load_into_mem] Trimming data from {total_timesteps} to {expected_timesteps} (var {i})")
-                    data_array = data_array[:, :expected_timesteps]
-
-            # Reshape to (1, n, M, ...)
-            reshaped = data_array.reshape(1, n_timesteps, self.seq_len, *spatial_dims)
-            array_list.append(reshaped)
-
-        # Join along variable axis → (n_vars, n, M, ...)
-        data = np.concatenate(array_list, axis=0)
-        data = data.transpose((1, 2, 0, *range(3, data.ndim)))  # → (n, M, n_vars, ...)
+        reshaped = data.reshape(len(variables), n_timesteps, self.seq_len, *data.shape[2:])
+        reshaped = reshaped.transpose(1, 2, 0, *range(3, reshaped.ndim))  # (Y, M, V, ...)
 
         if not seq_to_seq:
-            data = data[:, -1:, ...]
-            print("After seq_to_seq=False reshape:", data.shape)
+            reshaped = reshaped[:, -1:, ...]
 
-        return data
+        # Compute input_var_offsets for later masking
+        self.input_var_offsets = [0]
+        for var in variables:
+            last_offset = self.input_var_offsets[-1]
+            self.input_var_offsets.append(last_offset + self.input_var_shapes[var])
+
+        return reshaped
+
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 
