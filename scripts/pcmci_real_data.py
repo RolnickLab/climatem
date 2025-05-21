@@ -210,7 +210,8 @@ def particle_filter_weighting_bayesian(
 
         # normalise the weights along the first dimension
 
-        # TODO below this!!
+        # TODO below this!! --> replace with best per particle 
+        # Right now N*npp -- need to reshape and take argmax 
         max_weight = np.max(new_weights, axis=0)
         new_weights -= max_weight
         new_weights = np.exp(new_weights)
@@ -219,9 +220,17 @@ def particle_filter_weighting_bayesian(
         new_weights[new_weights < 1e-16] = 0
         new_weights = new_weights / np.sum(new_weights, axis=0)
 
-        resampled_indices_array = np.random.choice(
-            np.arange(num_particles * num_particles_per_particle), p=new_weights, size=num_particles, replace=True
-        )
+        # HERE NEED TO REPLACE
+        # resampled_indices_array = np.random.choice(
+        #     np.arange(num_particles * num_particles_per_particle), p=new_weights, size=num_particles, replace=True
+        # )
+        resampled_indices = np.zeros([num_particles, batch_size])
+        for k in range(num_particles):
+            idx_trajectory = np.arange(k, k+(num_particles_per_particle)*num_particles, num_particles)
+            resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
+
+
+
         # append these resampled indices to n array so we get an output of shape (5, batch_size)
         #             if i == 0:
         #                 resampled_indices_array = resampled_indices
@@ -234,7 +243,7 @@ def particle_filter_weighting_bayesian(
         # assert that the two resampled indices are the same
         # assert torch.all(resampled_indices_array == resampled_indices_array2)
 
-        particles = particles[resampled_indices_array]
+        particles = particles[resampled_indices]
 
         if _ == 0:
             x = x[None].repeat(num_particles, axis=0)
@@ -312,6 +321,8 @@ else:
 
 if __name__ == "__main__":
 
+    # Rewrite data loader --- OK
+
     print("Loading PiControl data")
     with open("/home/mila/j/julien.boussard/causal_model/climatem/scripts/configs/params_data_loading.json", "r") as f:
         hp = json.load(f)
@@ -371,7 +382,7 @@ if __name__ == "__main__":
     for k in range(n_modes):
         var_names.append(rf"$X^{k}$")
 
-    sparsity_value = 0.05
+    sparsity_value = 0.5 # Why 0.05??
     n_desired_links = sparsity_value * n_modes * n_modes * tau
 
     pca_model = PCA(n_modes)

@@ -1,4 +1,6 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
+import gc
+
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -13,6 +15,8 @@ from climatem.model.dag_optim import compute_dag_constraint
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
+
+euler_mascheroni = 0.57721566490153286060
 
 
 class TrainingLatent:
@@ -137,28 +141,28 @@ class TrainingLatent:
         #     self.model = DDP(self.model)
 
         # I think this is just initialising a tensor of zeroes to store results in
-        if self.instantaneous:
-            self.adj_tt = torch.zeros(
-                [
-                    int(self.train_params.max_iteration / self.train_params.valid_freq),
-                    self.tau + 1,
-                    self.d * self.d_z,
-                    self.d * self.d_z,
-                ]
-            )
-        else:
-            self.adj_tt = torch.zeros(
-                [
-                    int(self.train_params.max_iteration / self.train_params.valid_freq),
-                    self.tau,
-                    self.d * self.d_z,
-                    self.d * self.d_z,
-                ]
-            )
         if not self.no_gt:
             self.adj_w_tt = torch.zeros(
                 [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
             )
+            if self.instantaneous:
+                self.adj_tt = torch.zeros(
+                    [
+                        int(self.train_params.max_iteration / self.train_params.valid_freq),
+                        self.tau + 1,
+                        self.d * self.d_z,
+                        self.d * self.d_z,
+                    ]
+                )
+            else:
+                self.adj_tt = torch.zeros(
+                    [
+                        int(self.train_params.max_iteration / self.train_params.valid_freq),
+                        self.tau,
+                        self.d * self.d_z,
+                        self.d * self.d_z,
+                    ]
+                )
         self.logvar_encoder_tt = []
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
@@ -182,6 +186,24 @@ class TrainingLatent:
         self.data_loader_train, self.model, self.optimizer, self.scheduler = accelerator.prepare(
             self.data_loader_train, self.model, self.optimizer, self.scheduler
         )
+
+        # Check that model and everything is on gpu
+        # print("\nModel Parameter Devices after moving to GPU:")
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name}: {param.device}")
+
+        # # Check the device of a sample batch (after iterating through the prepared dataloader)
+        # for batch in self.data_loader_train:
+        #     inputs, labels = batch
+        #     print(f"Input tensor device: {inputs.device}")
+        #     print(f"Label tensor device: {labels.device}")
+        #     break
+
+        # # Check the device of the optimizer's state (this might vary)
+        # for group in self.optimizer.param_groups:
+        #     for param in group['params']:
+        #         if param in self.optimizer.state:
+        #             print(f"Optimizer state for parameter '{param.shape}': {self.optimizer.state[param].get('step', torch.tensor(0)).device}")
 
         # compute constraint normalization
         with torch.no_grad():
@@ -239,7 +261,7 @@ class TrainingLatent:
             self.optim_params.sparsity_omega_mu,
             self.optim_params.sparsity_h_threshold,
             self.optim_params.sparsity_min_iter_convergence,
-            dim_gamma=(1, 1),
+            # dim_gamma=(1,),
         )
 
         if self.instantaneous:
@@ -251,7 +273,7 @@ class TrainingLatent:
                 self.optim_params.acyclic_omega_mu,
                 self.optim_params.acyclic_h_threshold,
                 self.optim_params.acyclic_min_iter_convergence,
-                dim_gamma=(1, 1),
+                # dim_gamma=(1,),
             )
 
         if self.profiler:
@@ -267,12 +289,14 @@ class TrainingLatent:
             prof = torch.profiler.profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=5, warmup=5, active=1, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler("./log/profiler_traces"),
                 # using the torch tensorboard handler
                 # on_trace_ready=torch.profiler.export_chrome_trace(self.profiler_path),
                 # on_trace_ready=trace_handler,
                 profile_memory=True,
                 record_shapes=True,
                 with_stack=True,
+                use_cuda=True,
             )
             prof.start()
             # print out the output of the profiler
@@ -471,12 +495,11 @@ class TrainingLatent:
 
         # I guess this is just making sure...
         if self.profiler:
-            # prof.export_chrome_trace("./log/trace.json")
             prof.stop()
 
         return valid_loss
 
-    def train_step(self):
+    def train_step(self):  # noqa: C901
 
         self.model.train()
 
@@ -531,13 +554,13 @@ class TrainingLatent:
 
         else:
             sparsity_reg = self.get_regularisation()
-        connect_reg = torch.tensor([0.0])
+        connect_reg = torch.as_tensor([0.0])
         if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
             # TODO: might be interesting to explore this
             connect_reg = self.connectivity_reg()
 
         # compute constraints (acyclicity and orthogonality)
-        h_acyclic = torch.tensor([0.0])
+        h_acyclic = torch.as_tensor([0.0])
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
@@ -561,7 +584,7 @@ class TrainingLatent:
             )
 
         temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
-
+        # print(f"loss: {loss}, crps: {crps}, spectral: {spectral_loss}, temporal: {temporal_spectral_loss}")
         # add the spectral loss to the loss
         if self.optim_params.scheduler_spectra is None:
             loss = (
@@ -588,25 +611,31 @@ class TrainingLatent:
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
             )
+        loss = torch.mean((y - y_pred_all[:, 0]) ** 2)
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
         # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
-
         # loss.backward()
-        self.accelerator.backward(loss)
-
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        with torch.autograd.set_detect_anomaly(True):
+            self.accelerator.backward(loss)
+        # for name, param in self.model.named_parameters():
+        #     if param.grad is not None and torch.isnan(param.grad).any():
+        #         print(f"[NaN GRAD] Gradient NaNs found in {name}")
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
-
         # projection of the gradient for w
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
-            assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
+
+            # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -614,12 +643,12 @@ class TrainingLatent:
         self.train_kl = kl.item()
         self.train_sparsity_reg = sparsity_reg.item()
         self.train_connect_reg = connect_reg.item()
-        self.train_ortho_cons = h_ortho  # .detach()
-        self.train_acyclic_cons = h_acyclic  # .item() # errors with .item() as not tensor
+        self.train_ortho_cons = h_ortho.detach()  # .detach()
+        self.train_acyclic_cons = h_acyclic.item()  # errors with .item() as it is a tensor
 
         # adding the sparsity constraint to the logs
-        self.train_sparsity_cons = h_sparsity  # .detach()
-        self.train_transition_var = self.adj_transition_variance()
+        self.train_sparsity_cons = h_sparsity.item()  # .detach()
+        self.train_transition_var = self.adj_transition_variance().item()
 
         # adding the crps loss to the logs
         self.train_crps_loss = crps.item()
@@ -630,8 +659,10 @@ class TrainingLatent:
         # adding the temporal spectral loss to the logs
         self.train_temporal_spectral_loss = temporal_spectral_loss.item()
 
-        # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
-        # This can be cut if we want faster training...
+        # # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
+        # # This can be cut if we want faster training...
+        # print(f"[GPU] Peak allocated: {torch.cuda.max_memory_allocated() / 1024**3:.2f} GB")
+        # print(f"[GPU] Currently allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
         if self.iteration % self.plot_params.print_freq == 0:
             # TODO integrate below in Plotter()
@@ -652,14 +683,14 @@ class TrainingLatent:
             self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
             self.train_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
 
-            self.train_mse_recons = torch.mean((y_original_recons - y_original) ** 2).item()
-            self.train_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
-            self.train_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
+            self.train_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
+            self.train_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
+            self.train_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
 
             # include the variance of the predictions
-            self.train_var_original = torch.var(y_original)
-            self.train_var_recons = torch.var(y_original_recons)
-            self.train_var_pred = torch.var(y_original_pred)
+            self.train_var_original = torch.var(y_original).item()
+            self.train_var_recons = torch.var(y_original_recons).item()
+            self.train_var_pred = torch.var(y_original_pred).item()
 
             # including per variable metrics, for when we train in the 4 variable case.
             if self.d == 3:
@@ -780,13 +811,13 @@ class TrainingLatent:
 
             # compute regularisations (sparsity and connectivity)
             sparsity_reg = self.get_regularisation()
-            connect_reg = torch.tensor([0.0])
+            connect_reg = torch.as_tensor([0.0])
             if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
                 # what is happening here between connectivity_reg and connectivity_reg_complete? See below.
                 connect_reg = self.connectivity_reg()
 
             # compute constraints (acyclicity and orthogonality)
-            h_acyclic = torch.tensor([0.0])
+            h_acyclic = torch.as_tensor([0.0])
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
@@ -812,13 +843,13 @@ class TrainingLatent:
             self.valid_recons = recons.item()
             self.valid_kl = kl.item()
             self.valid_sparsity_reg = sparsity_reg.item()
-            self.valid_ortho_cons = h_ortho  # .detach()
+            self.valid_ortho_cons = h_ortho.detach()  # .detach()
             self.valid_connect_reg = connect_reg.item()
-            self.valid_acyclic_cons = h_acyclic  # .item()
+            self.valid_acyclic_cons = h_acyclic.item()
 
             # adding the sparsity constraint to the logs
-            self.valid_sparsity_cons = h_sparsity  # .detach()
-            self.valid_transition_var = h_transition_var
+            self.valid_sparsity_cons = h_sparsity.item()  # .detach()
+            self.valid_transition_var = h_transition_var.item()
 
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
@@ -839,9 +870,9 @@ class TrainingLatent:
             self.val_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
             self.val_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
 
-            self.val_mse_recons = torch.mean((y_original_recons - y_original) ** 2).item()
-            self.val_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
-            self.val_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
+            self.val_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
+            self.val_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
+            self.val_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
 
             # include the variance of the predictions
             self.val_var_original = torch.var(y_original)
@@ -987,12 +1018,10 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = (
-            self.model.get_adj()
-        )  # .cpu().detach().numpy()
-        w = self.model.autoencoder.get_w_decoder()  # .cpu().detach().numpy()
         if not self.no_gt:
-            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w
+            w = self.model.autoencoder.get_w_decoder()
+            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w.item()
+            self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
         self.logvar_decoder_tt.append(self.model.autoencoder.logvar_decoder[0].item())
@@ -1039,7 +1068,7 @@ class TrainingLatent:
             reg = self.optim_params.reg_coeff * torch.norm(adj, p=1)
             # reg /= adj.numel()
         else:
-            reg = torch.tensor([0.0])
+            reg = torch.as_tensor([0.0])
 
         return reg
 
@@ -1048,7 +1077,7 @@ class TrainingLatent:
             adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
             h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
         else:
-            h = torch.tensor([0.0])
+            h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
 
@@ -1067,7 +1096,7 @@ class TrainingLatent:
             # print('What is the ortho constraint shape:', constraint.shape)
             h = constraint / self.ortho_normalization
         else:
-            h = torch.tensor([0.0])
+            h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
 
@@ -1079,7 +1108,9 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
-        return torch.norm(adj - adj**2, p=1) / self.sparsity_normalization
+        h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
+        assert torch.is_tensor(h)
+        return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
         """
@@ -1106,54 +1137,145 @@ class TrainingLatent:
 
             # Otherwise, there is no penalty due to the constraint:
             else:
-                constraint = torch.tensor([0.0])
+                constraint = torch.as_tensor([0.0])
 
             # print('constraint value, after I subtract a threshold, or whatever:', constraint)
 
-            h = torch.max(constraint, torch.tensor([0.0]))
+            h = torch.max(constraint, torch.as_tensor([0.0]))
 
         else:
-            h = torch.tensor([0.0])
+            h = torch.as_tensor([0.0])
+
+        assert torch.is_tensor(h)
 
         return h
 
     def _normpdf(self, x):
         """Probability density function of a univariate standard Gaussian distribution with zero mean and unit
         variance."""
-        return (1.0 / torch.sqrt(torch.tensor(2.0 * torch.pi))) * torch.exp(torch.tensor(-(x * x) / 2.0))
+        return (1.0 / torch.sqrt(torch.as_tensor(2.0 * torch.pi))) * torch.exp(-torch.square(x) / 2.0)
 
     def get_crps_loss(self, y, mu, sigma):
-        """
-        Calculate the CRPS loss between the true values and the predicted values. We need to extract the parameters of
-        the Gaussian of the model. I am going to start by just taking the parameters of all the Gaussians for the
-        observations first...
+        if self.model.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.model.xi
 
-        I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
+            # Expand xi to match mu if needed
+            if isinstance(xi, torch.Tensor) and xi.ndim < mu.ndim:
+                xi = xi.expand_as(mu)
 
-        I would quite like to do this on future timesteps too.
+            eps = 1e-6  # small constant to avoid divide-by-zero or log(0)
 
-        Args:
-            y: torch.Tensor, the true values
-            mu: torch.Tensor, the mean of the Gaussians
-            sigma: torch.Tensor, the standard deviation of the Gaussians
-        """
+            # Standardized residual
+            t = (y - mu) / sigma
 
-        # gaussian_dist = torch.distributions.Normal(mu, sigma)
+            # Identify Gumbel regime (xi ~ 0)
+            near_zero = torch.abs(xi) < eps
+            xi_safe = xi.clone()
+            xi_safe[near_zero] = eps  # avoid divide-by-zero in GEV formula
 
-        y = y
-        mu = mu
-        sigma = sigma
+            # Transformed variable z = 1 + xi * t (GEV support condition)
+            z = 1 + xi_safe * t
+            z = torch.clamp(z, min=eps)  # avoid negative/zero base in pow
 
-        # standardised y
-        sy = (y - mu) / sigma
+            # z ** (-1/xi) term used in exp(-z ** -1/xi)
+            inv_xi = -1 / xi_safe
+            pow_z = z**inv_xi  # may return NaN if z < 0 or inf if large
 
-        forecast_dist = dist.Normal(0, 1)
+            # Safety: avoid propagating NaNs from z**inv_xi
+            pow_z = torch.nan_to_num(pow_z, nan=1e3, posinf=1e3, neginf=1e3)
 
-        # some precomputations to speed up the gradient
-        pdf = self._normpdf(sy)
-        cdf = forecast_dist.cdf(sy)
+            # CDF of GEV: F(y) = exp(-z ** (-1/xi))
+            F_y = torch.exp(-pow_z)
 
-        pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi]))
+            # Allocate output tensor
+            crps = torch.zeros_like(y)
+
+            # --- GEV branch (xi ≠ 0) ---
+            if torch.any(~near_zero):
+                idx = ~near_zero
+                xi_nz = xi_safe[idx]
+                mu_nz = mu[idx]
+                sigma_nz = sigma[idx]
+                y_nz = y[idx]
+                F_nz = F_y[idx]
+
+                # First term: (μ − y − σ/ξ)(1 − 2F(y))
+                t1 = (mu_nz - y_nz - sigma_nz / xi_nz) * (1 - 2 * F_nz)
+
+                # 2^xi * Gamma(1 - xi)
+                gamma_term = 2**xi_nz * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Lower incomplete gamma: gammainc * Gamma
+                gammainc_val = torch.special.gammainc(1 - xi_nz, -torch.log(F_nz))
+                lower_gamma = gammainc_val * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Second term: -σ/ξ (gamma_term - 2 * lower_gamma)
+                t2 = -sigma_nz / xi_nz * (gamma_term - 2 * lower_gamma)
+
+                # Sum both terms for GEV CRPS
+                crps[idx] = t1 + t2
+
+            # --- Gumbel branch (xi ≈ 0) ---
+            if torch.any(near_zero):
+                idx = near_zero
+                mu_z = mu[idx]
+                sigma_z = sigma[idx]
+                y_z = y[idx]
+                F_z = F_y[idx].clamp(min=eps, max=1 - eps)  # avoid log(0)
+
+                # log F(y) is always negative
+                log_F_z = torch.log(F_z)
+
+                # Clamp log F(y) to avoid large exponents in A, B
+                log_F_z_clamped = log_F_z.clamp(min=-20.0, max=-1e-3)
+
+                # -- Swamee & Ohija approximation for E₁(x) --
+
+                # A = ln[ (0.56146 / x + 0.65) * (1 + x) ]
+                A_numer = (0.56146 / log_F_z_clamped) + 0.65
+                A_denom = 1 + log_F_z_clamped
+                A_arg = A_numer * A_denom
+                A_arg = A_arg.clamp(min=eps)  # avoid log(0)
+                A = torch.log(A_arg)
+
+                # B = x⁴ * exp(7.7 * x) * (2 + x)^3.7
+                B = (
+                    (log_F_z_clamped**4)
+                    * torch.exp(7.7 * log_F_z_clamped)
+                    * (2 + log_F_z_clamped).clamp(min=eps) ** 3.7
+                )
+
+                # E₁(x) ≈ (A^-7.7 + B)^-0.13
+                expi_approx = (A**-7.7 + B).clamp(min=eps) ** -0.13
+
+                # Final safety (guard against NaNs/infs)
+                expi_approx = torch.nan_to_num(expi_approx, nan=0.0, posinf=1e3, neginf=0.0)
+
+                # CRPS = μ − y + σ (γ − ln 2) − 2σ * E₁(x)
+                t1 = (
+                    mu_z
+                    - y_z
+                    + sigma_z * (euler_mascheroni - torch.log(torch.tensor(2.0, device=y.device, dtype=y.dtype)))
+                )
+                t2 = -2 * sigma_z * expi_approx
+                crps[idx] = t1 + t2
+
+            if torch.isnan(crps).any():
+                print("[NaN] Final CRPS")
+
+            # Clamp final CRPS to ensure numerical validity
+            crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
+            crps = torch.clamp(crps, min=0.0)
+            return torch.mean(crps)
+
+        # --- Gaussian fallback ---
+        else:
+            sy = (y - mu) / sigma
+            forecast_dist = dist.Normal(0, 1)
+            pdf = self._normpdf(sy)
+            cdf = forecast_dist.cdf(sy)
+
+        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
 
         # calculate the CRPS
         crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
@@ -1267,7 +1389,7 @@ class TrainingLatent:
         inside each clusters.
         Not used yet - could be interesting :)
         """
-        c = torch.tensor([0.0])
+        c = torch.as_tensor([0.0])
         w = self.model.autoencoder.get_w_encoder()
         d = self.data.distances
         for i in self.d:
@@ -1277,7 +1399,7 @@ class TrainingLatent:
 
     def connectivity_reg(self, ratio: float = 0.0005):
         """Calculate a connectivity regularisation only on a subsample of the complete data."""
-        c = torch.tensor([0.0])
+        c = torch.as_tensor([0.0])
         w = self.model.autoencoder.get_w_encoder()
         n = int(self.d_x * ratio)
         points = np.random.choice(np.arange(self.d_x), n)
@@ -1534,7 +1656,7 @@ class TrainingLatent:
             # print('Overall MSE:', mse1)
 
             # check
-            mse = torch.mean(torch.sum(0.5 * (y_original - y_original_pred) ** 2, dim=2))
+            mse = torch.mean(torch.sum(0.5 * torch.square(y_original - y_original_pred), dim=2))
             # print("MSE:", mse)
             # print("MSE shape:", mse.shape)
 

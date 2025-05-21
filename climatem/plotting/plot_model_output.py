@@ -488,13 +488,10 @@ class Plotter:
             axes[1].set_title(f"GT mixing. j={j}, val={gt_w[0, i, j]:.2f}")
 
             plt.savefig(path / f"learned_mixing_x{i}.png")
-            plt.close()
 
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path):
-        """
-        Plot the predicted x_hat compared to the ground-truth x using Cartopy.
-        """
-        fig, axs = plt.subplots(3, 1, subplot_kw={'projection': ccrs.Robinson()}, figsize=(12, 12))
+        """Plot the predicted x_hat compared to the ground-truth x using Cartopy."""
+        fig, axs = plt.subplots(3, 1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 12))
 
         titles = ["Previous GT", "Ground-truth", "Prediction"]
         data = [x_past, x, x_hat]
@@ -514,7 +511,7 @@ class Plotter:
             pcm = ax.pcolormesh(X, Y, Z, cmap="RdBu_r", vmin=-3.5, vmax=3.5, transform=ccrs.PlateCarree())
             ax.set_title(title)
 
-        fig.colorbar(pcm, ax=axs, orientation='vertical', shrink=0.7, label="Normalized value")
+        fig.colorbar(pcm, ax=axs, orientation="vertical", shrink=0.7, label="Normalized value")
         plt.suptitle("Ground-truth vs prediction", fontsize=16)
         plt.savefig(path / "prediction.png", format="png")
         plt.close()
