@@ -85,10 +85,14 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.channels_last = channels_last
         self.load_data_into_mem = load_data_into_mem
 
-        if isinstance(in_variables, str):
-            in_variables = [in_variables]
+        if isinstance(in_variables, dict):
+            self.input_sources = in_variables  # {"era5": ["t2m"], "cmip6": ["pr", "ts"]}
+            self.in_variables = sum(in_variables.values(), [])  # Flattened
+        else:
+            raise ValueError("in_variables must be a dict mapping source -> list of variables")
         if isinstance(out_variables, str):
             out_variables = [out_variables]
+
         if isinstance(scenarios, str):
             scenarios = [scenarios]
 
