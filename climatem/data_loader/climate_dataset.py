@@ -248,46 +248,23 @@ class ClimateDataset(torch.utils.data.Dataset):
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 
     # NOTE:() rewriting this currently to try to use icosahedral code...
+
     def load_coordinates_into_mem(self, paths: List[List[str]]) -> np.ndarray:
-        """
-        Load the coordinates into memory.
-
-        Args:
-            paths (List[List[str]]): absolute to filepaths to the data
-
-        Returns:
-            np.ndarray: coordinates
-        """
         print("length paths", len(paths))
-        if paths[0][0][-5:] == ".grib":
-            # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
-            coordinates = np.load(self.icosahedral_coordinates_path)
-        elif paths[0][0][-5:] == "grib2":
-            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1,2))
+        first_file = paths[0][0]
+
+        if first_file.endswith(".grib") or first_file.endswith(".grib2"):
+            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
         else:
-            for vlist in [paths[0]]:
-                # print("I am in the else of load_coordinates_into_mem")
-                # print("length_paths_list", len(vlist))
-                temp_data = xr.open_mfdataset(
-                    vlist, concat_dim="time", combine="nested"
-                ).compute()  # .compute is not necessary but eh, doesn't hurt
-                # print("self.in_variables:", self.in_variables)
-                # NOTE:() - should this be for all possible variables? Not sure...
-                if (
-                    "tas" in self.in_variables
-                    or "pr" in self.in_variables
-                    or "psl" in self.in_variables
-                    or "ts" in self.in_variables
-                ):
-                    array_list_lon = temp_data.lon.to_numpy()
-                    # print('array_list_lon shape:', array_list_lon.shape)
-                    array_list_lon = array_list_lon[:]
-                    array_list_lat = temp_data.lat.to_numpy()
-                    array_list_lat = array_list_lat[:]
-                else:
-                    array_list_lon = temp_data.lon.to_numpy()
-                    array_list_lat = temp_data.lat.to_numpy()
-            coordinates = np.meshgrid(array_list_lon, array_list_lat)
+            temp_data = xr.open_mfdataset(paths[0], concat_dim="time", combine="nested").compute()
+            # Try to load `lat` and `lon` directly and fall back to error if not found
+            try:
+                lat = temp_data.lat.to_numpy()
+                lon = temp_data.lon.to_numpy()
+            except AttributeError:
+                raise ValueError("Latitude and longitude not found in NetCDF file structure.")
+
+            coordinates = np.meshgrid(lon, lat)
             coordinates = np.c_[coordinates[1].flatten(), coordinates[0].flatten()]
 
         return coordinates
