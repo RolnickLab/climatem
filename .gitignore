@@ -184,3 +184,5 @@ notebooks/*.npz
 notebooks/*.png
 notebooks/plots/
 notebooks/rollouts/
+
+scripts/run_single_*.txt

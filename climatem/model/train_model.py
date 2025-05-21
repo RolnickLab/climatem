@@ -1,4 +1,6 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
+import gc
+
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -13,6 +15,8 @@ from climatem.model.dag_optim import compute_dag_constraint
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
+
+euler_mascheroni = 0.57721566490153286060
 
 
 class TrainingLatent:
@@ -49,6 +53,12 @@ class TrainingLatent:
         self.exp_params = exp_params
         self.train_params = train_params
         self.optim_params = optim_params
+        self.coefs_scheduler_spectra = (
+            None
+            if optim_params.scheduler_spectra is None
+            else np.linspace(0, 1, len(optim_params.scheduler_spectra), endpoint=True)
+        )
+
         self.plot_params = plot_params
         self.savar_params = savar_params
         self.best_metrics = best_metrics
@@ -65,9 +75,10 @@ class TrainingLatent:
         self.d = d
         self.patience = train_params.patience
         self.best_valid_loss = np.inf
-        # This needs to be updated
+
         self.batch_size = datamodule.hparams.batch_size
-        self.tau = exp_params.tau  # Here, 5 by default in both but we want to pass this as an argument
+        self.tau = exp_params.tau
+        self.future_timesteps = exp_params.future_timesteps
         self.d_x = exp_params.d_x
         self.lat = exp_params.lat
         self.lon = exp_params.lon
@@ -107,6 +118,7 @@ class TrainingLatent:
         self.train_temporal_spectral_loss_list = []
 
         self.train_sparsity_cons_list = []
+        self.train_transition_var_list = []
         self.mu_sparsity_list = []
         self.gamma_sparsity_list = []
 
@@ -120,6 +132,7 @@ class TrainingLatent:
         self.valid_ortho_vector_cons_list = []
         self.valid_acyclic_cons_list = []
         self.valid_sparsity_cons_list = []
+        self.valid_transition_var_list = []
 
         self.best_spatial_spectra_score = None
 
@@ -132,28 +145,28 @@ class TrainingLatent:
         #     self.model = DDP(self.model)
 
         # I think this is just initialising a tensor of zeroes to store results in
-        if self.instantaneous:
-            self.adj_tt = torch.zeros(
-                [
-                    int(self.train_params.max_iteration / self.train_params.valid_freq),
-                    self.tau + 1,
-                    self.d * self.d_z,
-                    self.d * self.d_z,
-                ]
-            )
-        else:
-            self.adj_tt = torch.zeros(
-                [
-                    int(self.train_params.max_iteration / self.train_params.valid_freq),
-                    self.tau,
-                    self.d * self.d_z,
-                    self.d * self.d_z,
-                ]
-            )
         if not self.no_gt:
             self.adj_w_tt = torch.zeros(
                 [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
             )
+            if self.instantaneous:
+                self.adj_tt = torch.zeros(
+                    [
+                        int(self.train_params.max_iteration / self.train_params.valid_freq),
+                        self.tau + 1,
+                        self.d * self.d_z,
+                        self.d * self.d_z,
+                    ]
+                )
+            else:
+                self.adj_tt = torch.zeros(
+                    [
+                        int(self.train_params.max_iteration / self.train_params.valid_freq),
+                        self.tau,
+                        self.d * self.d_z,
+                        self.d * self.d_z,
+                    ]
+                )
         self.logvar_encoder_tt = []
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
@@ -177,6 +190,24 @@ class TrainingLatent:
         self.data_loader_train, self.model, self.optimizer, self.scheduler = accelerator.prepare(
             self.data_loader_train, self.model, self.optimizer, self.scheduler
         )
+
+        # Check that model and everything is on gpu
+        # print("\nModel Parameter Devices after moving to GPU:")
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name}: {param.device}")
+
+        # # Check the device of a sample batch (after iterating through the prepared dataloader)
+        # for batch in self.data_loader_train:
+        #     inputs, labels = batch
+        #     print(f"Input tensor device: {inputs.device}")
+        #     print(f"Label tensor device: {labels.device}")
+        #     break
+
+        # # Check the device of the optimizer's state (this might vary)
+        # for group in self.optimizer.param_groups:
+        #     for param in group['params']:
+        #         if param in self.optimizer.state:
+        #             print(f"Optimizer state for parameter '{param.shape}': {self.optimizer.state[param].get('step', torch.tensor(0)).device}")
 
         # compute constraint normalization
         with torch.no_grad():
@@ -234,7 +265,7 @@ class TrainingLatent:
             self.optim_params.sparsity_omega_mu,
             self.optim_params.sparsity_h_threshold,
             self.optim_params.sparsity_min_iter_convergence,
-            dim_gamma=(1, 1),
+            # dim_gamma=(1,),
         )
 
         if self.instantaneous:
@@ -246,7 +277,7 @@ class TrainingLatent:
                 self.optim_params.acyclic_omega_mu,
                 self.optim_params.acyclic_h_threshold,
                 self.optim_params.acyclic_min_iter_convergence,
-                dim_gamma=(1, 1),
+                # dim_gamma=(1,),
             )
 
         if self.profiler:
@@ -262,12 +293,14 @@ class TrainingLatent:
             prof = torch.profiler.profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=5, warmup=5, active=1, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler("./log/profiler_traces"),
                 # using the torch tensorboard handler
                 # on_trace_ready=torch.profiler.export_chrome_trace(self.profiler_path),
                 # on_trace_ready=trace_handler,
                 profile_memory=True,
                 record_shapes=True,
                 with_stack=True,
+                use_cuda=True,
             )
             prof.start()
             # print out the output of the profiler
@@ -275,6 +308,7 @@ class TrainingLatent:
         while self.iteration < self.train_params.max_iteration and not self.ended:
 
             # train and valid step
+            # HERE MODIFY train_step()
             self.train_step()
             self.scheduler.step()
             if self.profiler:
@@ -282,7 +316,8 @@ class TrainingLatent:
 
             if self.iteration % self.train_params.valid_freq == 0:
                 self.logging_iter += 1
-                x, y, y_pred = self.valid_step()
+                # HERE MODIFY valid_step()
+                self.valid_step()
                 self.log_losses()
 
                 # log these metrics to wandb every print_freq...
@@ -459,16 +494,16 @@ class TrainingLatent:
             "valid_sparsity_reg": self.valid_sparsity_reg,
             "valid_ortho_cons": torch.sum(self.valid_ortho_cons).item(),
             "valid_sparsity_cons": self.valid_sparsity_cons,
+            "valid_transition_var": self.valid_transition_var,
         }
 
         # I guess this is just making sure...
         if self.profiler:
-            # prof.export_chrome_trace("./log/trace.json")
             prof.stop()
 
         return valid_loss
 
-    def train_step(self):
+    def train_step(self):  # noqa: C901
 
         self.model.train()
 
@@ -487,16 +522,29 @@ class TrainingLatent:
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
 
-        y = y[:, 0]
+        # y = y[:, 0]
         z = None
-
-        nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
+        x_bis = torch.clone(x)
+        y_pred_all = torch.clone(y)
+        nll = 0
+        recons = 0
+        kl = 0
 
         # also make the proper prediction, not the reconstruction as we do above
+        # With multiple future timesteps we append the prediction to x and compute the nll of next timestep etc..
+        # We add to the loss the sum multiplied by the decay in future timesteps
         # we have to take care here to make sure that we have the right tensors with requires_grad
-        y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.module.predict(x, y)
-        # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
-        px_mu, px_std = self.model.module.predict_pxmu_pxstd(x, y)
+        for k in range(self.future_timesteps):
+            nll_bis, recons_bis, kl_bis, y_pred_recons = self.get_nll(x_bis, y[:, k], z)
+            nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
+            recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
+            kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
+            y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+            y_pred_all[:, k] = y_pred
+            x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
+        del x_bis, y_pred, nll_bis, recons_bis, kl_bis
+
+        assert y.shape == y_pred_all.shape
 
         # compute regularisations constraints/penalties (sparsity and connectivity)
         if self.optim_params.use_sparsity_constraint:
@@ -504,15 +552,19 @@ class TrainingLatent:
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
+            if self.optim_params.binarize_transition and h_sparsity == 0:
+                h_variance = self.adj_transition_variance()
+                sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
+
         else:
             sparsity_reg = self.get_regularisation()
-        connect_reg = torch.tensor([0.0])
+        connect_reg = torch.as_tensor([0.0])
         if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
             # TODO: might be interesting to explore this
             connect_reg = self.connectivity_reg()
 
         # compute constraints (acyclicity and orthogonality)
-        h_acyclic = torch.tensor([0.0])
+        h_acyclic = torch.as_tensor([0.0])
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
@@ -525,36 +577,69 @@ class TrainingLatent:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
         # need to be superbly careful here that we are really using predictions, not the reconstruction
-        crps = self.get_crps_loss(y, px_mu, px_std)
-        spectral_loss = self.get_spectral_loss(y, y_pred_recons, y_pred, take_log=True)
-        temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_recons, y_pred)
+        # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
+        crps = 0
+        spectral_loss = 0
+        for k in range(self.future_timesteps):
+            px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
+            crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
+            spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
+                y[:, k], y_pred_all[:, k], take_log=True
+            )
 
+        temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
+        # print(f"loss: {loss}, crps: {crps}, spectral: {spectral_loss}, temporal: {temporal_spectral_loss}")
         # add the spectral loss to the loss
-        loss = (
-            loss
-            + self.optim_params.crps_coeff * crps
-            + self.optim_params.spectral_coeff * spectral_loss
-            + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
-        )
+        if self.optim_params.scheduler_spectra is None:
+            loss = (
+                loss
+                + self.optim_params.crps_coeff * crps
+                + self.optim_params.spectral_coeff * spectral_loss
+                + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+            )
+        else:
+            for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
+                if self.iteration >= iter_schedule:
+                    coef = new_coef
+                if self.iteration == iter_schedule:
+                    print(
+                        f"Scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}"
+                    )
+                    print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
+            loss = (
+                loss
+                + self.optim_params.crps_coeff * crps
+                + coef
+                * (
+                    self.optim_params.spectral_coeff * spectral_loss
+                    + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+                )
+            )
+        loss = torch.mean((y - y_pred_all[:, 0]) ** 2)
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
         # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
-
         # loss.backward()
-        self.accelerator.backward(loss)
-
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        with torch.autograd.set_detect_anomaly(True):
+            self.accelerator.backward(loss)
+        # for name, param in self.model.named_parameters():
+        #     if param.grad is not None and torch.isnan(param.grad).any():
+        #         print(f"[NaN GRAD] Gradient NaNs found in {name}")
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
-
         # projection of the gradient for w
         if self.model.module.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
-                self.model.module.autoencoder.get_w_decoder().clamp_(min=0.0)
-            assert torch.min(self.model.module.autoencoder.get_w_decoder()) >= 0.0
+                self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
+
+            # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -562,11 +647,12 @@ class TrainingLatent:
         self.train_kl = kl.item()
         self.train_sparsity_reg = sparsity_reg.item()
         self.train_connect_reg = connect_reg.item()
-        self.train_ortho_cons = h_ortho  # .detach()
-        self.train_acyclic_cons = h_acyclic  # .item() # errors with .item() as not tensor
+        self.train_ortho_cons = h_ortho.detach()  # .detach()
+        self.train_acyclic_cons = h_acyclic.item()  # errors with .item() as it is a tensor
 
         # adding the sparsity constraint to the logs
-        self.train_sparsity_cons = h_sparsity  # .detach()
+        self.train_sparsity_cons = h_sparsity.item()  # .detach()
+        self.train_transition_var = self.adj_transition_variance().item()
 
         # adding the crps loss to the logs
         self.train_crps_loss = crps.item()
@@ -577,14 +663,17 @@ class TrainingLatent:
         # adding the temporal spectral loss to the logs
         self.train_temporal_spectral_loss = temporal_spectral_loss.item()
 
-        # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
-        # This can be cut if we want faster training...
+        # # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
+        # # This can be cut if we want faster training...
+        # print(f"[GPU] Peak allocated: {torch.cuda.max_memory_allocated() / 1024**3:.2f} GB")
+        # print(f"[GPU] Currently allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
         if self.iteration % self.plot_params.print_freq == 0:
+            # TODO integrate below in Plotter()
 
             np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_train.npy", y.cpu().detach().numpy())
-            np.save(self.save_path / "y_pred_recons_train.npy", y_pred_recons.cpu().detach().numpy())
+            np.save(self.save_path / "y_pred_recons_train.npy", y_pred_all.cpu().detach().numpy())
 
             # also carry out autoregressive predictions
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
@@ -598,14 +687,14 @@ class TrainingLatent:
             self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
             self.train_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
 
-            self.train_mse_recons = torch.mean((y_original_recons - y_original) ** 2).item()
-            self.train_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
-            self.train_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
+            self.train_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
+            self.train_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
+            self.train_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
 
             # include the variance of the predictions
-            self.train_var_original = torch.var(y_original)
-            self.train_var_recons = torch.var(y_original_recons)
-            self.train_var_pred = torch.var(y_original_pred)
+            self.train_var_original = torch.var(y_original).item()
+            self.train_var_recons = torch.var(y_original_recons).item()
+            self.train_var_pred = torch.var(y_original_pred).item()
 
             # including per variable metrics, for when we train in the 4 variable case.
             if self.d == 3:
@@ -636,50 +725,51 @@ class TrainingLatent:
 
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
-            if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=False,
-                    plot_through_time=True,
-                )
+            if self.iteration % self.plot_params.plot_freq == 0:
+                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=False,
-                    plot_through_time=True,
-                )
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=False,
-                    plot_through_time=True,
-                )
-            else:
-                print("Not plotting predictions.")
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=True,
+                    )
+                else:
+                    print("Not plotting predictions.")
 
         # note that this has been changed to y_pred_recons
-        return x, y, y_pred_recons
+        # return x, y, y_pred_all
 
     # Validation step here.
     def valid_step(self):
@@ -698,22 +788,40 @@ class TrainingLatent:
                 y = torch.nan_to_num(y)
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
-            y = y[:, 0]
+
+            # y = y[:, 0]
             # NOTE: sh, z here is if we have a ground truth
             z = None
+            x_bis = torch.clone(x)
+            y_pred_all = torch.clone(y)
+            nll = 0
+            recons = 0
+            kl = 0
 
-            # print('doing get_nll in validation')
-            nll, recons, kl, y_pred = self.get_nll(x, y, z)
+            # also make the proper prediction, not the reconstruction as we do above
+            # With multiple future timesteps we append the prediction to x and compute the nll of next timestep etc..
+            # We add to the loss the sum multiplied by the decay in future timesteps
+            # we have to take care here to make sure that we have the right tensors with requires_grad
+            for k in range(self.future_timesteps):
+                nll_bis, recons_bis, kl_bis, y_pred_recons = self.get_nll(x_bis, y[:, k], z)
+                nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
+                recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
+                kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
+                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+                y_pred_all[:, k] = y_pred
+                x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
+                # print(f"y_pred_recons shape {y_pred_recons.shape}")
+            del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
             # compute regularisations (sparsity and connectivity)
             sparsity_reg = self.get_regularisation()
-            connect_reg = torch.tensor([0.0])
+            connect_reg = torch.as_tensor([0.0])
             if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
                 # what is happening here between connectivity_reg and connectivity_reg_complete? See below.
                 connect_reg = self.connectivity_reg()
 
             # compute constraints (acyclicity and orthogonality)
-            h_acyclic = torch.tensor([0.0])
+            h_acyclic = torch.as_tensor([0.0])
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
@@ -722,6 +830,7 @@ class TrainingLatent:
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
+            h_transition_var = self.adj_transition_variance()
 
             # compute total loss
             loss = nll + connect_reg  # + sparsity_reg - for now we are removing the sparsity regularisation
@@ -738,12 +847,13 @@ class TrainingLatent:
             self.valid_recons = recons.item()
             self.valid_kl = kl.item()
             self.valid_sparsity_reg = sparsity_reg.item()
-            self.valid_ortho_cons = h_ortho  # .detach()
+            self.valid_ortho_cons = h_ortho.detach()  # .detach()
             self.valid_connect_reg = connect_reg.item()
-            self.valid_acyclic_cons = h_acyclic  # .item()
+            self.valid_acyclic_cons = h_acyclic.item()
 
             # adding the sparsity constraint to the logs
-            self.valid_sparsity_cons = h_sparsity  # .detach()
+            self.valid_sparsity_cons = h_sparsity.item()  # .detach()
+            self.valid_transition_var = h_transition_var.item()
 
         # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # This can be cut if we want faster training...
@@ -752,7 +862,7 @@ class TrainingLatent:
 
             np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
-            np.save(self.save_path / "y_pred_recons_val.npy", y_pred.cpu().detach().numpy())
+            np.save(self.save_path / "y_pred_recons_val.npy", y_pred_all.cpu().detach().numpy())
 
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
                 self.autoregress_prediction_original(valid=True, timesteps=10)
@@ -764,9 +874,9 @@ class TrainingLatent:
             self.val_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
             self.val_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
 
-            self.val_mse_recons = torch.mean((y_original_recons - y_original) ** 2).item()
-            self.val_mse_pred = torch.mean((y_original_pred - y_original) ** 2).item()
-            self.val_mse_persistence = torch.mean((y_original - x_original[:, -1, :, :]) ** 2).item()
+            self.val_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
+            self.val_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
+            self.val_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
 
             # include the variance of the predictions
             self.val_var_original = torch.var(y_original)
@@ -796,48 +906,48 @@ class TrainingLatent:
 
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
+            if self.iteration % self.plot_params.plot_freq == 0:
+                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=True,
+                    )
 
-            if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=True,
-                    plot_through_time=True,
-                )
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=True,
-                    plot_through_time=True,
-                )
+                    self.plotter.plot_compare_predictions_icosahedral(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=True,
+                    )
 
-                self.plotter.plot_compare_predictions_icosahedral(
-                    x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                    y_true=y_original.cpu().detach().numpy(),
-                    y_recons=y_original_recons.cpu().detach().numpy(),
-                    y_hat=y_original_pred.cpu().detach().numpy(),
-                    sample=np.random.randint(0, self.batch_size),
-                    coordinates=self.coordinates,
-                    path=self.plots_path,
-                    iteration=self.iteration,
-                    valid=True,
-                    plot_through_time=True,
-                )
-
-        return x, y, y_pred
+        # return x, y, y_pred_all
 
     def has_patience(self, patience_init, valid_loss):
         """Check if the validation loss has not improved for 'patience' steps."""
@@ -896,7 +1006,9 @@ class TrainingLatent:
         self.gamma_ortho_list.append(self.ALM_ortho.gamma)
 
         self.train_sparsity_cons_list.append(self.train_sparsity_cons)
+        self.train_transition_var_list.append(self.train_transition_var)
         self.valid_sparsity_cons_list.append(self.valid_sparsity_cons)
+        self.valid_transition_var_list.append(self.valid_transition_var)
 
         # adding crps
         self.train_crps_loss_list.append(self.train_crps_loss)
@@ -910,12 +1022,10 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = (
-            self.model.module.get_adj()
-        )  # .cpu().detach().numpy()
-        w = self.model.module.autoencoder.get_w_decoder()  # .cpu().detach().numpy()
         if not self.no_gt:
-            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w
+            w = self.model.autoencoder.get_w_decoder()
+            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w.item()
+            self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
         self.logvar_decoder_tt.append(self.model.module.autoencoder.logvar_decoder[0].item())
@@ -952,10 +1062,9 @@ class TrainingLatent:
     def get_nll(self, x, y, z=None) -> torch.Tensor:
 
         # this is just running the forward pass of LatentTSDCD...
-        elbo, recons, kl, pred = self.model(x, y, z, self.iteration)
-
+        elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
         # print('what is len(self.model(arg)) with arguments', len(self.model(x, y, z, self.iteration)))
-        return -elbo, recons, kl, pred
+        return -elbo, recons, kl, preds
 
     def get_regularisation(self) -> float:
         if self.iteration > self.optim_params.schedule_reg:
@@ -963,7 +1072,7 @@ class TrainingLatent:
             reg = self.optim_params.reg_coeff * torch.norm(adj, p=1)
             # reg /= adj.numel()
         else:
-            reg = torch.tensor([0.0])
+            reg = torch.as_tensor([0.0])
 
         return reg
 
@@ -972,7 +1081,7 @@ class TrainingLatent:
             adj = self.model.module.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
             h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
         else:
-            h = torch.tensor([0.0])
+            h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
 
@@ -991,7 +1100,7 @@ class TrainingLatent:
             # print('What is the ortho constraint shape:', constraint.shape)
             h = constraint / self.ortho_normalization
         else:
-            h = torch.tensor([0.0])
+            h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
 
@@ -1000,6 +1109,12 @@ class TrainingLatent:
     # NOTE Adding the number of causal links as a constraint, rather than having it as a penalty as in CDSD originally
     # NOTE Previously we did model.get_adj() as an argument. I am changing this to just be self...
     # more like get_regularisation, which is what we want to copy closely.
+
+    def adj_transition_variance(self) -> float:
+        adj = self.model.get_adj()
+        h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
+        assert torch.is_tensor(h)
+        return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
         """
@@ -1026,14 +1141,14 @@ class TrainingLatent:
 
             # Otherwise, there is no penalty due to the constraint:
             else:
-                constraint = torch.tensor([0.0])
+                constraint = torch.as_tensor([0.0])
 
             # print('constraint value, after I subtract a threshold, or whatever:', constraint)
 
-            h = torch.max(constraint, torch.tensor([0.0]))
+            h = torch.max(constraint, torch.as_tensor([0.0]))
 
         else:
-            h = torch.tensor([0.0])
+            h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
 
@@ -1042,40 +1157,129 @@ class TrainingLatent:
     def _normpdf(self, x):
         """Probability density function of a univariate standard Gaussian distribution with zero mean and unit
         variance."""
-        return (1.0 / torch.sqrt(torch.tensor(2.0 * torch.pi))) * torch.exp(torch.tensor(-(x * x) / 2.0))
+        return (1.0 / torch.sqrt(torch.as_tensor(2.0 * torch.pi))) * torch.exp(-torch.square(x) / 2.0)
 
     def get_crps_loss(self, y, mu, sigma):
-        """
-        Calculate the CRPS loss between the true values and the predicted values. We need to extract the parameters of
-        the Gaussian of the model. I am going to start by just taking the parameters of all the Gaussians for the
-        observations first...
+        if self.model.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.model.xi
 
-        I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
+            # Expand xi to match mu if needed
+            if isinstance(xi, torch.Tensor) and xi.ndim < mu.ndim:
+                xi = xi.expand_as(mu)
 
-        I would quite like to do this on future timesteps too.
+            eps = 1e-6  # small constant to avoid divide-by-zero or log(0)
 
-        Args:
-            y: torch.Tensor, the true values
-            mu: torch.Tensor, the mean of the Gaussians
-            sigma: torch.Tensor, the standard deviation of the Gaussians
-        """
+            # Standardized residual
+            t = (y - mu) / sigma
 
-        # gaussian_dist = torch.distributions.Normal(mu, sigma)
+            # Identify Gumbel regime (xi ~ 0)
+            near_zero = torch.abs(xi) < eps
+            xi_safe = xi.clone()
+            xi_safe[near_zero] = eps  # avoid divide-by-zero in GEV formula
 
-        y = y
-        mu = mu
-        sigma = sigma
+            # Transformed variable z = 1 + xi * t (GEV support condition)
+            z = 1 + xi_safe * t
+            z = torch.clamp(z, min=eps)  # avoid negative/zero base in pow
 
-        # standardised y
-        sy = (y - mu) / sigma
+            # z ** (-1/xi) term used in exp(-z ** -1/xi)
+            inv_xi = -1 / xi_safe
+            pow_z = z**inv_xi  # may return NaN if z < 0 or inf if large
 
-        forecast_dist = dist.Normal(0, 1)
+            # Safety: avoid propagating NaNs from z**inv_xi
+            pow_z = torch.nan_to_num(pow_z, nan=1e3, posinf=1e3, neginf=1e3)
 
-        # some precomputations to speed up the gradient
-        pdf = self._normpdf(sy)
-        cdf = forecast_dist.cdf(sy)
+            # CDF of GEV: F(y) = exp(-z ** (-1/xi))
+            F_y = torch.exp(-pow_z)
 
-        pi_inv = 1.0 / torch.sqrt(torch.tensor([np.pi]))
+            # Allocate output tensor
+            crps = torch.zeros_like(y)
+
+            # --- GEV branch (xi ≠ 0) ---
+            if torch.any(~near_zero):
+                idx = ~near_zero
+                xi_nz = xi_safe[idx]
+                mu_nz = mu[idx]
+                sigma_nz = sigma[idx]
+                y_nz = y[idx]
+                F_nz = F_y[idx]
+
+                # First term: (μ − y − σ/ξ)(1 − 2F(y))
+                t1 = (mu_nz - y_nz - sigma_nz / xi_nz) * (1 - 2 * F_nz)
+
+                # 2^xi * Gamma(1 - xi)
+                gamma_term = 2**xi_nz * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Lower incomplete gamma: gammainc * Gamma
+                gammainc_val = torch.special.gammainc(1 - xi_nz, -torch.log(F_nz))
+                lower_gamma = gammainc_val * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Second term: -σ/ξ (gamma_term - 2 * lower_gamma)
+                t2 = -sigma_nz / xi_nz * (gamma_term - 2 * lower_gamma)
+
+                # Sum both terms for GEV CRPS
+                crps[idx] = t1 + t2
+
+            # --- Gumbel branch (xi ≈ 0) ---
+            if torch.any(near_zero):
+                idx = near_zero
+                mu_z = mu[idx]
+                sigma_z = sigma[idx]
+                y_z = y[idx]
+                F_z = F_y[idx].clamp(min=eps, max=1 - eps)  # avoid log(0)
+
+                # log F(y) is always negative
+                log_F_z = torch.log(F_z)
+
+                # Clamp log F(y) to avoid large exponents in A, B
+                log_F_z_clamped = log_F_z.clamp(min=-20.0, max=-1e-3)
+
+                # -- Swamee & Ohija approximation for E₁(x) --
+
+                # A = ln[ (0.56146 / x + 0.65) * (1 + x) ]
+                A_numer = (0.56146 / log_F_z_clamped) + 0.65
+                A_denom = 1 + log_F_z_clamped
+                A_arg = A_numer * A_denom
+                A_arg = A_arg.clamp(min=eps)  # avoid log(0)
+                A = torch.log(A_arg)
+
+                # B = x⁴ * exp(7.7 * x) * (2 + x)^3.7
+                B = (
+                    (log_F_z_clamped**4)
+                    * torch.exp(7.7 * log_F_z_clamped)
+                    * (2 + log_F_z_clamped).clamp(min=eps) ** 3.7
+                )
+
+                # E₁(x) ≈ (A^-7.7 + B)^-0.13
+                expi_approx = (A**-7.7 + B).clamp(min=eps) ** -0.13
+
+                # Final safety (guard against NaNs/infs)
+                expi_approx = torch.nan_to_num(expi_approx, nan=0.0, posinf=1e3, neginf=0.0)
+
+                # CRPS = μ − y + σ (γ − ln 2) − 2σ * E₁(x)
+                t1 = (
+                    mu_z
+                    - y_z
+                    + sigma_z * (euler_mascheroni - torch.log(torch.tensor(2.0, device=y.device, dtype=y.dtype)))
+                )
+                t2 = -2 * sigma_z * expi_approx
+                crps[idx] = t1 + t2
+
+            if torch.isnan(crps).any():
+                print("[NaN] Final CRPS")
+
+            # Clamp final CRPS to ensure numerical validity
+            crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
+            crps = torch.clamp(crps, min=0.0)
+            return torch.mean(crps)
+
+        # --- Gaussian fallback ---
+        else:
+            sy = (y - mu) / sigma
+            forecast_dist = dist.Normal(0, 1)
+            pdf = self._normpdf(sy)
+            cdf = forecast_dist.cdf(sy)
+
+        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
 
         # calculate the CRPS
         crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
@@ -1085,7 +1289,7 @@ class TrainingLatent:
 
         return crps
 
-    def get_spectral_loss(self, y_true, y_recons, y_pred, take_log=True):
+    def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
@@ -1108,56 +1312,51 @@ class TrainingLatent:
 
         # assert that y_true has 3 dimensions
         assert y_true.dim() == 3
-        assert y_recons.dim() == 3
         assert y_pred.dim() == 3
 
         if y_true.size(-1) == self.lat * self.lon:
 
             y_true = torch.reshape(y_true, (y_true.size(0), y_true.size(1), self.lat, self.lon))
-            y_recons = torch.reshape(y_recons, (y_recons.size(0), y_recons.size(1), self.lat, self.lon))
             y_pred = torch.reshape(y_pred, (y_pred.size(0), y_pred.size(1), self.lat, self.lon))
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
-            # calculate the spectra of the reconstructed values
-            fft_recons = torch.mean(torch.abs(torch.fft.rfft(y_recons[:, :, :], dim=3)), dim=0)
+            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred[:, :, :], dim=3)), dim=0)
+            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=3)), dim=0)
 
         elif y_true.size(-1) == self.d_x:
 
             y_true = y_true
-            y_recons = y_recons
             y_pred = y_pred
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=2)), dim=0)
-            # calculate the spectra of the reconstructed values
-            fft_recons = torch.mean(torch.abs(torch.fft.rfft(y_recons[:, :, :], dim=2)), dim=0)
+            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=2)), dim=0)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred[:, :, :], dim=2)), dim=0)
+            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=2)), dim=0)
         else:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
         if take_log:
             fft_true = torch.log(fft_true)
-            fft_recons = torch.log(fft_recons)
             fft_pred = torch.log(fft_pred)
 
         # Calculate the power spectrum
-        spectral_loss_recons = torch.abs(fft_recons - fft_true)
-        spectral_loss_pred = torch.abs(fft_pred - fft_true)
+        spectral_loss = torch.abs(fft_pred - fft_true)
+        if self.optim_params.fraction_highest_wavenumbers is not None:
+            spectral_loss = spectral_loss[
+                :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
+            ]
+        if self.optim_params.fraction_lowest_wavenumbers is not None:
+            spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
 
-        spectral_loss = spectral_loss_recons + spectral_loss_pred
-
-        spectral_loss = torch.mean(spectral_loss[..., :])
+        spectral_loss = torch.mean(spectral_loss)
         # print('what is the shape of the spectral loss?', spectral_loss)
 
         return spectral_loss
 
-    def get_temporal_spectral_loss(self, x, y_true, y_recons, y_pred):
+    def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """
         Calculate the temporal spectra (frequency domain) of the true values compared to the predicted values. This
         needs to look at the power spectra through time per grid cell of predicted and true values.
@@ -1168,35 +1367,22 @@ class TrainingLatent:
             y_pred: torch.Tensor, the predicted values of the timestep we predict
         """
 
-        # unsqueeze y_true and y_pred along the time axis, so that they go from (batch_size, num_vars, coords) to (batch_size, 1, num_vars, coords)
-        # where coords can be self.d_x, icosahedral, or self.lat, self.lon in the case where we still have regular data
-        y_true = y_true.unsqueeze(1)
-        y_recons = y_recons.unsqueeze(1)
-        y_pred = y_pred.unsqueeze(1)
-
         # concatenate x and y_true along the time axis
         obs = torch.cat((x, y_true), dim=1)
-        recons = torch.cat((x, y_recons), dim=1)
         pred = torch.cat((x, y_pred), dim=1)
 
         # calculate the spectra of the true values along the time dimension, and then take the mean across the batch
         fft_true = torch.mean(torch.abs(torch.fft.rfft(obs, dim=1)), dim=0)
-        # calculate the spectra of the reconstructed values along the time dimension, and then take the mean across the batch
-        fft_recons = torch.mean(torch.abs(torch.fft.rfft(recons, dim=1)), dim=0)
         # calculate the spectra of the predicted values along the time dimension, and then take the mean across the batch
         fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred, dim=1)), dim=0)
 
         # Calculate the power spectrum
         # compute the distance between the losses...
-        temporal_spectral_loss_recons = torch.abs(fft_recons - fft_true)
-        temporal_spectral_loss_pred = torch.abs(fft_pred - fft_true)
-
-        temporal_spectral_loss = temporal_spectral_loss_recons + temporal_spectral_loss_pred
-
+        temporal_spectral_loss = torch.abs(fft_pred - fft_true)
         # the shape here is (time/2 + 1, num_vars, coords)
 
         # average across all frequencies, variables and coordinates...
-        temporal_spectral_loss = torch.mean(temporal_spectral_loss[:, :, :])
+        temporal_spectral_loss = torch.mean(temporal_spectral_loss)
 
         return temporal_spectral_loss
 
@@ -1207,8 +1393,8 @@ class TrainingLatent:
         inside each clusters.
         Not used yet - could be interesting :)
         """
-        c = torch.tensor([0.0])
-        w = self.model.module.autoencoder.get_w_encoder()
+        c = torch.as_tensor([0.0])
+        w = self.model.autoencoder.get_w_encoder()
         d = self.data.distances
         for i in self.d:
             for k in self.d_z:
@@ -1217,8 +1403,8 @@ class TrainingLatent:
 
     def connectivity_reg(self, ratio: float = 0.0005):
         """Calculate a connectivity regularisation only on a subsample of the complete data."""
-        c = torch.tensor([0.0])
-        w = self.model.module.autoencoder.get_w_encoder()
+        c = torch.as_tensor([0.0])
+        w = self.model.autoencoder.get_w_encoder()
         n = int(self.d_x * ratio)
         points = np.random.choice(np.arange(self.d_x), n)
 
@@ -1474,7 +1660,7 @@ class TrainingLatent:
             # print('Overall MSE:', mse1)
 
             # check
-            mse = torch.mean(torch.sum(0.5 * (y_original - y_original_pred) ** 2, dim=2))
+            mse = torch.mean(torch.sum(0.5 * torch.square(y_original - y_original_pred), dim=2))
             # print("MSE:", mse)
             # print("MSE shape:", mse.shape)
 
@@ -1499,10 +1685,10 @@ class TrainingLatent:
 
         # calculate the average spatial spectra of the true values, averaging across the batch
         print("y_true shape:", y_true.shape)
-        fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true[:, :, :], dim=3)), dim=0)
+        fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
         # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
         print("y_pred shape:", y_pred_samples.shape)
-        fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples[:, :, :], dim=3)), dim=0)
+        fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples, dim=3)), dim=0)
 
         # extend fft_true so it is the same value but extended to the same shape as fft_pred
         fft_true = fft_true.repeat(num_samples, 1, 1)

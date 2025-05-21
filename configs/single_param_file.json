@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "/home/kit/iti/qa4548/my_projects/climatem/results/climatem_spectral/var_ts_picontrol",
+        "exp_path": "$SCRATCH/results/climatem_spectral/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 4,
@@ -8,6 +8,7 @@
         "lon": 20, 
         "lat": 20,    
         "tau": 5,
+        "future_timesteps": 1,
         "random_seed": 1,
         "gpu": true,
         "num_workers":  0,
@@ -15,11 +16,11 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "/home/kit/iti/qa4548/my_projects/climatem/data/Climateset_DATA_TEST", 
-        "climateset_data": "/home/kit/iti/qa4548/my_projects/climatem/data/icosahedral_data/picontrol/24_ni", 
-        "reload_climate_set_data": false,
-        "icosahedral_coordinates_path": "/home/kit/iti/qa4548/my_projects/climatem/mappings/vertex_lonlat_mapping.npy",
-        "in_var_ids": ["savar"],
+        "data_dir": "$SCRATCH/data/Climateset_DATA_TEST", 
+        "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/structured/picontrol/24_ni", 
+        "reload_climate_set_data": true,
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
+        "in_var_ids": ["ts"],
         "out_var_ids": ["ts"],
         "num_levels": 1,
         "temp_res": "mon",
@@ -39,7 +40,7 @@
         "eval_batch_size": 128,
         "channels_last": false,
         "load_train_into_mem": true,
-        "load_test_into_mem":  true,
+        "load_test_into_mem": true,
         "num_months_aggregated": [1],
         "train_val_interval_length": 40
         }, 
@@ -51,11 +52,10 @@
     },    
     "train_params": {
         "ratio_train": 0.9,
-        "batch_size": 6000,
-        "lr": 0.001,
-        "lr_scheduler_epochs": [10000, 20000],
+        "lr": 0.0001,
+        "lr_scheduler_epochs": [10000, 25000, 50000],
         "lr_scheduler_gamma": 1,    
-        "max_iteration": 100000,
+        "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 5
@@ -65,11 +65,14 @@
         "no_w_constraint": false,
         "tied_w": false,
         "nonlinear_mixing": true,
-        "num_hidden": 8,
-        "num_layers": 2,
-        "num_output": 2,
         "num_hidden_mixing": 16,
         "num_layers_mixing": 2,    
+        "nonlinear_dynamics": true,
+        "num_hidden": 16,
+        "num_layers": 2,
+        "num_output": 2,
+        "position_embedding_dim": 100,
+        "reduce_encoding_pos_dim": false,
         "fixed": false,
         "fixed_output_fraction": null,
         "tau_neigh": 0,
@@ -79,26 +82,34 @@
         "optimizer": "rmsprop",
         
         "use_sparsity_constraint": true,
+        "binarize_transition": true,
         "crps_coeff": 1,
-        "spectral_coeff": 20,
+        "spectral_coeff": 1000,
         "temporal_spectral_coeff": 2000,
         "coeff_kl": 1,
 
-        "reg_coeff": 0.01,
+        "loss_decay_future_timesteps": 1,
+
+        "fraction_highest_wavenumbers": 0.5,
+        "fraction_lowest_wavenumbers": null,
+
+        "scheduler_spectra": null,
+
+        "reg_coeff": 0.12801,
         "reg_coeff_connect": 0,
     
         "schedule_reg": 0,
         "schedule_ortho": 0,
         "schedule_sparsity": 0,    
 
-        "ortho_mu_init": 1e5,
+        "ortho_mu_init": 100000.0,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
 
-        "sparsity_mu_init": 0.1,
+        "sparsity_mu_init": 1,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
@@ -116,9 +127,9 @@
         "h_acyclic_threshold": null
     },
     "plot_params": {
-        "plot_freq": 500,
+        "plot_freq": 5000,
         "plot_through_time": true,
-        "print_freq": 500
+        "print_freq": 2000
     },
     "savar_params": {
         "time_len": 10000,
@@ -130,7 +141,17 @@
         "overlap": false,
         "is_forced": false,
         "plot_original_data": true
+    },
+    "rollout_params": {
+        "final_30_years_of_ssps": false,
+        "batch_size": 8,
+        "num_particles": 50,
+        "num_particles_per_particle": 10,
+        "num_timesteps": 1200,
+        "score": "log_bayesian",
+        "tempering": true,
+        "sample_trajectories": true,
+        "batch_memory": true
     }
-
 }
 

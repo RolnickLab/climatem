@@ -1,34 +1,25 @@
 #!/bin/bash
 
-#SBATCH --job-name=run_single                                           # Set name of job
-#SBATCH --output=run_single_output.txt                                  # Set location of output file
-#SBATCH --error=run_single_error.txt                                    # Set location of error file
+#SBATCH --job-name=run_pf                                           # Set name of job
+#SBATCH --output=run_pf_output.txt                                  # Set location of output file
+#SBATCH --error=run_pf_error.txt                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
-#SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
+#SBATCH --cpus-per-task=16                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
-#SBATCH --mem=128G                                                       # Ask for 32 GB of RAM
-#SBATCH --time=12:00:00                                                 # The job will run for 2 hours
+#SBATCH --mem=256G                                                       # Ask for 32 GB of RAM
+#SBATCH --time=02:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 
 # 0. Clear the environment
 module purge
 
 # 1. Load the required modules
-module load compiler/intel/2021.4.0
-module load devel/python/3.10.5_intel_2021.4.0
+module --quiet load python/3.10
 
-<<<<<<< HEAD
-# 2. Load your environment
-source $HOME/my_projects/climatem/env_emulator_climatem/bin/activate
-source $HOME/env_climatem/bin/activate
-=======
->>>>>>> main
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/env/env_climatem/bin/activate
-# 3. Enable expandable allocator to avoid fragmentation
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+source $HOME/causal_model/env_climatem/bin/activate
 
 # 3. Get a unique port for this job based on the job ID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
@@ -49,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file.json
+    $HOME/causal_model/climatem/scripts/rollout_bf.py --config-path single_param_file.json

@@ -1,5 +1,4 @@
 # Here we have a quick main where we are testing data loading with different ensemble members and ideally with different climate models.
-import argparse
 import json
 import os
 import time
@@ -51,8 +50,6 @@ def main(
     torch.manual_seed(experiment_params.random_seed)
     np.random.seed(experiment_params.random_seed)
 
-    # Use GPU
-    # TODO: Make everything Double instead of FLoat on GPU
     if experiment_params.gpu:
         torch.set_default_tensor_type("torch.cuda.FloatTensor")
     else:
@@ -64,11 +61,15 @@ def main(
     #     os.makedirs(args.exp_path)
 
     # generate data and split train/test
+<<<<<<< HEAD
     if experiment_params.gpu and torch.cuda.is_available():
         device = "cuda"
         print("CUDACUDACUDA")
     else:
         device = "cpu"
+=======
+    device = torch.device("cuda" if (torch.cuda.is_available() and experiment_params.gpu) else "cpu")
+>>>>>>> main
 
     if data_params.data_format == "hdf5":
         print("IS HDF5")
@@ -76,6 +77,7 @@ def main(
     else:
         datamodule = CausalClimateDataModule(
             tau=experiment_params.tau,
+            future_timesteps=experiment_params.future_timesteps,
             num_months_aggregated=data_params.num_months_aggregated,
             train_val_interval_length=data_params.train_val_interval_length,
             in_var_ids=data_params.in_var_ids,
@@ -103,7 +105,7 @@ def main(
             output_save_dir=data_params.data_dir,
             num_ensembles=data_params.num_ensembles,  # 1 for first ensemble, -1 for all
             lon=experiment_params.lon,
-            lat=experiment_params.lon,
+            lat=experiment_params.lat,
             num_levels=data_params.num_levels,
             global_normalization=data_params.global_normalization,
             seasonality_removal=data_params.seasonality_removal,
@@ -150,16 +152,19 @@ def main(
         num_output=2,  # This should be parameterized somewhere?
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
+        position_embedding_dim=model_params.position_embedding_dim,
+        reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
         coeff_kl=optim_params.coeff_kl,
         d=d,
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
-        distr_decoder="gaussian",
+        distr_decoder="gev",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
+        nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,
         no_gt=gt_params.no_gt,
@@ -183,7 +188,11 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
+<<<<<<< HEAD
     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_overlap_{savar_params.overlap}_forcing_{savar_params.is_forced}"
+=======
+    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
+>>>>>>> main
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 
@@ -227,6 +236,7 @@ def main(
         d,
         accelerator,
         wandbname=name,
+        profiler=False,
     )
 
     # where is the model at this point?
@@ -337,9 +347,27 @@ def assert_args(
 if __name__ == "__main__":
 
     args = parse_args()
-    with open(args.config_path, "r") as f:
+    
+    cwd = Path.cwd()
+    root_path = cwd.parent
+    config_path = root_path / f"configs"
+    json_path = config_path / args.config_path
+    
+    with open(json_path, "r") as f:
         params = json.load(f)
     config_obj_list = update_config_withparse(params, args)
+
+    # get user's scratch directory on Mila cluster:
+    scratch_path = os.getenv("SCRATCH")
+    params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
+    print ("new data path:", params["data_params"]["data_dir"])
+
+    params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)
+    print ("new exp path:", params["exp_params"]["exp_path"])
+
+    # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
+    params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path.absolute().as_posix())
+    print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])

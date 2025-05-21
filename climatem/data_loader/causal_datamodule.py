@@ -10,7 +10,8 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
-from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
+from climatem.data_loader.cmip6_dataset import CMIP6Dataset
+from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.savar_dataset import SavarDataset
 
 
@@ -33,7 +34,7 @@ class CausalClimateDataModule(ClimateDataModule):
     The setup method is overwritten and performs data preprocessing for causal discovery models.
     """
 
-    def __init__(self, tau=5, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
+    def __init__(self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
         super().__init__(self)
 
         # kwargs are initialized as self.hparams by the Lightning module
@@ -41,6 +42,7 @@ class CausalClimateDataModule(ClimateDataModule):
         # self.hparams.test_models = None if self.hparams.test_models else self.hparams.train_models
         self.hparams.test_models = self.hparams.train_models
         self.tau = tau
+        self.future_timesteps = future_timesteps
         self.num_months_aggregated = num_months_aggregated
         self.train_val_interval_length = train_val_interval_length
         self.shuffle_train = False  # need to keep order for causal train / val splits
@@ -84,7 +86,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     output_save_dir=self.hparams.output_save_dir,
                     lat=self.hparams.lat,
                     lon=self.hparams.lon,
-                    tau=self.hparams.tau,
+                    tau=self.tau,
                     global_normalization=self.hparams.global_normalization,
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
@@ -157,6 +159,7 @@ class CausalClimateDataModule(ClimateDataModule):
 
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,
+                future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
                 num_vars=len(self.hparams.in_var_ids),
                 num_scenarios=len(self.hparams.train_scenarios),

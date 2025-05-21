@@ -8,7 +8,7 @@ This is the code to run experiments to train and evaluate probabilistic generati
 ### Dependencies
 - Python 3.10
 - poetry
-- [accelerate](https://huggingface.co/docs/accelerate/usage_guides)
+- [accelerate](https://huggingface.co/docs/accelerate/index)
 - wandb
 
 ### 1. Clone the repo
@@ -24,13 +24,13 @@ Environment creation, first make sure you have a python installation (or `module
 
 2. `source env_emulator_climatem/bin/activate`
 
-3. `poetry add $(cat requirements_env_emulator.txt)`
-
-4. `poetry install`
+3. `poetry install`
 Run `poetry install --with dev` to use formatting tools for code development
 
 If you do not have poetry yet, follow guidelines in the "Install poetry" section here https://github.com/RolnickLab/lab-basic-template
 This link points you to additional references for setting up your environment correctly. 
+
+If you need a package that is not automatically installed, please run `poetry add $(cat requirements_env_emulator.txt)`
 
 ### 3. Downloading input data
 
@@ -47,6 +47,8 @@ For overwriting parameters of the json file, you can also add `--hp train_params
 
 Detailed description of parameters can be found in `climatem/config.py`. 
 `configs/single_param_file.json` and `configs/single_param_file_savar.json` show an example of parameter files used for climate model and synthetic data respectively. 
+
+To run the particle filter, run the bash script scripts/run_rollout_bf.sh using the same param json file. The rollout parameters can be set in the json file as well.  
 
 #### accelerate
 Parallelism is handled by Accelerator https://huggingface.co/docs/accelerate/package_reference/accelerator
@@ -85,6 +87,16 @@ Run a quick test to check if it's working:
 ``accelerate test``
 
 If this runs smoothly you can go ahead.
+
+#### jupyter
+
+In order to run notebooks, you need to install a jupyter kernel. 
+To do so, first activate yoru environment and run 
+
+```
+python -m pip install jupyter
+python -m ipykernel install --user --name=my_env_name
+```
 
 
 

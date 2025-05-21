@@ -6,16 +6,17 @@ from climatem.constants import SEQ_LEN_MAPPING
 class expParams:
     def __init__(
         self,
-        exp_path,  # Path to where the output will be saved i.e. model runs, plots 
-        _target_, 
+        exp_path,  # Path to where the output will be saved i.e. model runs, plots
+        _target_: str = "climatem.data_loader.climate_datamodule.ClimateDataModule",
         latent: bool = True,  # Are you using latent variables or not (if not, learn causal variables between all observations)
         d_z: int = 90,  # Latent dimension
-        d_x: int = 6250, # Observation dimension
-        lon: int = 144, # Longitude 
-        lat: int = 96, # Latitude
-        tau: int = 5,  # Number of timesteps 
+        d_x: int = 6250,  # Observation dimension
+        lon: int = 144,  # Longitude
+        lat: int = 96,  # Latitude
+        tau: int = 5,  # Number of timesteps
+        future_timesteps: int = 1,  # Number of future timesteps to include in the future
         random_seed: int = 1,
-        gpu: bool = True, # Running code on GPU? 
+        gpu: bool = True,  # Running code on GPU?
         num_workers: int = 0,
         pin_memory: bool = False,
         verbose: bool = True,
@@ -28,6 +29,7 @@ class expParams:
         self.lon = lon
         self.lat = lat
         self.tau = tau
+        self.future_timesteps = future_timesteps
         self.random_seed = random_seed
         self.gpu = gpu
         self.num_workers = num_workers
@@ -38,34 +40,36 @@ class expParams:
 class dataParams:
     def __init__(
         self,
-        data_dir, # The processed (normalized, deseasonalized, numpy...) data will be stored here 
-        climateset_data, # The raw data is found here (typically .grib or .nc files)
-        reload_climate_set_data, # If True, will reload the numpy data directly from data_dir
-        icosahedral_coordinates_path, # Path to coordinates
-        train_historical_years, # If "historical" in train_scenarios use these years to train
-        test_years, # use these years to test
-        train_years, # use these years to train
-        train_scenarios, # training scenarios i.e. piControl, ssp245 ...
-        test_scenarios, # test scenarios
-        train_models, # train_models i.e. Nor-ESM
+        data_dir,  # The processed (normalized, deseasonalized, numpy...) data will be stored here
+        climateset_data,  # The raw data is found here (typically .grib or .nc files)
+        reload_climate_set_data,  # If True, will reload the numpy data directly from data_dir
+        icosahedral_coordinates_path,  # Path to coordinates
+        train_historical_years,  # If "historical" in train_scenarios use these years to train
+        test_years,  # use these years to test
+        train_years,  # use these years to train
+        train_scenarios,  # training scenarios i.e. piControl, ssp245 ...
+        test_scenarios,  # test scenarios
+        train_models,  # train_models i.e. Nor-ESM
         #  test_models, TODO: enable training and testing on two different models
-        in_var_ids, # input variables i.e. ts, pr, gases. If "savar" uses synthetic data
-        out_var_ids, # output variables i.e. ts, pr, gases
-        num_ensembles: int = 1, # number of ensembles
-        num_levels: int = 1, 
-        temp_res: str = "mon", # temporal resolution. Only "mon" is accepted for now
-        batch_size: int = 256, # batch size for loading the data
+        in_var_ids,  # input variables i.e. ts, pr, gases. If "savar" uses synthetic data
+        out_var_ids,  # output variables i.e. ts, pr, gases
+        num_ensembles: int = 1,  # number of ensembles
+        num_levels: int = 1,
+        temp_res: str = "mon",  # temporal resolution. Only "mon" is accepted for now
+        batch_size: int = 256,  # batch size for loading the data
         eval_batch_size: int = 256,  # batch size for loading the evaluation data
-        global_normalization: bool = True, # normalize the data?
-        seasonality_removal: bool = False, # deseasonalize the data?
-        channels_last: bool = False, # last dimension of data is the channel
-        ishdf5: bool = False, # numpy vs hdf5. for now only numpy is supported. Redundant with next param
-        data_format: str = "numpy", # numpy vs hdf5. for now only numpy is supported
-        seq_to_seq: bool = True, # predicting a sequence from a sequence?
-        train_val_interval_length: int = 11, 
-        load_train_into_mem: bool = True, 
+        global_normalization: bool = True,  # normalize the data?
+        seasonality_removal: bool = False,  # deseasonalize the data?
+        channels_last: bool = False,  # last dimension of data is the channel
+        ishdf5: bool = False,  # numpy vs hdf5. for now only numpy is supported. Redundant with next param
+        data_format: str = "numpy",  # numpy vs hdf5. for now only numpy is supported
+        seq_to_seq: bool = True,  # predicting a sequence from a sequence?
+        train_val_interval_length: int = 11,
+        load_train_into_mem: bool = True,
         load_test_into_mem: bool = True,
-        num_months_aggregated: List[int] = [1], # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
+        num_months_aggregated: List[int] = [
+            1
+        ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
     ):
         self.data_dir = data_dir
         self.climateset_data = climateset_data
@@ -103,10 +107,11 @@ class dataParams:
 # This class is only for debugging and for setting some params to the true aprams when training picabu
 class gtParams:
     def __init__(
-        self, no_gt: bool = True, # do we have GT to compare? If synthetic data, will be True and overwritten
-        debug_gt_z: bool = False, # below params help debugging the code when we have ground truth
-        debug_gt_w: bool = False, 
-        debug_gt_graph: bool = False
+        self,
+        no_gt: bool = True,  # do we have GT to compare? If synthetic data, will be True and overwritten
+        debug_gt_z: bool = False,  # below params help debugging the code when we have ground truth
+        debug_gt_w: bool = False,
+        debug_gt_graph: bool = False,
     ):
         self.no_gt = no_gt
         self.debug_gt_z = debug_gt_z
@@ -117,19 +122,18 @@ class gtParams:
 class trainParams:
     def __init__(
         self,
-        ratio_train: float = 0.9, 
-        batch_size: int = 6000, 
+        ratio_train: float = 0.9,
         lr: float = 0.001,
-        lr_scheduler_epochs: List[int] = [10000, 20000], 
-        lr_scheduler_gamma: float = 1, # multiply lr by this value at iterations specified in lr_scheduler_epochs
-        max_iteration: int = 100000, # maximum trainign iteration
-        patience: int = 5000, # Only learn mapping from obs to latents for patience iteration
-        patience_post_thresh: int = 50, # NOT SURE: if mapping converges before patience, and for patience_post_thresh it's stable, then optimize everything
-        valid_freq: int = 5, # get validation metrics every valid_freq iteration
+        lr_scheduler_epochs: List[int] = [10000, 20000],
+        lr_scheduler_gamma: float = 1,  # multiply lr by this value at iterations specified in lr_scheduler_epochs
+        max_iteration: int = 100000,  # maximum trainign iteration
+        patience: int = 5000,  # Only learn mapping from obs to latents for patience iteration
+        patience_post_thresh: int = 50,  # NOT SURE: if mapping converges before patience, and for patience_post_thresh it's stable, then optimize everything
+        valid_freq: int = 5,  # get validation metrics every valid_freq iteration
+        # here valid_freq is critical for updating the parameters of the ALM method as they get updated every valid_freq
     ):
         self.ratio_train = ratio_train
         self.ratio_valid = 1 - self.ratio_train
-        self.batch_size = batch_size
         self.lr = lr
         self.lr_scheduler_epochs = lr_scheduler_epochs
         self.lr_scheduler_gamma = lr_scheduler_gamma
@@ -142,29 +146,35 @@ class trainParams:
 class modelParams:
     def __init__(
         self,
-        instantaneous: bool = False, # Allow instantaneous connections? 
-        no_w_constraint: bool = False, # If True, no single parent assumption i.e. no causal graph
-        tied_w: bool = False, # NOT SURE, to clarify
-        nonlinear_mixing: bool = True, # If False, latent dynamics are linear
+        instantaneous: bool = False,  # Allow instantaneous connections?
+        no_w_constraint: bool = False,  # If True, no single parent assumption i.e. no causal graph
+        tied_w: bool = False,  # NOT SURE, to clarify
+        nonlinear_mixing: bool = True,  # If False, latent dynamics are linear
+        num_hidden_mixing: int = 16,  # MLP params for latent dynamics if non-linear
+        num_layers_mixing: int = 2,
+        nonlinear_dynamics: bool = True,
         num_hidden: int = 8,  # MLP params for mapping from obs to latents. If 0, then linear. SHould add a flag as `nonlinear_mixing`
         num_layers: int = 2,
-        num_output: int = 2, #NOT SURE
-        num_hidden_mixing: int = 16, # MLP params for latent dynamics if non-linear
-        num_layers_mixing: int = 2,
-        fixed: bool = False, # Do we fix the causal graph? Should be in gt_params maybe
+        num_output: int = 2,  # NOT SURE
+        position_embedding_dim: int = 100,  # Dimension of positional embedding
+        reduce_encoding_pos_dim: bool = False,
+        fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
         fixed_output_fraction=None,  # NOT SURE, Remove this?
-        tau_neigh: int = 0, #NOT SURE
-        hard_gumbel: bool = False, #NOT SURE
+        tau_neigh: int = 0,  # NOT SURE
+        hard_gumbel: bool = False,  # NOT SURE
     ):
         self.instantaneous = instantaneous
         self.no_w_constraint = no_w_constraint
         self.tied_w = tied_w
         self.nonlinear_mixing = nonlinear_mixing
+        self.nonlinear_dynamics = nonlinear_dynamics
         self.num_hidden = num_hidden
         self.num_layers = num_layers
         self.num_output = num_output
         self.num_hidden_mixing = num_hidden_mixing
         self.num_layers_mixing = num_layers_mixing
+        self.position_embedding_dim = position_embedding_dim
+        self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh
@@ -174,24 +184,31 @@ class modelParams:
 class optimParams:
     def __init__(
         self,
-        optimizer: str = "rmsprop", 
-        use_sparsity_constraint: bool = True, # If False, use sparsity penalty
-        crps_coeff: float = 1, # Loss penalty coefficient for CRPS
-        spectral_coeff: float = 20, # for spatial spectrum
+        optimizer: str = "rmsprop",
+        use_sparsity_constraint: bool = True,  # If False, use sparsity penalty
+        binarize_transition: bool = True,  # If True, start adding the variance term of the matrix instead of the sparsity once constraint has been achieved
+        crps_coeff: float = 1,  # Loss penalty coefficient for CRPS
+        spectral_coeff: float = 20,  # for spatial spectrum
         temporal_spectral_coeff: float = 2000,  # for temporal spectrum
-        coeff_kl: float = 1, # for KL div
-        reg_coeff: float = 0.01, # for sparsity penalty if penalty 
+        coeff_kl: float = 1,  # for KL div
+        loss_decay_future_timesteps: float = 1,  # if we predict more than 1 timestep, the loss ecay will reduce the weight of far away timesteps in the loss
+        reg_coeff: float = 0.01,  # for sparsity penalty if penalty
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
-        schedule_reg: int = 0, # when we start adding penalties to the loss
-        schedule_ortho: int = 0, # when we start adding ortho constraint to the loss
-        schedule_sparsity: int = 0, # when we start adding sparsity constraint to the loss
-        ortho_mu_init: float = 10_000, # Initial orthogonality constraint coeff
-        ortho_mu_mult_factor: float = 1.2, # Multiply coeff by mult_factor every ortho_min_iter_convergence
-        ortho_omega_gamma: float = 0.01, # Not sure, related to ALM 
-        ortho_omega_mu: float = 0.9, # Not sure, related to ALM 
-        ortho_h_threshold: float = 0.01, # orthogonality threshold i.e. achieved when below this threshold
-        ortho_min_iter_convergence: float = 1_000, # orthogonality threshold i.e. achieved when below above threshold for at least ortho_min_iter_convergence
-        sparsity_mu_init: float = 0.1, # Below same aprams for sparsity  and acyclicity constraint 
+        fraction_highest_wavenumbers: float = None,
+        fraction_lowest_wavenumbers: float = None,
+        scheduler_spectra: List[
+            int
+        ] = None,  # the spectra term coefficient in the loss will be linearly increased from 0 to 1 if this is not None, ex: [0, 30_000, 50_000]
+        schedule_reg: int = 0,  # when we start adding penalties to the loss
+        schedule_ortho: int = 0,  # when we start adding ortho constraint to the loss
+        schedule_sparsity: int = 0,  # when we start adding sparsity constraint to the loss
+        ortho_mu_init: float = 10_000,  # Initial orthogonality constraint coeff
+        ortho_mu_mult_factor: float = 1.2,  # Multiply coeff by mult_factor every ortho_min_iter_convergence
+        ortho_omega_gamma: float = 0.01,  # Not sure, related to ALM
+        ortho_omega_mu: float = 0.9,  # Not sure, related to ALM
+        ortho_h_threshold: float = 0.01,  # orthogonality threshold i.e. achieved when below this threshold
+        ortho_min_iter_convergence: float = 1_000,  # orthogonality threshold i.e. achieved when below above threshold for at least ortho_min_iter_convergence
+        sparsity_mu_init: float = 0.1,  # Below same aprams for sparsity  and acyclicity constraint
         sparsity_mu_mult_factor: float = 1.2,
         sparsity_omega_gamma: float = 0.01,
         sparsity_omega_mu: float = 0.95,
@@ -209,12 +226,18 @@ class optimParams:
     ):
         self.optimizer = optimizer
         self.use_sparsity_constraint = use_sparsity_constraint
+        self.binarize_transition = binarize_transition
         self.crps_coeff = crps_coeff
         self.spectral_coeff = spectral_coeff
         self.temporal_spectral_coeff = temporal_spectral_coeff
+        self.loss_decay_future_timesteps = loss_decay_future_timesteps
         self.coeff_kl = coeff_kl
         self.reg_coeff = reg_coeff
         self.reg_coeff_connect = reg_coeff_connect
+
+        self.fraction_highest_wavenumbers = fraction_highest_wavenumbers
+        self.fraction_lowest_wavenumbers = fraction_lowest_wavenumbers
+        self.scheduler_spectra = scheduler_spectra
 
         self.schedule_reg = schedule_reg
         self.schedule_ortho = schedule_ortho
@@ -249,7 +272,7 @@ class plotParams:
     def __init__(
         self, plot_freq: int = 500, plot_through_time: bool = True, print_freq: int = 500, savar: bool = False
     ):
-        self.plot_freq = plot_freq 
+        self.plot_freq = plot_freq
         self.plot_through_time = plot_through_time
         self.print_freq = print_freq
         self.savar = savar
@@ -259,14 +282,14 @@ class savarParams:
     # Params for generating synthetic data
     def __init__(
         self,
-        time_len: int = 10_000, # Time length of the data
-        comp_size: int = 10, # Each component size
-        noise_val: float = 0.2, # Noise variance relative to signal 
-        n_per_col: int = 2, # square grid, equivalent of lat/lon
-        difficulty: str = "easy", # easy, med_easy, med_hard, hard: difficulty of the graph
-        seasonality: bool = False, # Seasonality in synthetic data
-        overlap: bool = False, # Modes overlap 
-        is_forced: bool = False, # Forcings in synthetic data
+        time_len: int = 10_000,  # Time length of the data
+        comp_size: int = 10,  # Each component size
+        noise_val: float = 0.2,  # Noise variance relative to signal
+        n_per_col: int = 2,  # square grid, equivalent of lat/lon
+        difficulty: str = "easy",  # easy, med_easy, med_hard, hard: difficulty of the graph
+        seasonality: bool = False,  # Seasonality in synthetic data
+        overlap: bool = False,  # Modes overlap
+        is_forced: bool = False,  # Forcings in synthetic data
         f_1: int = 1,
         f_2: int = 2,
         f_time_1: int = 4000,
@@ -292,3 +315,28 @@ class savarParams:
         self.linearity = linearity
         self.poly_degrees = poly_degrees
         self.plot_original_data = plot_original_data
+
+
+class rolloutParams:
+    # Params for generating synthetic data
+    def __init__(
+        self,
+        final_30_years_of_ssps: bool = True,  # Do prediction on the last years?
+        batch_size: int = 10,  # number of initial conditions to look at the rollout on
+        num_particles: int = 50,  # number of particles to propagate at each step
+        num_particles_per_particle: int = 10,  # num particles to sample for each particle and compute fft
+        num_timesteps: int = 1200,  # Time length of the prediction
+        score: str = "log_bayesian",  # log_bayesian should be used
+        tempering: bool = True,  # tempering the variance when sampling allows to propagate uncertainty
+        sample_trajectories: bool = False,  # sample each trajectory separately
+        batch_memory: bool = True,
+    ):
+        self.num_timesteps = num_timesteps
+        self.final_30_years_of_ssps = final_30_years_of_ssps
+        self.score = score
+        self.tempering = tempering
+        self.batch_size = batch_size
+        self.num_particles = num_particles
+        self.num_particles_per_particle = num_particles_per_particle
+        self.sample_trajectories = sample_trajectories
+        self.batch_memory = batch_memory

@@ -4,13 +4,12 @@ import os
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.basemap import Basemap
-import matplotlib.animation as animation
 
 from climatem.model.metrics import mcc_latent
 
@@ -95,7 +94,6 @@ class Plotter:
         # load GT W and graph
         self.gt_w = data_loader.gt_w
         self.gt_graph = data_loader.gt_dag
-
 
     def plot(self, learner, save=False):
         """
@@ -314,6 +312,7 @@ class Plotter:
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
+                {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
                 # {"name": "gamma ortho", "data": learner.gamma_ortho_list, "s": ":"},
                 # {"name": "gamma sparsity", "data": learner.gamma_sparsity_list, "s": ":"},
@@ -368,13 +367,13 @@ class Plotter:
         # Load gt mode weights
         if learner.plot_params.savar:
             savar_folder = learner.data_params.data_dir
-            n_modes = learner.savar_params.n_per_col ** 2
+            n_modes = learner.savar_params.n_per_col**2
             savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
             # Get the gt mode weights
-            modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
-            if learner.iteration==500:
-                savar_data = np.load(savar_folder + f"/{savar_fname}.npy")
-                savar_anim_path = savar_folder + f"/{savar_fname}_original_savar_data.gif"
+            modes_gt = np.load(f"{savar_folder}/{savar_fname}_mode_weights.npy")
+            if learner.iteration == 500:
+                savar_data = np.load(f"{savar_folder}/{savar_fname}.npy")
+                savar_anim_path = f"{savar_folder}/{savar_fname}_original_savar_data.gif"
                 self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
 
         # TODO: plot the prediction vs gt
@@ -510,7 +509,6 @@ class Plotter:
             axes[1].set_title(f"GT mixing. j={j}, val={gt_w[0, i, j]:.2f}")
 
             plt.savefig(path / f"learned_mixing_x{i}.png")
-            plt.close()
 
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path):
         """
@@ -519,42 +517,52 @@ class Plotter:
             x: ground-truth x (for a specific physical variable)
             x_past: ground-truth x at (t-1)
             x_hat: x predicted by the model
-            coordinates: xxx
+            coordinates: array of shape (N, 2), with [lat, lon] or [lon, lat]
             path: path where to save the plot
         """
+        fig, axes = plt.subplots(nrows=3, ncols=1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 15))
+        fig.suptitle("Ground-truth vs prediction", fontsize=16)
 
-        fig = plt.figure()
-        fig.suptitle("Ground-truth vs prediction")
+        # Ensure coordinates are in the right order (lon, lat)
+        if np.max(coordinates[:, 0]) > 91:
+            coordinates = np.flip(coordinates, axis=1)
 
-        lat = np.unique(coordinates[:, 0])
-        lon = np.unique(coordinates[:, 1])
-        X, Y = np.meshgrid(lon, lat)
+        lon = coordinates[:, 0]
+        lat = coordinates[:, 1]
+        X, Y = np.meshgrid(np.unique(lon), np.unique(lat))
 
-        for i in range(3):
+        for i, ax in enumerate(axes):
+            ax.set_global()
+            ax.coastlines()
+            ax.add_feature(cfeature.BORDERS, linestyle=":")
+            ax.add_feature(cfeature.COASTLINE)
+            ax.add_feature(cfeature.LAND, edgecolor="black")
+            ax.gridlines(draw_labels=False)
+
             if i == 0:
-                z = x_past
-                axes = fig.add_subplot(311)
-                axes.set_title("Previous GT")
-            if i == 1:
-                z = x
-                axes = fig.add_subplot(312)
-                axes.set_title("Ground-truth")
-            if i == 2:
-                z = x_hat
-                axes = fig.add_subplot(313)
-                axes.set_title("Prediction")
+                Z = x_past
+                ax.set_title("Previous GT")
+            elif i == 1:
+                Z = x
+                ax.set_title("Ground-truth")
+            elif i == 2:
+                Z = x_hat
+                ax.set_title("Prediction")
 
-            map = Basemap(projection="robin", lon_0=0)
-            map.drawcoastlines()
-            map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-            # map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
+            cs = ax.pcolormesh(
+                X,
+                Y,
+                Z.reshape(X.shape[0], X.shape[1]),
+                transform=ccrs.PlateCarree(),
+                cmap="RdBu_r",
+                vmin=-3.5,
+                vmax=3.5,
+            )
 
-            Z = z.reshape(X.shape[0], X.shape[1])
+        # Add colorbar
+        fig.colorbar(cs, ax=axes.ravel().tolist(), shrink=0.7, orientation="horizontal", label="Normalized value")
 
-            map.contourf(X, Y, Z, latlon=True)
-
-        # plt.colorbar()
-        plt.savefig(path, "prediction.png", format="png")
+        plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
     def plot_compare_predictions_regular_grid(
@@ -1134,29 +1142,30 @@ class Plotter:
         tau = mat1.shape[0]
 
         if savar and modes_gt is not None and modes_inferred is not None:
-            # Find the permutation 
+            # Find the permutation
             modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
 
             # Get the flat index of the maximum for each mode
-            idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)          # shape: (n_modes,)
-            idx_inferred_flat = np.argmax(modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1)  # shape: (n_modes,)
+            idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)  # shape: (n_modes,)
+            idx_inferred_flat = np.argmax(
+                modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1
+            )  # shape: (n_modes,)
 
             # Convert flat indices to 2D coordinates (row, col)
-            idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])         # shape: (n_modes, 2)
+            idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])  # shape: (n_modes, 2)
             idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
 
             # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
             permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
             print("permutation_list:", permutation_list)
 
-            # Permute 
+            # Permute
             for k in range(tau):
                 mat1[k] = mat1[k][np.ix_(permutation_list, permutation_list)]
 
             print("PERMUTED THE MATRICES")
 
-            #np.save(learner.plots_path / f"adjacency_{name_suffix}_permuted.npy", mat1)
-
+            # np.save(learner.plots_path / f"adjacency_{name_suffix}_permuted.npy", mat1)
 
         subfig_names = [
             f"Learned, latent dimensions = {mat1.shape[1], mat1.shape[2]}",
@@ -1454,7 +1463,7 @@ class Plotter:
 
         fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
         cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
-        cbar = fig.colorbar(cax, ax=ax)
+        # cbar = fig.colorbar(cax, ax=ax)
 
         def animate(i):
             cax.set_data(data_reshaped[i])
@@ -1468,7 +1477,6 @@ class Plotter:
         ani.save(path, writer="pillow", fps=10)
 
         plt.close()
-
 
     # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
 
