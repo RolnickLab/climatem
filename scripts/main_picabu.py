@@ -73,7 +73,6 @@ def main(
             num_months_aggregated=data_params.num_months_aggregated,
             train_val_interval_length=data_params.train_val_interval_length,
             in_var_ids=data_params.in_var_ids,
-            out_var_ids=data_params.out_var_ids,
             train_years=data_params.train_years,
             train_historical_years=data_params.train_historical_years,
             test_years=data_params.test_years,  # do we want to implement keeping only certain years for testing?
@@ -144,7 +143,7 @@ def main(
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
-        distr_decoder="gev",
+        distr_decoder="gaussian",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,

@@ -52,7 +52,6 @@ class dataParams:
         train_models,  # train_models i.e. Nor-ESM
         #  test_models, TODO: enable training and testing on two different models
         in_var_ids,  # input variables i.e. ts, pr, gases. If "savar" uses synthetic data
-        out_var_ids,  # output variables i.e. ts, pr, gases
         num_ensembles: int = 1,  # number of ensembles
         num_levels: int = 1,
         temp_res: str = "mon",  # temporal resolution. Only "mon" is accepted for now
@@ -83,7 +82,6 @@ class dataParams:
         self.train_models = train_models
         # self.test_models = test_models
         self.in_var_ids = in_var_ids
-        self.out_var_ids = out_var_ids
         self.num_ensembles = num_ensembles
         self.num_levels = num_levels
         try:

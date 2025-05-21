@@ -61,7 +61,7 @@ class CMIP6Dataset(ClimateDataset):
         self.root_dir = Path(data_dir) / "outputs/CMIP6"
         self.input_nc_files = []
         self.output_nc_files = []
-        self.in_variables = variables
+        self.variables = variables
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.seq_len = seq_len

@@ -31,7 +31,6 @@ class ClimateDataModule(LightningDataModule):
     def __init__(
         self,
         in_var_ids: Union[List[str], str] = ["BC_sum", "CO2_sum", "CH4_sum", "SO2_sum"],
-        out_var_ids: Union[List[str], str] = ["pr", "tas"],
         train_years: Union[int, str] = "2000-2090",
         train_historical_years: Union[int, str] = "1850-1900",
         test_years: Union[int, str] = "2090-2100",  # do we want to implement keeping only certain years for testing?
@@ -130,8 +129,7 @@ class ClimateDataModule(LightningDataModule):
             output_save_dir=self.hparams.output_save_dir,
             reload_climate_set_data=self.hparams.reload_climate_set_data,
             num_ensembles=self.hparams.num_ensembles,
-            out_variables=self.hparams.out_var_ids,
-            in_variables=self.hparams.in_var_ids,
+            variables=self.hparams.in_var_ids,
             channels_last=self.hparams.channels_last,
             seq_to_seq=self.hparams.seq_to_seq,
             icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,

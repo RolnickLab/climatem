@@ -63,7 +63,7 @@ class Input4MipsDataset(ClimateDataset):
         self.output_nc_files = []
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
-        self.in_variables = variables
+        self.variables = variables
         self.seq_len = seq_len
         self.lon = lon
         self.lat = lat
