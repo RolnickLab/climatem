@@ -10,10 +10,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="cfgrib")
 
-# from climatem.constants import ( 
-#     ERA5_NOM_RES, # CHRISTINA QUESTION: SEE constants.py
-#     ERA5_TEMP_RES, # CHRISTINA QUESTION: this is "day"?
-# )
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger

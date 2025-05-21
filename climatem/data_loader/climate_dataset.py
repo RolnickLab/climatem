@@ -17,6 +17,8 @@ from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     NO_OPENBURNING_VARS,
     OPENBURNING_MODEL_MAPPING,
 )
+from climatem.data_loader.cmip6_dataset import CMIP6Dataset
+from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger

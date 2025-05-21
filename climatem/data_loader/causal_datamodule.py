@@ -81,7 +81,9 @@ class CausalClimateDataModule(ClimateDataModule):
             # Here add an option for SAVAR dataset
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
-            if "savar" in self.hparams.in_var_ids:
+            input_sources = self.hparams.in_var_ids  # expected to be a dict: {"era5": ["t2m"], "cmip6": ["ts"]}
+
+            if "savar" in input_sources:
                 train_val_input4mips = SavarDataset(
                     # Make sure these arguments are propagated
                     output_save_dir=self.hparams.output_save_dir,
@@ -101,26 +103,16 @@ class CausalClimateDataModule(ClimateDataModule):
                     is_forced=self.hparams.is_forced,
                     plot_original_data=self.hparams.plot_original_data,
                 )
-            elif (
-                "tas" in self.hparams.in_var_ids
-                or "pr" in self.hparams.in_var_ids
-                or "psl" in self.hparams.in_var_ids
-                or "ts" in self.hparams.in_var_ids
-            ):
-
-                print(
-                    f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
-                )
-                train_val_input4mips = CMIP6Dataset(
+            elif "era5" in input_sources:
+                train_val_input4mips = ERA5Dataset(
                     years=train_years,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
                     climate_model=self.hparams.train_models,
                     num_ensembles=self.hparams.num_ensembles,
-                    variables=self.hparams.in_var_ids,
+                    variables=list(input_sources["era5"]),
                     scenarios=self.hparams.train_scenarios,
                     channels_last=self.hparams.channels_last,
-                    openburning_specs=openburning_specs,
                     mode="train+val",
                     output_save_dir=self.hparams.output_save_dir,
                     lon=self.hparams.lon,
@@ -130,14 +122,17 @@ class CausalClimateDataModule(ClimateDataModule):
                     seasonality_removal=self.hparams.seasonality_removal,
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
-            elif "t2m" in self.hparams.in_var_ids:
-                train_val_input4mips = ERA5Dataset(
+            elif "cmip6" in input_sources:
+                print(
+                    f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
+                )
+                train_val_input4mips = CMIP6Dataset(
                     years=train_years,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
                     climate_model=self.hparams.train_models,
                     num_ensembles=self.hparams.num_ensembles,
-                    variables=self.hparams.in_var_ids,
+                    variables=list(input_sources["cmip6"]),
                     scenarios=self.hparams.train_scenarios,
                     channels_last=self.hparams.channels_last,
                     openburning_specs=openburning_specs,
