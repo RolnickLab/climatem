@@ -44,8 +44,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         scenarios: Union[List[str], str] = ["ssp126", "ssp370", "ssp585"],
         historical_years: Union[Union[int, str], None] = "1850-1900",
         # NOTE:() here we are trying to implement multiple variables
-        out_variables: Union[str, List[str]] = "pr",
-        in_variables: Union[str, List[str]] = ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"],
+        variables: Dict[str, List[str]] = {"cmip6": "pr"},
         seq_to_seq: bool = True,  # TODO: implement if false
         channels_last: bool = False,
         load_data_into_mem: bool = True,  # Keeping this true be default for now
@@ -68,8 +67,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             mode (str, optional): _description_. Defaults to "train".
             climate_model (str, optional): climate model from options "NorESM2-LM", "CESM2", "GISS-??". Defaults to "NorESM2-LM".
             historical_years (Union[Union[int, str], None], optional): meaningless parameter TODO. Defaults to "1850-1900".
-            out_variables (Union[str, List[str]], optional): output variable of precipitation "pr", temperature "tas". Defaults to "pr".
-            in_variables (Union[str, List[str]], optional): TBC. Defaults to ["BC_sum","SO2_sum", "CH4_sum", "CO2_sum"].
+            variables (Dict[str, List[str]], optional): map of sources and variables e.g. precipitation "pr", temperature "tas". Defaults to {"cmip6": "pr"}.
             seq_to_seq (bool, optional): _description_. Defaults to True.
             load_data_into_mem (bool, optional): _description_. Defaults to True.
             output_normalization (str, optional): _description_. Defaults to "z-norm".
@@ -85,14 +83,11 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.channels_last = channels_last
         self.load_data_into_mem = load_data_into_mem
 
-        if isinstance(in_variables, dict):
-            self.input_sources = in_variables  # {"era5": ["t2m"], "cmip6": ["pr", "ts"]}
-            self.in_variables = sum(in_variables.values(), [])  # Flattened
+        if isinstance(variables, dict):
+            self.input_sources = variables  # {"era5": ["t2m"], "cmip6": ["pr", "ts"]}
+            self.variables = sum(variables.values(), [])  # Flattened
         else:
-            raise ValueError("in_variables must be a dict mapping source -> list of variables")
-        if isinstance(out_variables, str):
-            out_variables = [out_variables]
-
+            raise ValueError("variables must be a dict mapping source -> list of variables")
         if isinstance(scenarios, str):
             scenarios = [scenarios]
 
@@ -144,11 +139,11 @@ class ClimateDataset(torch.utils.data.Dataset):
         # TODO: is that needed?
         # creates on cmip and on input4mip dataset
         # print("creating input4mips")
-        self.input4mips_ds = Input4MipsDataset(variables=in_variables, **ds_kwargs)
+        self.input4mips_ds = Input4MipsDataset(variables=variables, **ds_kwargs)
         # print("creating cmip6")
         # self.cmip6_ds=self.input4mips_ds
         self.cmip6_ds = CMIP6Dataset(
-            climate_model=climate_model, num_ensembles=num_ensembles, variables=out_variables, **ds_kwargs
+            climate_model=climate_model, num_ensembles=num_ensembles, variables=variables, **ds_kwargs
         )
 
     # NOTE:() changing this so it can deal with with grib files and netcdf files
@@ -165,89 +160,70 @@ class ClimateDataset(torch.utils.data.Dataset):
         Take a file structure of netcdf or grib files and load them into memory.
 
         Args:
-            paths (List[List[str]]): absolute to filepath
-            num_vars (int): number of input variables e.g. pr, tas, etc.
-            channels_last (bool, optional): reshape data to channels. Defaults to True.
-            seq_to_seq (bool, optional): TBC. Defaults to True. #TODO
+            paths (List[List[str]]): one list of filepaths per variable
+            num_vars (int): number of input variables
+            channels_last (bool): unused for now
+            seq_to_seq (bool): whether to retain full sequence or only last timestep
+            get_years (Optional[List[int]]): list of years (used to determine n_timesteps)
         """
-
         array_list = []
-        # print("paths:", paths)
-        # print("length paths", len(paths))
+        self.input_var_shapes = {}
+        n_timesteps = len(get_years) if get_years else None
+        expected_timesteps = n_timesteps * self.seq_len if n_timesteps else None
 
-        # I need to check here that it is doing the right thing
-        for vlist in paths:
+        for i, vlist in enumerate(paths):
             if not vlist:
-                raise ValueError("Received empty list of files for a variable.")
-            # print("length_paths_list", len(vlist))
-            # print the last three characters of the first element of vlist
-            # NOTE:() assert that they are either .nc or .grib - and print an error!
-            first_file = vlist[0]
-            suffix = Path(first_file).suffix
+                raise ValueError(f"Empty path list for variable index {i}")
+
+            first_file = Path(vlist[0])
+            suffix = first_file.suffix.lower()
+
+            # Open NetCDF or GRIB
             if suffix == ".nc":
-                temp_data = xr.open_mfdataset(
-                    vlist, concat_dim="time", combine="nested"
-                ).compute()  # .compute is not necessary but eh, doesn't hurt
-                # ignore the bnds dimension
-                temp_data = temp_data.drop_dims("bnds")
-                # print("Temp data at the point of reading it in:", temp_data)
+                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
+                if "bnds" in temp_data.dims:
+                    temp_data = temp_data.drop_dims("bnds")
+                data_array = temp_data.to_array().to_numpy()  # shape (1, T, ...)
             elif suffix in [".grib", ".grib2"]:
-                # need to install cfgrib, eccodes and likely ecmwflibs to make sure this cfgrib engine works and is available
                 temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
-                # print("Temp data at the point of reading it in:", temp_data)
-            # then get rid of this with some assert ^ see above
+                data_array = temp_data.to_array().to_numpy()  # shape (1, T, ...)
             else:
-                raise ValueError(f"Unrecognized file format: {first_file}. Use .nc, .grib, or .grib2")
-            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, 1036*num_scenarios, 96, 144)
+                raise ValueError(f"Unsupported file format: {suffix}")
 
-            # print("Temp data shape:", temp_data.shape)
-            # temp_data = temp_data.squeeze() # (1036*num_scanarios, 96, 144)
-            array_list.append(temp_data)
+            if data_array.ndim not in [3, 4]:
+                raise ValueError(f"Unsupported shape {data_array.shape} for variable index {i}")
 
-        # print("length of the array list:", len(array_list))
+            spatial_dims = data_array.shape[2:]
+            self.input_var_shapes[i] = spatial_dims
+
+            # Check or trim time
+            total_timesteps = data_array.shape[1]
+            if expected_timesteps:
+                if total_timesteps < expected_timesteps:
+                    raise ValueError(f"Too few timesteps: {total_timesteps} < {expected_timesteps}")
+                elif total_timesteps > expected_timesteps:
+                    print(f"Trimming data for var {i}: {total_timesteps} → {expected_timesteps}")
+                    data_array = data_array[:, :expected_timesteps]
+            else:
+                n_timesteps = total_timesteps // self.seq_len
+                expected_timesteps = n_timesteps * self.seq_len
+                if total_timesteps > expected_timesteps:
+                    print(f"[load_into_mem] Trimming data from {total_timesteps} to {expected_timesteps} (var {i})")
+                    data_array = data_array[:, :expected_timesteps]
+
+            # Reshape to (1, n, M, ...)
+            reshaped = data_array.reshape(1, n_timesteps, self.seq_len, *spatial_dims)
+            array_list.append(reshaped)
+
+        # Join along variable axis → (n_vars, n, M, ...)
         data = np.concatenate(array_list, axis=0)
-        print("Concatenated data shape:", data.shape)
-
-        total_timesteps = data.shape[1]
-        is_gridded = data.ndim == 4
-        spatial_dims = data.shape[2:]  # (lat, lon) or (n_grids,)
-
-        if get_years is not None:
-            n_timesteps = len(get_years)
-            expected_timesteps = n_timesteps * self.seq_len
-
-            if total_timesteps < expected_timesteps:
-                raise ValueError(f"Too few timesteps: got {total_timesteps}, expected {expected_timesteps} "
-                                f"(years={n_timesteps}, seq_len={self.seq_len})")
-            elif total_timesteps > expected_timesteps:
-                print(f"Trimming data from {total_timesteps} to {expected_timesteps} timesteps.")
-                if data.ndim == 3:
-                    data = data[:, :expected_timesteps, :]
-                elif data.ndim == 4:
-                    data = data[:, :expected_timesteps, :, :]
-                else:
-                    raise ValueError(f"Unexpected number of dimensions in data: {data.ndim}")
-        else:
-            n_timesteps = total_timesteps // self.seq_len
-            expected_timesteps = n_timesteps * self.seq_len
-            if total_timesteps > expected_timesteps:
-                print(f"[load_into_mem] get_years not provided, trimming data from {total_timesteps} to {expected_timesteps}")
-                if data.ndim == 3:
-                    data = data[:, :expected_timesteps, :]
-                elif data.ndim == 4:
-                    data = data[:, :expected_timesteps, :, :]
-                else:
-                    raise ValueError(f"Unexpected number of dimensions in data: {data.ndim}")
-
-        # Final reshape to (n_timesteps, M, n_vars, lat, lon) or (n_timesteps, M, n_vars, n_grids)
-        reshaped = data.reshape(num_vars, n_timesteps, self.seq_len, *spatial_dims)
-        reshaped = reshaped.transpose((1, 2, 0, *range(3, reshaped.ndim)))  # reorder to (n_timesteps, M, n_vars, ...)
+        data = data.transpose((1, 2, 0, *range(3, data.ndim)))  # → (n, M, n_vars, ...)
 
         if not seq_to_seq:
-            reshaped = reshaped[:, -1:, ...]  # keep last timestep, preserve dims
-            print("After seq_to_seq=False reshape:", reshaped.shape)
+            data = data[:, -1:, ...]
+            print("After seq_to_seq=False reshape:", data.shape)
 
-        return reshaped
+        return data
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 
