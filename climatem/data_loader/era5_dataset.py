@@ -5,7 +5,7 @@ import os
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
-
+import numpy as np
 
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="cfgrib")
@@ -54,7 +54,7 @@ class ERA5Dataset(ClimateDataset):
         seq_len: int = 365,
         lat: int = 96, 
         lon: int = 144,
-        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.txt", # CHRISTINA QUESTION: current location, can change to mappings, does it need to by npy?
+        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.txt",
         *args,
         **kwargs,
     ):  # noqa: C901
@@ -150,6 +150,18 @@ class ERA5Dataset(ClimateDataset):
                 self.Data = self.raw_data
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
+            # Track variable shape and offset info for masking
+            if hasattr(self, "input_var_shapes"):
+                self.input_var_shapes = {
+                    var: np.prod(shape) for var, shape in self.input_var_shapes.items()
+                }
+                self.input_var_offsets = [0]
+                for var in variables:
+                    prev = self.input_var_offsets[-1]
+                    self.input_var_offsets.append(prev + self.input_var_shapes[var])
+                self.K = len(self.input_var_shapes)
+            else:
+                raise RuntimeError("Expected input_var_shapes to be defined after loading data.")
 
             # print("In CMIP6Dataset, just finished removing the seasonality.")
 
