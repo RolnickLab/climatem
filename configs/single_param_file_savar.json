@@ -58,7 +58,6 @@
     },
     "train_params": {
         "ratio_train": 0.9,
-        "batch_size": 256,
         "lr": 0.001,
         "lr_scheduler_epochs": [
             10000,
