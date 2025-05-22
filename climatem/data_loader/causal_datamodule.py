@@ -82,87 +82,87 @@ class CausalClimateDataModule(ClimateDataModule):
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
             input_sources = self.hparams.in_var_ids  # expected to be a dict: {"era5": ["t2m"], "cmip6": ["ts"]}
-
-            if "savar" in input_sources:
-                train_val_input4mips = SavarDataset(
-                    # Make sure these arguments are propagated
-                    output_save_dir=self.hparams.output_save_dir,
-                    lat=self.hparams.lat,
-                    lon=self.hparams.lon,
-                    tau=self.tau,
-                    global_normalization=self.hparams.global_normalization,
-                    seasonality_removal=self.hparams.seasonality_removal,
-                    reload_climate_set_data=self.hparams.reload_climate_set_data,
-                    time_len=self.hparams.time_len,
-                    comp_size=self.hparams.comp_size,
-                    noise_val=self.hparams.noise_val,
-                    n_per_col=self.hparams.n_per_col,
-                    difficulty=self.hparams.difficulty,
-                    seasonality=self.hparams.seasonality,
-                    overlap=self.hparams.overlap,
-                    is_forced=self.hparams.is_forced,
-                    plot_original_data=self.hparams.plot_original_data,
-                )
-            elif "era5" in input_sources:
-                train_val_input4mips = ERA5Dataset(
-                    years=train_years,
-                    historical_years=train_historical_years,
-                    data_dir=self.hparams.data_dir,
-                    climate_model=self.hparams.train_models,
-                    num_ensembles=self.hparams.num_ensembles,
-                    variables=list(input_sources["era5"]),
-                    scenarios=self.hparams.train_scenarios,
-                    channels_last=self.hparams.channels_last,
-                    mode="train+val",
-                    output_save_dir=self.hparams.output_save_dir,
-                    lon=self.hparams.lon,
-                    lat=self.hparams.lat,
-                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
-                    global_normalization=self.hparams.global_normalization,
-                    seasonality_removal=self.hparams.seasonality_removal,
-                    reload_climate_set_data=self.hparams.reload_climate_set_data,
-                )
-            elif "cmip6" in input_sources:
-                print(
-                    f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
-                )
-                train_val_input4mips = CMIP6Dataset(
-                    years=train_years,
-                    historical_years=train_historical_years,
-                    data_dir=self.hparams.data_dir,
-                    climate_model=self.hparams.train_models,
-                    num_ensembles=self.hparams.num_ensembles,
-                    variables=list(input_sources["cmip6"]),
-                    scenarios=self.hparams.train_scenarios,
-                    channels_last=self.hparams.channels_last,
-                    openburning_specs=openburning_specs,
-                    mode="train+val",
-                    output_save_dir=self.hparams.output_save_dir,
-                    lon=self.hparams.lon,
-                    lat=self.hparams.lat,
-                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
-                    global_normalization=self.hparams.global_normalization,
-                    seasonality_removal=self.hparams.seasonality_removal,
-                    reload_climate_set_data=self.hparams.reload_climate_set_data,
-                )
-            else:
-                train_val_input4mips = Input4MipsDataset(
-                    years=train_years,
-                    historical_years=train_historical_years,
-                    data_dir=self.hparams.data_dir,
-                    variables=self.hparams.in_var_ids,
-                    scenarios=self.hparams.train_scenarios,
-                    channels_last=self.hparams.channels_last,
-                    openburning_specs=openburning_specs,
-                    mode="train+val",
-                    output_save_dir=self.hparams.output_save_dir,
-                    lon=self.hparams.lon,
-                    lat=self.hparams.lat,
-                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
-                    global_normalization=self.hparams.global_normalization,
-                    seasonality_removal=self.hparams.seasonality_removal,
-                    reload_climate_set_data=self.hparams.reload_climate_set_data,
-                )
+            for source, vars in input_sources:
+                if source=="savar":
+                    train_val_input4mips = SavarDataset(
+                        # Make sure these arguments are propagated
+                        output_save_dir=self.hparams.output_save_dir,
+                        lat=self.hparams.lat,
+                        lon=self.hparams.lon,
+                        tau=self.tau,
+                        global_normalization=self.hparams.global_normalization,
+                        seasonality_removal=self.hparams.seasonality_removal,
+                        reload_climate_set_data=self.hparams.reload_climate_set_data,
+                        time_len=self.hparams.time_len,
+                        comp_size=self.hparams.comp_size,
+                        noise_val=self.hparams.noise_val,
+                        n_per_col=self.hparams.n_per_col,
+                        difficulty=self.hparams.difficulty,
+                        seasonality=self.hparams.seasonality,
+                        overlap=self.hparams.overlap,
+                        is_forced=self.hparams.is_forced,
+                        plot_original_data=self.hparams.plot_original_data,
+                    )
+                elif source=="era5":
+                    train_val_input4mips = ERA5Dataset(
+                        years=train_years,
+                        historical_years=train_historical_years,
+                        data_dir=self.hparams.data_dir,
+                        climate_model=self.hparams.train_models,
+                        num_ensembles=self.hparams.num_ensembles,
+                        variables=list(vars),
+                        scenarios=self.hparams.train_scenarios,
+                        channels_last=self.hparams.channels_last,
+                        mode="train+val",
+                        output_save_dir=self.hparams.output_save_dir,
+                        lon=self.hparams.lon,
+                        lat=self.hparams.lat,
+                        icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                        global_normalization=self.hparams.global_normalization,
+                        seasonality_removal=self.hparams.seasonality_removal,
+                        reload_climate_set_data=self.hparams.reload_climate_set_data,
+                    )
+                elif source=="cmip6":
+                    print(
+                        f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
+                    )
+                    train_val_input4mips = CMIP6Dataset(
+                        years=train_years,
+                        historical_years=train_historical_years,
+                        data_dir=self.hparams.data_dir,
+                        climate_model=self.hparams.train_models,
+                        num_ensembles=self.hparams.num_ensembles,
+                        variables=list(vars),
+                        scenarios=self.hparams.train_scenarios,
+                        channels_last=self.hparams.channels_last,
+                        openburning_specs=openburning_specs,
+                        mode="train+val",
+                        output_save_dir=self.hparams.output_save_dir,
+                        lon=self.hparams.lon,
+                        lat=self.hparams.lat,
+                        icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                        global_normalization=self.hparams.global_normalization,
+                        seasonality_removal=self.hparams.seasonality_removal,
+                        reload_climate_set_data=self.hparams.reload_climate_set_data,
+                    )
+                else:
+                    train_val_input4mips = Input4MipsDataset(
+                        years=train_years,
+                        historical_years=train_historical_years,
+                        data_dir=self.hparams.data_dir,
+                        variables=self.hparams.in_var_ids,
+                        scenarios=self.hparams.train_scenarios,
+                        channels_last=self.hparams.channels_last,
+                        openburning_specs=openburning_specs,
+                        mode="train+val",
+                        output_save_dir=self.hparams.output_save_dir,
+                        lon=self.hparams.lon,
+                        lat=self.hparams.lat,
+                        icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                        global_normalization=self.hparams.global_normalization,
+                        seasonality_removal=self.hparams.seasonality_removal,
+                        reload_climate_set_data=self.hparams.reload_climate_set_data,
+                    )
 
             ratio_train = 1 - self.hparams.val_split
 
