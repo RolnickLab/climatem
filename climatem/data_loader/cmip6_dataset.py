@@ -12,7 +12,7 @@ from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
-from .climate_dataset import ClimateDataset
+from climatem.data_loader.climate_dataset import ClimateDataset
 
 log = get_logger()
 
