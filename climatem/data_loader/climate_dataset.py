@@ -745,3 +745,23 @@ class ClimateDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         raise NotImplementedError("Subclasses should implement __getitem__ method.")
+
+    def get_mask_metadata(self) -> Tuple[int, Dict[str, int], List[int]]:
+        """
+        Returns:
+            - K (int): number of variables
+            - input_var_shapes (Dict[str, int]): flattened size per variable
+            - input_var_offsets (List[int]): starting index of each variable in 1D input vector
+        """
+        if not hasattr(self, "input_var_shapes"):
+            raise RuntimeError("input_var_shapes not defined. Ensure data is loaded via `load_into_mem`.")
+
+        # Flatten the shape of each variable to total spatial dimension
+        var_shapes = {var: np.prod(shape) for var, shape in self.input_var_shapes.items()}
+
+        # Compute offsets
+        offsets = [0]
+        for var in self.variables:
+            offsets.append(offsets[-1] + var_shapes[var])
+
+        return len(var_shapes), var_shapes, offsets
