@@ -220,28 +220,33 @@ class CausalClimateDataModule(ClimateDataModule):
             }
 
 
-class MultiSourceCausalDataset:
+class MultiSourceCausalDataset(ClimateDataset):
     def __init__(self, datasets: List[ClimateDataset]):
         self.datasets = datasets
 
-        # Concatenate data
-        self.Data = np.concatenate([ds.Data for ds in datasets], axis=2)  # concat over var axis
-        self.length = datasets[0].length  # assumes all have same time resolution
+        # Concatenate along variable dimension (assumes same [time, lat, lon] resolution)
+        self.Data = np.concatenate([ds.Data for ds in datasets], axis=2)  # axis=2 is var axis
+        self.length = datasets[0].length
         self.seq_len = datasets[0].seq_len
         self.lon = datasets[0].lon
         self.lat = datasets[0].lat
+        self.output_save_dir = datasets[0].output_save_dir  # optional, for stat saving
 
-        # Track variable metadata
+        # Construct input_var_shapes and offsets for mask metadata
         self.input_var_shapes = {}
         self.input_var_offsets = [0]
+        self.input_var_names = []
+
         for ds in datasets:
             shapes, names = ds.get_mask_metadata()
             for name, shape in zip(names, shapes):
                 self.input_var_shapes[name] = shape
+                self.input_var_names.append(name)
                 last = self.input_var_offsets[-1]
                 self.input_var_offsets.append(last + np.prod(shape))
 
-        self.d_x = self.input_var_offsets[-1]  # total flattened input size
+        # Total input dimension (for masking)
+        self.d_x = self.input_var_offsets[-1]
 
     def get_mask_metadata(self):
         return self.input_var_shapes, self.input_var_offsets
