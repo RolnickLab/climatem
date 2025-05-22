@@ -146,6 +146,11 @@ class MixingMask(nn.Module):
     def forward(self, batch_size):
         param = self.param.unsqueeze(0).repeat(batch_size, 1, 1, 1)
         mask = nn.functional.gumbel_softmax(param, tau=1, hard=False)
+        # USE THIS TO APPLY HARD CONSTRAINTS TO THE MIXING MASK
+        # if self.obs_to_latent_mask is not None:
+        #     mask_tensor = self.obs_to_latent_mask.unsqueeze(0).unsqueeze(0)  # shape (1, 1, d_x, d_z)
+        #     param = param * mask_tensor.to(param.device)
+
         return mask
 
 
@@ -899,7 +904,9 @@ class LinearAutoEncoder(nn.Module):
 
 
 class NonLinearAutoEncoder(nn.Module):
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w=None):
+    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w=None, obs_to_latent_mask=None):
+        ...
+        self.obs_to_latent_mask = obs_to_latent_mask  # shape (d_x, d_z)
         super().__init__()
         if use_gumbel_mask:
             self.use_grad_project = False
@@ -959,10 +966,12 @@ class NonLinearAutoEncoder(nn.Module):
             if self.tied:
                 fixed_mask = torch.transpose(self.w, 1, 2)
                 print_nan_stats("fixed tied mask (w.T)", fixed_mask)
-                return torch.nan_to_num(fixed_mask, nan=0.0)
             else:
-                print_nan_stats("fixed untied mask (w_encoder)", self.w_encoder)
-                return torch.nan_to_num(self.w_encoder, nan=0.0)
+                fixed_mask = self.w_encoder
+            if self.obs_to_latent_mask is not None:
+                fixed_mask = fixed_mask * self.obs_to_latent_mask.to(fixed_mask.device)
+            return torch.nan_to_num(fixed_mask, nan=0.0)
+
 
     def select_encoder_mask(self, mask, i, j_values):
         print_nan_stats("select_encoder_mask: mask (before indexing)", mask)
