@@ -318,7 +318,17 @@ class ClimateDataset(torch.utils.data.Dataset):
         num_months_aggregated=1,
         ratio_train=None,
         interval_length=100,
+        obs_to_latent_mask: Optional[np.ndarray] = None,
     ):
+        ...
+        # Once x_train and x_valid are constructed:
+        if obs_to_latent_mask is None:
+            d_x = self.input_var_offsets[-1]  # total number of observations
+            d_z = d_x  # fallback default: one latent per obs
+            obs_to_latent_mask = np.ones((d_x, d_z), dtype=np.float32)
+
+        # store mask on self for later model access if needed
+        self.obs_to_latent_mask = obs_to_latent_mask
         """
         Constructs dataset for causal discovery model.
 
