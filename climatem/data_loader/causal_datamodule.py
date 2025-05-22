@@ -1,7 +1,7 @@
 # Here we try to modify the climate_data_loader so that we can use data from multiple ensemble members of a climate model, and indeed across climate models.
 
 import os
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 import torch
@@ -14,6 +14,7 @@ from climatem.data_loader.cmip6_dataset import CMIP6Dataset
 from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.era5_dataset import ERA5Dataset
 from climatem.data_loader.savar_dataset import SavarDataset
+from climatem.data_loader.climate_dataset import ClimateDataset
 
 
 class CausalDataset(torch.utils.data.Dataset):
@@ -81,8 +82,10 @@ class CausalClimateDataModule(ClimateDataModule):
             # Here add an option for SAVAR dataset
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
-            input_sources = self.hparams.in_var_ids  # expected to be a dict: {"era5": ["t2m"], "cmip6": ["ts"]}
-            for source, vars in input_sources:
+            datasets = []
+            input_sources = self.hparams.in_var_ids  # e.g. {"era5": ["t2m"], "cmip6": ["ts"]}
+
+            for source, vars in input_sources.items():
                 if source=="savar":
                     train_val_input4mips = SavarDataset(
                         # Make sure these arguments are propagated
@@ -166,14 +169,20 @@ class CausalClimateDataModule(ClimateDataModule):
 
             ratio_train = 1 - self.hparams.val_split
 
-            train, val = train_val_input4mips.get_causal_data(
+            datasets.append(train_val_input4mips)
+
+            multi_ds = MultiSourceCausalDataset(datasets)
+            self.mask_shapes, self.mask_offsets = multi_ds.get_mask_metadata()
+            self.d = multi_ds.d_x
+
+            train, val = multi_ds.get_causal_data(
                 tau=self.tau,
                 future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
-                num_vars=len(self.hparams.in_var_ids),
-                num_scenarios=len(self.hparams.train_scenarios),
-                num_ensembles=self.hparams.num_ensembles,
-                num_years=len(train_years),
+                num_vars=len(self.mask_shapes),  # total num vars
+                num_scenarios=1,
+                num_ensembles=1,
+                num_years=multi_ds.length,
                 ratio_train=ratio_train,
                 num_months_aggregated=self.num_months_aggregated,
                 interval_length=self.train_val_interval_length,
@@ -209,3 +218,30 @@ class CausalClimateDataModule(ClimateDataModule):
                 )
                 for test_model in self.hparams.test_models
             }
+
+
+class MultiSourceCausalDataset:
+    def __init__(self, datasets: List[ClimateDataset]):
+        self.datasets = datasets
+
+        # Concatenate data
+        self.Data = np.concatenate([ds.Data for ds in datasets], axis=2)  # concat over var axis
+        self.length = datasets[0].length  # assumes all have same time resolution
+        self.seq_len = datasets[0].seq_len
+        self.lon = datasets[0].lon
+        self.lat = datasets[0].lat
+
+        # Track variable metadata
+        self.input_var_shapes = {}
+        self.input_var_offsets = [0]
+        for ds in datasets:
+            shapes, names = ds.get_mask_metadata()
+            for name, shape in zip(names, shapes):
+                self.input_var_shapes[name] = shape
+                last = self.input_var_offsets[-1]
+                self.input_var_offsets.append(last + np.prod(shape))
+
+        self.d_x = self.input_var_offsets[-1]  # total flattened input size
+
+    def get_mask_metadata(self):
+        return self.input_var_shapes, self.input_var_offsets
