@@ -1,13 +1,13 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST",
+        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
-        "d_z": 4,
-        "d_x": 400,
-        "lon": 20,
-        "lat": 20,
-        "tau": 5,
+        "d_z": 60,
+        "d_x": 6250,
+        "lon": 144,
+        "lat": 96,
+        "tau": 8,
         "random_seed": 1,
         "gpu": true,
         "num_workers": 0,
@@ -15,36 +15,36 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST",
-        "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni",
-        "reload_climate_set_data": false,
-        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
+        "data_dir": "/home/mila/l/lastc/scratch/data/",
+        "climateset_data": "/home/mila/l/lastc/scratch/data",
+        "reload_climate_set_data": true,
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.txt",
         "in_var_ids": [
-            "savar"
+            "t2m"
         ],
         "out_var_ids": [
-            "savar"
+            "t2m"
         ],
         "num_levels": 1,
-        "temp_res": "mon",
-        "train_historical_years": "1894-2000",
-        "test_years": "1100-1150",
-        "train_years": "1600-2100",
+        "temp_res": "day",
+        "train_historical_years": "1941-2000",
+        "test_years": "2001-2024",
+        "train_years": "1941-2000",
         "train_scenarios": [
-            "piControl"
+            "ERA5_DATA_TEST"
         ],
         "test_scenarios": [
-            "piControl"
+            "ERA5_DATA_TEST"
         ],
-        "train_models": "NorESM2-LM",
-        "num_ensembles": 1,
+        "train_models": "ERA5",
+        "num_ensembles": 0,
         "seq_to_seq": true,
         "data_format": "numpy",
         "ishdf5": false,
         "global_normalization": true,
-        "seasonality_removal": false,
-        "batch_size": 256,
-        "eval_batch_size": 256,
+        "seasonality_removal": true,
+        "batch_size": 32,
+        "eval_batch_size": 32,
         "channels_last": false,
         "load_train_into_mem": true,
         "load_test_into_mem": true,
@@ -61,7 +61,7 @@
     },
     "train_params": {
         "ratio_train": 0.9,
-        "lr": 0.001,
+        "lr": 0.0005,
         "lr_scheduler_epochs": [
             10000,
             20000
@@ -76,11 +76,11 @@
         "instantaneous": false,
         "no_w_constraint": false,
         "tied_w": false,
-        "nonlinear_mixing": false,
-        "num_hidden": 0,
-        "num_layers": 0,
+        "nonlinear_mixing": true,
+        "num_hidden": 8,
+        "num_layers": 2,
         "num_output": 2,
-        "num_hidden_mixing": 0,
+        "num_hidden_mixing": 16,
         "num_layers_mixing": 2,
         "fixed": false,
         "fixed_output_fraction": null,
@@ -91,10 +91,10 @@
         "optimizer": "rmsprop",
         "use_sparsity_constraint": true,
         "crps_coeff": 1,
-        "spectral_coeff": 0,
-        "temporal_spectral_coeff": 0,
+        "spectral_coeff": 20,
+        "temporal_spectral_coeff": 2000,
         "coeff_kl": 1,
-        "reg_coeff": 0,
+        "reg_coeff": 0.01,
         "reg_coeff_connect": 0,
         "schedule_reg": 0,
         "schedule_ortho": 0,
@@ -105,13 +105,13 @@
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
-        "sparsity_mu_init": 0.1,
-        "sparsity_mu_mult_factor": 1.2,
+        "sparsity_mu_init": 1,
+        "sparsity_mu_mult_factor": 1.5,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
-        "sparsity_h_threshold": 0.05,
+        "sparsity_h_threshold": 0.1,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 0.05,
+        "sparsity_upper_threshold": 0.5,
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,
         "acyclic_omega_gamma": 0.01,
@@ -136,5 +136,14 @@
         "overlap": false,
         "is_forced": false,
         "plot_original_data": true
+    },
+    "rollout_params": {
+        "final_30_years_of_ssps": false,
+        "batch_size": 8,
+        "num_particles": 50,
+        "num_particles_per_particle": 5,
+        "num_timesteps": 1200,
+        "score": "log_bayesian",
+        "tempering": true
     }
 }
