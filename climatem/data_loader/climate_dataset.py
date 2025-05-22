@@ -17,8 +17,6 @@ from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     NO_OPENBURNING_VARS,
     OPENBURNING_MODEL_MAPPING,
 )
-from climatem.data_loader.cmip6_dataset import CMIP6Dataset
-from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
@@ -135,16 +133,6 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.lat = lat
         self.lon = lon
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
-
-        # TODO: is that needed?
-        # creates on cmip and on input4mip dataset
-        # print("creating input4mips")
-        self.input4mips_ds = Input4MipsDataset(variables=variables, **ds_kwargs)
-        # print("creating cmip6")
-        # self.cmip6_ds=self.input4mips_ds
-        self.cmip6_ds = CMIP6Dataset(
-            climate_model=climate_model, num_ensembles=num_ensembles, variables=variables, **ds_kwargs
-        )
 
     # NOTE:() changing this so it can deal with with grib files and netcdf files
     # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
