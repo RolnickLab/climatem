@@ -1,36 +1,41 @@
-{ 
+{
     "exp_params": {
         "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST",
-        "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
-        "latent": true,    
+        "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
+        "latent": true,
         "d_z": 4,
         "d_x": 400,
-        "lon": 20, 
-        "lat": 20,    
+        "lon": 20,
+        "lat": 20,
         "tau": 5,
         "random_seed": 1,
         "gpu": true,
-        "num_workers":  0,
+        "num_workers": 0,
         "pin_memory": false,
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
-        "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni", 
+        "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST",
+        "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
-        "in_var_ids": ["savar"],
-        "out_var_ids": ["savar"],
+        "in_var_ids": [
+            "savar"
+        ],
         "num_levels": 1,
         "temp_res": "mon",
-        "train_historical_years": "1894-2000", 
+        "train_historical_years": "1894-2000",
         "test_years": "1100-1150",
-        "train_years": "1600-2100",    
-        "train_scenarios": ["piControl"],
-        "test_scenarios": ["piControl"],
-        "train_models":  "NorESM2-LM",
-        "num_ensembles": 1,    
-        "seq_to_seq": true, 
+        "train_years": "1600-2100",
+        "train_scenarios": [
+            "piControl"
+        ],
+        "test_scenarios": [
+            "piControl"
+        ],
+        "train_models": "NorESM2-LM",
+        "num_ensembles": 1,
+        "seq_to_seq": true,
         "data_format": "numpy",
         "ishdf5": false,
         "global_normalization": true,
@@ -39,22 +44,27 @@
         "eval_batch_size": 256,
         "channels_last": false,
         "load_train_into_mem": true,
-        "load_test_into_mem":  true,
-        "num_months_aggregated": [1],
+        "load_test_into_mem": true,
+        "num_months_aggregated": [
+            1
+        ],
         "train_val_interval_length": 40
-        }, 
+    },
     "gt_params": {
         "no_gt": true,
         "debug_gt_z": false,
         "debug_gt_w": false,
         "debug_gt_graph": false
-    },    
+    },
     "train_params": {
         "ratio_train": 0.9,
         "batch_size": 256,
         "lr": 0.001,
-        "lr_scheduler_epochs": [10000, 20000],
-        "lr_scheduler_gamma": 1,    
+        "lr_scheduler_epochs": [
+            10000,
+            20000
+        ],
+        "lr_scheduler_gamma": 1,
         "max_iteration": 100000,
         "patience": 5000,
         "patience_post_thresh": 50,
@@ -69,7 +79,7 @@
         "num_layers": 0,
         "num_output": 2,
         "num_hidden_mixing": 0,
-        "num_layers_mixing": 2,    
+        "num_layers_mixing": 2,
         "fixed": false,
         "fixed_output_fraction": null,
         "tau_neigh": 0,
@@ -77,27 +87,22 @@
     },
     "optim_params": {
         "optimizer": "rmsprop",
-
         "use_sparsity_constraint": true,
         "crps_coeff": 1,
         "spectral_coeff": 0,
         "temporal_spectral_coeff": 0,
         "coeff_kl": 1,
-
         "reg_coeff": 0,
         "reg_coeff_connect": 0,
-    
         "schedule_reg": 0,
         "schedule_ortho": 0,
-        "schedule_sparsity": 0,    
-
+        "schedule_sparsity": 0,
         "ortho_mu_init": 1e5,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
-
         "sparsity_mu_init": 0.1,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
@@ -105,7 +110,6 @@
         "sparsity_h_threshold": 0.05,
         "sparsity_min_iter_convergence": 1000,
         "sparsity_upper_threshold": 0.05,
-
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,
         "acyclic_omega_gamma": 0.01,
@@ -131,6 +135,4 @@
         "is_forced": false,
         "plot_original_data": true
     }
-
 }
-

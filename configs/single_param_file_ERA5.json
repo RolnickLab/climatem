@@ -22,9 +22,6 @@
         "in_var_ids": [
             "t2m"
         ],
-        "out_var_ids": [
-            "t2m"
-        ],
         "num_levels": 1,
         "temp_res": "day",
         "train_historical_years": "1941-2000",
