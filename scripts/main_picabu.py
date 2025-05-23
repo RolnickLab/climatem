@@ -4,6 +4,7 @@ import os
 import time
 import warnings
 from pathlib import Path
+import shutil
 
 import numpy as np
 import torch
@@ -174,13 +175,13 @@ def main(
         .translate({ord(" "): None})
     )
     name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
-    exp_path = exp_path / name
+    exp_path = os.path.join(exp_path, name)
     os.makedirs(exp_path, exist_ok=True)
 
     # create path to exp and save hyperparameters
-    save_path = exp_path / "training_results"
+    save_path = os.path.join(exp_path, "training_results")
     os.makedirs(save_path, exist_ok=True)
-    plots_path = exp_path / "plots"
+    plots_path = os.path.join(exp_path, "plots")
     os.makedirs(plots_path, exist_ok=True)
     # Here could maybe implement a "save()" function inside each class
     hp = {}
@@ -190,7 +191,7 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
-    with open(exp_path / "params.json", "w") as file:
+    with open(os.path.join(exp_path, "params.json"), "w") as file:
         json.dump(hp, file, indent=4)
 
     # # load the best metrics
@@ -326,10 +327,8 @@ if __name__ == "__main__":
 
     args = parse_args()
     
-    cwd = Path.cwd()
-    root_path = cwd.parent
-    config_path = root_path / f"configs"
-    json_path = config_path / args.config_path
+    root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
+    json_path = os.path.join(root_path, "configs", args.config_path)
     
     with open(json_path, "r") as f:
         params = json.load(f)
@@ -356,7 +355,12 @@ if __name__ == "__main__":
     plot_params = plotParams(**params["plot_params"])
     savar_params = savarParams(**params["savar_params"])
 
-    #Overwrite arguments if using savar
+    # Save configuration to folder where data is generated
+    data_dir = params["data_params"]["data_dir"]
+    os.makedirs(data_dir, exist_ok=True)
+    shutil.copy2(json_path, os.path.join(data_dir, "saved_params.json"))
+
+    # Handle SAVAR-specific parameters
     if "savar" in data_params.in_var_ids:
         experiment_params.lat = int(savar_params.comp_size * savar_params.n_per_col)
         experiment_params.lon = int(savar_params.comp_size * savar_params.n_per_col)

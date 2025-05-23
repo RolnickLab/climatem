@@ -12,6 +12,7 @@ def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
 
     mat_adj_w = mat_adj_w.reshape((lat, lon, mat_adj_w.shape[1])).transpose((2, 0, 1))
 
+    # argmax
     idx_gt = np.where(modes_gt == modes_gt.max((1, 2))[:, None, None])
     idx_inferred = np.array(np.where(mat_adj_w == mat_adj_w.max((1, 2))[:, None, None]))
 

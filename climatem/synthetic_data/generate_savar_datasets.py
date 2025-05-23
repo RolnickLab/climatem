@@ -63,7 +63,7 @@ def create_circular_mode(shape, radius=10):
     return mode
 
 
-def create_links_coeffs(n_modes, prob_edge=0.2, tau=5, a=4, b=8, difficulty="easy"):
+def create_links_coeffs(n_modes, tau, prob_edge=0.2, a=4, b=8, difficulty="easy"):
     links_coeffs = {}
     for k in range(n_modes):
         val = 0
@@ -105,6 +105,7 @@ def generate_save_savar_data(
     overlap=False,
     is_forced=False,
     plotting=True,
+    tau=5,
 ):
 
     # Setup spatial weights of underlying processes
@@ -142,7 +143,7 @@ def generate_save_savar_data(
     if difficulty == "hard":
         prob = 1 / 2
 
-    links_coeffs = create_links_coeffs(N, prob_edge=prob, difficulty=difficulty)
+    links_coeffs = create_links_coeffs(N, prob_edge=prob, difficulty=difficulty, tau=tau)
 
     # One good thing of SAVAR is that if the underlying process is stable and stationary, then SAVAR is also both.
     # Independently of W. This is, we only need to check for stationarity of \PHI and not of W^+\PHI W

@@ -174,6 +174,7 @@ class SavarDataset(torch.utils.data.Dataset):
                 self.overlap,
                 self.is_forced,
                 self.plot_original_data,
+                tau,
             )
             time_steps = data.shape[1]
             data = data.T.reshape((time_steps, self.lat, self.lon))
