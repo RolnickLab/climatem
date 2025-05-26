@@ -12,8 +12,6 @@ import xarray as xr
 
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     AVAILABLE_MODELS_FIRETYPE,
-    CMIP6_NOM_RES,
-    CMIP6_TEMP_RES,
     NO_OPENBURNING_VARS,
     OPENBURNING_MODEL_MAPPING,
 )
@@ -42,14 +40,14 @@ class ClimateDataset(torch.utils.data.Dataset):
         scenarios: Union[List[str], str] = ["ssp126", "ssp370", "ssp585"],
         historical_years: Union[Union[int, str], None] = "1850-1900",
         # NOTE:() here we are trying to implement multiple variables
-        variables: Dict[str, List[str]] = {"cmip6": "pr"},
+        variables: List[str] = ["pr"],
         seq_to_seq: bool = True,  # TODO: implement if false
         channels_last: bool = False,
         load_data_into_mem: bool = True,  # Keeping this true be default for now
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path="../../mappings/vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: Optional[str] = "/mappings/vertex_lonlat_mapping.npy",
         # input_transform=None,  # TODO: implement
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,
@@ -73,31 +71,24 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
 
         super().__init__()
-        self.test_dir = output_save_dir
         self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
         # Here need to propagate argument data_params.reload_climate_set_data
 
         self.channels_last = channels_last
         self.load_data_into_mem = load_data_into_mem
-
-        if isinstance(variables, dict):
-            self.input_sources = variables  # {"era5": ["t2m"], "cmip6": ["pr", "ts"]}
-            self.variables = sum(variables.values(), [])  # Flattened
-        else:
-            raise ValueError("variables must be a dict mapping source -> list of variables")
+        self.variables = variables
         if isinstance(scenarios, str):
             scenarios = [scenarios]
 
         self.scenarios = scenarios
-
+        print("years", years)
         if isinstance(years, int):
             self.years = years
         else:
             self.years = self.get_years_list(
                 years, give_list=True
             )  # Can use this to split data into train/val eg. 2015-2080 train. 2080-2100 val.
-
         if historical_years is None:
             self.historical_years = []
         elif isinstance(historical_years, int):
@@ -160,11 +151,13 @@ class ClimateDataset(torch.utils.data.Dataset):
         for var in variables:
             var_data_list = []
             for file in paths:
+                print(f"[DEBUG] Opening file: {file}")
                 suffix = Path(file).suffix.lower()
                 engine = "cfgrib" if suffix in [".grib", ".grib2"] else None
                 ds = xr.open_dataset(file, engine=engine).compute()
                 if var not in ds:
-                    raise ValueError(f"Variable '{var}' not found in {file}")
+                    print(f"[Skipping file] Variable '{var}' not found in {file}")
+                    continue
                 data = ds[var].to_numpy()
                 if data.ndim == 2:
                     data = data[None, ...]  # shape (1, lat, lon)
@@ -175,7 +168,7 @@ class ClimateDataset(torch.utils.data.Dataset):
                 var_data_list.append(data)
 
             full_data = np.concatenate(var_data_list, axis=0)  # (T, lat, lon)
-            self.input_var_shapes[var] = full_data.shape[1:]  # (lat, lon)
+            self.input_var_shapes[var] = np.prod(full_data.shape[1:])
             all_arrays.append(full_data[None, ...])  # → (1, T, lat, lon)
 
         data = np.concatenate(all_arrays, axis=0)  # (V, T, lat, lon)
@@ -199,8 +192,8 @@ class ClimateDataset(torch.utils.data.Dataset):
         # Compute input_var_offsets for later masking
         self.input_var_offsets = [0]
         for var in variables:
-            last_offset = self.input_var_offsets[-1]
-            self.input_var_offsets.append(last_offset + self.input_var_shapes[var])
+            last = self.input_var_offsets[-1]
+            self.input_var_offsets.append(last + self.input_var_shapes[var])
 
         return reshaped
 
@@ -214,7 +207,8 @@ class ClimateDataset(torch.utils.data.Dataset):
         first_file = paths[0][0]
 
         if first_file.endswith(".grib") or first_file.endswith(".grib2"):
-            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
+            print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
+            coordinates = np.load(self.icosahedral_coordinates_path)
         else:
             temp_data = xr.open_mfdataset(paths[0], concat_dim="time", combine="nested").compute()
             # Try to load `lat` and `lon` directly and fall back to error if not found
@@ -311,41 +305,25 @@ class ClimateDataset(torch.utils.data.Dataset):
         ...
         # Once x_train and x_valid are constructed:
         if obs_to_latent_mask is None:
-            d_x = self.input_var_offsets[-1]  # total number of observations
-            d_z = d_x  # fallback default: one latent per obs
-            obs_to_latent_mask = np.ones((d_x, d_z), dtype=np.float32)
+            self.obs_to_latent_mask = obs_to_latent_mask
 
-        # store mask on self for later model access if needed
-        self.obs_to_latent_mask = obs_to_latent_mask
         """
         Constructs dataset for causal discovery model.
 
         Splits each scenario into training and validation sets, then generates overlapping sequences.
         """
-        # print(f"Getting causal data [mode={mode}] ...")
 
-        # NOTE:() hack to overwrite the number of years
         num_years = self.length
-        # print("In get_causal_data, num_years:", num_years)
 
         data = self.Data
 
-        # print("Here in get_causal_data, self.length:", self.length)
 
         if channels_last:
-            # (n, t, lon, lat, n_vars) -> (n, t, n_vars, lon, lat)
             data = data.transpose((0, 1, 4, 2, 3))
 
-        # n = num_scenarios, t = n_years * 12
         # TODO: breaks if not same number of years in each scenario i.e. historical vs ssp
 
         try:
-            # (years, months, vars, lon, lat) -> (scenrios, years*months, vars, lon, lat)
-            # Regular data shape before reshaping: (101, 12, 1, 96, 144)
-            # Regular data shape after reshaping: (1, 1212, 1, 96, 144)
-            # print("Trying to regrid to lon, lat if we have regular data...")
-            # data = data.reshape(num_scenarios, num_years, num_vars, LON, LAT)
-
             data = data.reshape(num_scenarios, num_years * self.seq_len, num_vars, self.lon, self.lat)
 
         except ValueError:
@@ -353,15 +331,7 @@ class ClimateDataset(torch.utils.data.Dataset):
                 "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!"
             )
 
-            # print("Data shape before reshaping:", data.shape)
-            # print("JUST CHECKING I AM HERE")
-            # note that this was returning the wrong shape if we have more than one ensemble member, of course, as it gets stuffed into -1
-            # data = data.reshape(num_scenarios, num_years*12, num_vars, -1)
-            # 26/08/24
-            # Now we don't split up the ensemble members
-
             data = data.reshape(1, num_years * self.seq_len, num_vars, -1)
-            # print("Data shape after reshaping:", data.shape)
 
         if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated > 1:
             data = self.aggregate_months(data, num_months_aggregated)
@@ -373,8 +343,6 @@ class ClimateDataset(torch.utils.data.Dataset):
 
                 for scenario in data:
                     idx_train, idx_valid = self.split_data_by_interval(scenario, tau, ratio_train, interval_length)
-                    # np.random.shuffle(idx_train)
-                    # np.random.shuffle(idx_valid)
 
                     x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau, future_timesteps)
                     x_train_list.extend(x_train)
@@ -388,10 +356,6 @@ class ClimateDataset(torch.utils.data.Dataset):
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:
                     valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
-                # make train_y go from (2550, 4, 96, 144) to (2550, 1, 4, 96, 144)
-                # train_y = np.expand_dims(train_y, axis=1)
-                # valid_y = np.expand_dims(valid_y, axis=1)
-
                 # z-score normalization
                 mean_x, std_x = self.get_mean_std(train_x)
                 stats_x = {"mean": mean_x, "std": std_x}
@@ -399,22 +363,9 @@ class ClimateDataset(torch.utils.data.Dataset):
                 mean_y, std_y = self.get_mean_std(train_y)
                 stats_y = {"mean": mean_y, "std": std_y}
 
-                # Was normalizing twice
-                # stats_fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file='statistics', kwargs=self.fname_kwargs, causal=True)
-                # stats = stats_x, stats_y
-                # out_fname = self.write_dataset_statistics(stats_fname, stats)
-                # print(f"Saved statistics to {out_fname}")
-
-                # train = self.normalize_data(train_x, stats_x), self.normalize_data(train_y, stats_y)
-                # if ratio_train<1:
-                #     valid = self.normalize_data(valid_x, stats_x), self.normalize_data(valid_y, stats_y)
-                # else:
-                #     valid = None
                 train = train_x, train_y
                 valid = valid_x, valid_y
 
-                # print(train_y.shape)
-                # plot_species(train_y[:, :, 0, :, :], self.coordinates, "tas", "../../TEST_REPO", "after_causal")
                 return train, valid
             else:
                 x_test_list, y_test_list = [], []
@@ -435,22 +386,16 @@ class ClimateDataset(torch.utils.data.Dataset):
                 stats = np.load(stats_fname, allow_pickle=True)
                 stats_x, stats_y = stats
                 test = test_x, test_y
-                # test = self.normalize_data(test_x, stats_x), self.normalize_data(test_y, stats_y)
 
                 return test
 
         else:
-            # TODO create this function and use it -> put it inside the data creation...
-            # data = self.create_multi_res_data(data, num_months_aggregated)
 
-            # for each scenario in data, generate overlapping sequences
             if mode == "train" or mode == "train+val":
                 x_train_list, y_train_list = [], []
                 x_valid_list, y_valid_list = [], []
                 for scenario in data:
                     idx_train, idx_valid = self.split_data_by_interval(scenario, tau, ratio_train, interval_length)
-                    # np.random.shuffle(idx_train)
-                    # np.random.shuffle(idx_valid)
 
                     x_train, y_train = self.get_overlapping_sequences(scenario, idx_train, tau, future_timesteps)
                     x_train_list.extend(x_train)
@@ -465,34 +410,9 @@ class ClimateDataset(torch.utils.data.Dataset):
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:
                     valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
-                # train_y = np.expand_dims(train_y, axis=1)
-                # valid_y = np.expand_dims(valid_y, axis=1)
-
-                # # z-score normalization ALREADY DONE
-                # # make train_y go from (2550, 4, 96, 144) to (2550, 1, 4, 96, 144)
-                # mean_x, std_x = self.get_mean_std(train_x)
-                # stats_x = {'mean': mean_x, 'std': std_x}
-                #
-                # mean_y, std_y = self.get_mean_std(train_y)
-                # stats_y = {'mean': mean_y, 'std': std_y}
-                #
-                # stats_fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file='statistics',
-                #                                                                 kwargs=self.fname_kwargs,
-                #                                                                 causal=True)
-                # stats = stats_x, stats_y
-                # out_fname = self.write_dataset_statistics(stats_fname, stats)
-                # print(f"Saved statistics to {out_fname}")
-                #
-                # train = self.normalize_data(train_x, stats_x), self.normalize_data(train_y, stats_y)
-                # if ratio_train < 1:
-                #     valid = self.normalize_data(valid_x, stats_x), self.normalize_data(valid_y, stats_y)
-                # else:
-                #     valid = None
 
                 train = train_x, train_y
                 valid = valid_x, valid_y
-                # print(train_y.shape)
-                # plot_species(train_y[:, 0, 0, :, :], self.coordinates, "tas", "../../TEST_REPO", "after_causal")
                 return train, valid
             else:
                 x_test_list, y_test_list = [], []
@@ -504,15 +424,6 @@ class ClimateDataset(torch.utils.data.Dataset):
 
                 test_x, test_y = np.stack(x_test_list), np.stack(y_test_list)
                 test_y = np.expand_dims(test_y, axis=1)
-
-                # z-score normalization
-                # stats_fname, coordinates_fname = self.get_save_name_from_kwargs(mode="train+val", file='statistics',
-                #                                                                 kwargs=self.fname_kwargs,
-                #                                                                 causal=True)
-                # stats_fname = os.path.join(self.output_save_dir, stats_fname)
-                # stats = np.load(stats_fname, allow_pickle=True)
-                # stats_x, stats_y = stats
-                # test = self.normalize_data(test_x, stats_x), self.normalize_data(test_y, stats_y)
                 test = test_x, test_y
                 return test
 
