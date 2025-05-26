@@ -48,7 +48,7 @@ class Input4MipsDataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.npy",
         *args,
         **kwargs,
     ):
