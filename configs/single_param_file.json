@@ -18,11 +18,13 @@
     "data_params": {
         "data_dir": "$SCRATCH/data/Climateset_DATA_TEST",
         "climateset_data": "/network/scratch/j/julien.boussard/data/icosahedral_data/structured/picontrol/24_ni",
-        "reload_climate_set_data": true,
+        "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
-        "in_var_ids": [
-            "ts"
-        ],
+        "in_var_ids": {
+            "cmip6": [
+                "skt"
+            ]
+        },
         "num_levels": 1,
         "temp_res": "mon",
         "train_historical_years": "1894-2000",
