@@ -57,7 +57,6 @@ class CausalClimateDataModule(ClimateDataModule):
         elif isinstance(years_str, int):
             return [years_str]
         elif isinstance(years_str, str):
-            print(years_str)
             if len(years_str) != 9:
                 raise ValueError("Years string must be in the format xxxx-yyyy (eg. 2015-2100).")
 
@@ -108,8 +107,8 @@ class CausalClimateDataModule(ClimateDataModule):
                     )
                 elif source=="era5":
                     train_val_input4mips = ERA5Dataset(
-                        years=train_years,
-                        historical_years=train_historical_years,
+                        years=self.hparams.train_years,
+                        historical_years=self.hparams.train_historical_years,
                         data_dir=self.hparams.data_dir,
                         climate_model=self.hparams.train_models,
                         num_ensembles=self.hparams.num_ensembles,
@@ -126,9 +125,6 @@ class CausalClimateDataModule(ClimateDataModule):
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
                     )
                 elif source=="cmip6":
-                    print(
-                        f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
-                    )
                     train_val_input4mips = CMIP6Dataset(
                         years=train_years,
                         historical_years=train_historical_years,
@@ -171,21 +167,39 @@ class CausalClimateDataModule(ClimateDataModule):
 
             datasets.append(train_val_input4mips)
 
-            multi_ds = MultiSourceCausalDataset(datasets)
-            self.mask_shapes, self.mask_offsets = multi_ds.get_mask_metadata()
-            self.d = multi_ds.d_x
+            # Construct input_var_shapes and offsets for mask metadata
+            self.input_var_shapes = {}
+            self.input_var_offsets = [0]
+            for var, flat_spatial_dim in train_val_input4mips.input_var_shapes.items():
+                total_dim = self.tau * flat_spatial_dim  # repeat per tau
+                self.input_var_shapes[var] = total_dim
+                self.input_var_offsets.append(self.input_var_offsets[-1] + total_dim)
 
-            train, val = multi_ds.get_causal_data(
+            self.d = self.input_var_offsets[-1]  # total number of inputs per sample
+
+            num_vars = len(self.input_var_shapes)
+            d_x = self.d
+            d_z = self.tau * num_vars  # one latent per var per time step
+
+            obs_to_latent_mask = np.zeros((d_z, d_x), dtype=np.float32)
+            for var_idx, (var, offset) in enumerate(zip(self.input_var_shapes, self.input_var_offsets[:-1])):
+                dim = self.input_var_shapes[var]
+                for t in range(self.tau):
+                    latent_idx = var_idx * self.tau + t
+                    obs_to_latent_mask[latent_idx, offset + t * dim // self.tau : offset + (t + 1) * dim // self.tau] = 1.0
+            self.obs_to_latent_mask = obs_to_latent_mask
+            train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,
                 future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
-                num_vars=len(self.mask_shapes),  # total num vars
+                num_vars=len(self.input_var_shapes),  # total num vars
                 num_scenarios=1,
                 num_ensembles=1,
-                num_years=multi_ds.length,
+                num_years=train_val_input4mips.length,
                 ratio_train=ratio_train,
                 num_months_aggregated=self.num_months_aggregated,
                 interval_length=self.train_val_interval_length,
+                obs_to_latent_mask=obs_to_latent_mask,
                 mode="train+val",
             )
             if "savar" in self.hparams.in_var_ids:
@@ -218,35 +232,3 @@ class CausalClimateDataModule(ClimateDataModule):
                 )
                 for test_model in self.hparams.test_models
             }
-
-
-class MultiSourceCausalDataset(ClimateDataset):
-    def __init__(self, datasets: List[ClimateDataset]):
-        self.datasets = datasets
-
-        # Concatenate along variable dimension (assumes same [time, lat, lon] resolution)
-        self.Data = np.concatenate([ds.Data for ds in datasets], axis=2)  # axis=2 is var axis
-        self.length = datasets[0].length
-        self.seq_len = datasets[0].seq_len
-        self.lon = datasets[0].lon
-        self.lat = datasets[0].lat
-        self.output_save_dir = datasets[0].output_save_dir  # optional, for stat saving
-
-        # Construct input_var_shapes and offsets for mask metadata
-        self.input_var_shapes = {}
-        self.input_var_offsets = [0]
-        self.input_var_names = []
-
-        for ds in datasets:
-            shapes, names = ds.get_mask_metadata()
-            for name, shape in zip(names, shapes):
-                self.input_var_shapes[name] = shape
-                self.input_var_names.append(name)
-                last = self.input_var_offsets[-1]
-                self.input_var_offsets.append(last + np.prod(shape))
-
-        # Total input dimension (for masking)
-        self.d_x = self.input_var_offsets[-1]
-
-    def get_mask_metadata(self):
-        return self.input_var_shapes, self.input_var_offsets
