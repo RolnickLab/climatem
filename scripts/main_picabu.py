@@ -155,6 +155,7 @@ def main(
         debug_gt_graph=gt_params.debug_gt_graph,
         debug_gt_z=gt_params.debug_gt_z,
         debug_gt_w=gt_params.debug_gt_w,
+        obs_to_latent_mask=datamodule.obs_to_latent_mask,
         # gt_w=data_loader.gt_w,
         # gt_graph=data_loader.gt_graph,
         tied_w=model_params.tied_w,
@@ -220,6 +221,7 @@ def main(
     print("Where is my model?", next(trainer.model.parameters()).device)
 
     valid_loss = trainer.train_with_QPM()
+    print("[DEBUG] Training finished, valid_loss:", valid_loss)
 
     # save final results, (MSE)
     metrics = {"shd": 0.0, "precision": 0.0, "recall": 0.0, "train_mse": 0.0, "val_mse": 0.0, "mcc": 0.0}
@@ -325,8 +327,7 @@ if __name__ == "__main__":
 
     args = parse_args()
     
-    cwd = Path.cwd()
-    root_path = cwd.parent
+    root_path = Path(__file__).resolve().parent.parent
     config_path = root_path / f"configs"
     json_path = config_path / args.config_path
     
