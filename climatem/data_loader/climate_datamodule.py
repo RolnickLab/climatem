@@ -57,7 +57,7 @@ class ClimateDataModule(LightningDataModule):
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
         lon: int = 125,
         lat: int = 125,
-        icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.npy",
         num_levels: int = 1,
         # input_transform: Optional[AbstractTransform] = None,
         # normalizer: Optional[Normalizer] = None,
