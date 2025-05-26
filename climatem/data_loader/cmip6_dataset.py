@@ -8,6 +8,7 @@ from typing import List, Optional, Union
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     CMIP6_NOM_RES,
     CMIP6_TEMP_RES,
+    VAR_TO_DIR,
 )
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
@@ -29,15 +30,13 @@ class CMIP6Dataset(ClimateDataset):
 
     Keep one scenario for testing # Target shape (85 * 12, 1, 144, 96) # ! * num_scenarios!!
     """
-
-    def __init__(  # noqa: C901
-        # inherits all the stuff from Base
+    def __init__(
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
-        data_dir: Optional[str] = "Climateset_DATA",
+        data_dir: str = "Climateset_DATA",
         climate_model: str = "NorESM2-LM",
-        num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
+        num_ensembles: int = 1,
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
         variables: List[str] = ["pr"],
         mode: str = "train",
@@ -50,44 +49,39 @@ class CMIP6Dataset(ClimateDataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.npy",
         *args,
         **kwargs,
-    ):  # noqa: C901
-
+    ):
         self.mode = mode
-        self.output_save_dir = Path(output_save_dir)
+        self.variables = variables
         self.reload_climate_set_data = reload_climate_set_data
+        self.output_save_dir = Path(output_save_dir)
         self.root_dir = Path(data_dir) / "outputs/CMIP6"
         self.input_nc_files = []
         self.output_nc_files = []
-        self.variables = variables
+        self.seq_len = seq_len
+        self.lat = lat
+        self.lon = lon
+        self.icosahedral_coordinates_path = icosahedral_coordinates_path
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
-        self.seq_len = seq_len
-        self.lon = lon
-        self.lat = lat
-        self.icosahedral_coordinates_path = icosahedral_coordinates_path
-        print(f"CMIP6 self.icosahedral_coordinates_path {self.icosahedral_coordinates_path}")
+        self.channels_last = channels_last
 
-        fname_kwargs = dict(
+        self.fname_kwargs = dict(
             climate_model=climate_model,
             num_ensembles=num_ensembles,
             years=f"{years[0]}-{years[-1]}",
             historical_years=f"{historical_years[0]}-{historical_years[-1]}",
-            variables=variables,
+            variables=[VAR_TO_DIR.get(v, v) for v in variables],
             scenarios=scenarios,
             channels_last=channels_last,
             seq_to_seq=seq_to_seq,
         )
-        self.fname_kwargs = fname_kwargs
-
         print("self.fname_kwargs instantiated")
 
         # TO-DO: This is just getting the list of .nc files for targets. Put this logic in a function and get input list as well.
         # In a function, we can call CausalDataset() instance for train and test separately to load the data
-
-        # print("IN CMIP6!!!")
 
         if isinstance(climate_model, str):
             self.root_dir = self.root_dir / climate_model
@@ -184,7 +178,6 @@ class CMIP6Dataset(ClimateDataset):
                     for ensemble_dir in self.ensemble_dirs:
                         print("*****************LOOPING THROUGH ENSEMBLE MEMBERS*****************")
                         print("ensemble member path:", ensemble_dir)
-
                         # I am now identing this:
                         output_nc_files = []
 
@@ -192,7 +185,8 @@ class CMIP6Dataset(ClimateDataset):
                             # for y in self.get_years_list(get_years, give_list=True):
                             # print('y is this:', y)
                             # print('here is exp:', exp)
-                            var_dir = ensemble_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+                            var_dir_name = VAR_TO_DIR.get(var, var)
+                            var_dir = ensemble_dir / f"{exp}/{var_dir_name}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
                             print(f"ALL FILES DIRECTORY: {var_dir}")
                             files = glob.glob(f"{var_dir}/**/*.nc", recursive=True)
                             print(f"NC FILES: {files}")
@@ -222,11 +216,20 @@ class CMIP6Dataset(ClimateDataset):
                 files_per_var.append(all_ensemble_output_nc_files)
             # print("length of files_per_var after looping!:", len(files_per_var))
             # print('files_per_var:', files_per_var)
+            print(files_per_var)
+            flat_file_list = [f for file_list in files_per_var for f in file_list]
+            print("[DEBUG] About to call load_into_mem()")
 
             # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
             self.raw_data = self.load_into_mem(
-                files_per_var, num_vars=len(variables), channels_last=channels_last, seq_to_seq=seq_to_seq
+                flat_file_list,
+                variables,
+                channels_last=channels_last,
+                seq_to_seq=seq_to_seq
             )
+            print("[DEBUG] Finished calling load_into_mem()")
+            print("[DEBUG] input_var_offsets = ", self.input_var_offsets)
+
             self.coordinates = self.load_coordinates_into_mem(files_per_var)
 
             if self.mode in ["train", "train+val"]:
@@ -258,7 +261,7 @@ class CMIP6Dataset(ClimateDataset):
             elif self.mode == "test":
                 if self.global_normalization:
                     stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                        mode="train+val", file="statistics", kwargs=fname_kwargs
+                        mode="train+val", file="statistics", kwargs=self.fname_kwargs
                     )
                     stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
                     self.norm_data = self.normalize_data(self.raw_data, stats)
