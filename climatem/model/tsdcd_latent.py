@@ -242,6 +242,7 @@ class LatentTSDCD(nn.Module):
         debug_gt_graph: bool,
         debug_gt_z: bool,
         debug_gt_w: bool,
+        obs_to_latent_mask: tuple,
         gt_graph: torch.tensor = None,
         gt_w: torch.tensor = None,
         tied_w: bool = False,
@@ -373,6 +374,7 @@ class LatentTSDCD(nn.Module):
                 embedding_dim=self.position_embedding_dim,
                 reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
                 gt_w=None,
+                obs_to_latent_mask=torch.tensor(obs_to_latent_mask, dtype=torch.float32)
             )
         else:
             # print('Using linear mixing')
@@ -961,15 +963,37 @@ class NonLinearAutoEncoder(nn.Module):
                 sampled_mask = self.mask_encoder(bs_size)
             print_nan_stats("sampled_mask (Gumbel)", sampled_mask)
             return torch.nan_to_num(sampled_mask, nan=0.0)
-
         else:
             if self.tied:
-                fixed_mask = torch.transpose(self.w, 1, 2)
+                fixed_mask = torch.transpose(self.w, 1, 2)  # shape: (bs_size, d_z, d_x)
                 print_nan_stats("fixed tied mask (w.T)", fixed_mask)
             else:
-                fixed_mask = self.w_encoder
+                fixed_mask = self.w_encoder  # shape: (bs_size, d_z, d_x)
+
             if self.obs_to_latent_mask is not None:
-                fixed_mask = fixed_mask * self.obs_to_latent_mask.to(fixed_mask.device)
+                obs_mask_tensor = self.obs_to_latent_mask
+                if not isinstance(obs_mask_tensor, torch.Tensor):
+                    obs_mask_tensor = torch.tensor(obs_mask_tensor, dtype=torch.float32)
+
+                obs_mask_tensor = obs_mask_tensor.to(fixed_mask.device)
+
+                # Ensure shape is (d_z, d_x)
+                expected_shape = fixed_mask.shape[1:]
+                if obs_mask_tensor.ndim > 2:
+                    print("[DEBUG] Squeezing obs_to_latent_mask before reshape:", obs_mask_tensor.shape)
+                    obs_mask_tensor = obs_mask_tensor[0]  # assume batch dim, take first
+
+                if obs_mask_tensor.shape != expected_shape:
+                    print(f"[DEBUG] Reshaping obs_to_latent_mask from {obs_mask_tensor.shape} to match {expected_shape}")
+                    obs_mask_tensor = obs_mask_tensor.view(expected_shape)
+
+                fixed_mask = fixed_mask * obs_mask_tensor
+
+            print("[DEBUG] Final obs_to_latent_mask shape:", fixed_mask.shape)
+            print("[DEBUG] Non-zero count:", torch.count_nonzero(fixed_mask).item())
+            print("[DEBUG] Percentage active:", 100 * torch.count_nonzero(fixed_mask).item() / fixed_mask.numel())
+            print("[DEBUG] Sample of mask (first 10x10):\n", fixed_mask[0, :10, :10])
+
             return torch.nan_to_num(fixed_mask, nan=0.0)
 
 
@@ -1025,8 +1049,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         embedding_dim,
         reduce_encoding_pos_dim,
         gt_w=None,
+        obs_to_latent_mask=None
     ):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
+        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w, obs_to_latent_mask=obs_to_latent_mask)
         # embedding_dim_encoding = d_z // 10
         if not reduce_encoding_pos_dim:
             self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
@@ -1054,6 +1079,11 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         # for each latent, select the locations it is mapped to
         mask_ = super().select_encoder_mask(mask, i, j_values)  # mask[i, j_values]
+        
+        if self.obs_to_latent_mask is not None:
+            hard_mask = self.obs_to_latent_mask.unsqueeze(0).to(mask_.device)  # (1, d_z, d_x)
+            assert mask_.shape == hard_mask.shape, f"Shape mismatch: {mask_.shape} vs {hard_mask.shape}"
+            mask_ = mask_ * hard_mask
 
         # Could I reduce the memory usage of this?
         # each location create a lask in latents b * d_z * d_x
