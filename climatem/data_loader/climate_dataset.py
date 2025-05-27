@@ -224,14 +224,12 @@ class ClimateDataset(torch.utils.data.Dataset):
         else:
             n_timesteps = total_timesteps // self.seq_len
             expected_timesteps = n_timesteps * self.seq_len
-            if total_timesteps > expected_timesteps:
-                print(f"[load_into_mem] get_years not provided, trimming data from {total_timesteps} to {expected_timesteps}")
-                if data.ndim == 3:
-                    data = data[:, :expected_timesteps, :]
-                elif data.ndim == 4:
-                    data = data[:, :expected_timesteps, :, :]
-                else:
-                    raise ValueError(f"Unexpected number of dimensions in data: {data.ndim}")
+            if data.ndim == 3:
+                data = data[:, :expected_timesteps, :]
+            elif is_gridded:
+                data = data[:, :expected_timesteps, :, :]
+            else:
+                raise ValueError(f"Unexpected number of dimensions in data: {data.ndim}")
 
         # Final reshape to (n_timesteps, M, n_vars, lat, lon) or (n_timesteps, M, n_vars, n_grids)
         reshaped = data.reshape(num_vars, n_timesteps, self.seq_len, *spatial_dims)
