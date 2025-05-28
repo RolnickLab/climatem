@@ -232,7 +232,7 @@ class ERA5Dataset(ClimateDataset):
 
             # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
             self.raw_data = self.load_into_mem(
-                files_per_var, num_vars=len(variables), channels_last=channels_last, seq_to_seq=seq_to_seq, get_years=get_years,
+                files_per_var, num_vars=len(variables), channels_last=channels_last, seq_to_seq=seq_to_seq,
             )
             self.coordinates = self.load_coordinates_into_mem(files_per_var)
 

@@ -16,8 +16,8 @@ from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
 
-euler_mascheroni = 0.57721566490153286060
 
+euler_mascheroni = 0.57721566490153286060
 
 class TrainingLatent:
     def __init__(
@@ -619,14 +619,16 @@ class TrainingLatent:
         # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
         # loss.backward()
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-        with torch.autograd.set_detect_anomaly(True):
-            self.accelerator.backward(loss)
-        # for name, param in self.model.named_parameters():
-        #     if param.grad is not None and torch.isnan(param.grad).any():
-        #         print(f"[NaN GRAD] Gradient NaNs found in {name}")
+        self.accelerator.backward(loss)
+        print("[DEBUG] loss value:", loss)
+
+        # Immediately check for NaNs in model parameters or gradients
+        for name, param in self.model.named_parameters():
+            if torch.isnan(param).any():
+                print(f"[NaN DETECTED] in parameter: {name}")
+            if param.grad is not None and torch.isnan(param.grad).any():
+                print(f"[NaN DETECTED] in gradient: {name}")
+
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
@@ -634,8 +636,8 @@ class TrainingLatent:
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
-
-            # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
+            print("[DEBUG] w_decoder:", torch.isnan(self.model.autoencoder.get_w_decoder()).sum())
+            assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -1156,6 +1158,23 @@ class TrainingLatent:
         return (1.0 / torch.sqrt(torch.as_tensor(2.0 * torch.pi))) * torch.exp(-torch.square(x) / 2.0)
 
     def get_crps_loss(self, y, mu, sigma):
+        """
+        Calculate the CRPS loss between the true values and the predicted values. We need to extract the parameters of
+        the Gaussian of the model. I am going to start by just taking the parameters of all the Gaussians for the
+        observations first...
+
+        I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
+
+        I would quite like to do this on future timesteps too.
+
+        Args:
+            y: torch.Tensor, the true values
+            mu: torch.Tensor, the mean of the Gaussians
+            sigma: torch.Tensor, the standard deviation of the Gaussians
+        """
+
+        # gaussian_dist = torch.distributions.Normal(mu, sigma)
+
         if self.model.distr_decoder.__name__ == "GEVDistribution":
             xi = self.model.xi
 
@@ -1267,23 +1286,30 @@ class TrainingLatent:
             crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
             crps = torch.clamp(crps, min=0.0)
             return torch.mean(crps)
-
-        # --- Gaussian fallback ---
         else:
+            y = y
+            mu = mu
+            sigma = sigma
+
+            # standardised y
             sy = (y - mu) / sigma
+
             forecast_dist = dist.Normal(0, 1)
+
+            # some precomputations to speed up the gradient
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
 
-        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
+            pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
 
-        # calculate the CRPS
-        crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+            # calculate the CRPS
+            crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
 
-        # add together all the CRPS values and divide by the number of samples
-        crps = torch.sum(crps) / y.size(0)
+            # add together all the CRPS values and divide by the number of samples
+            crps = torch.sum(crps) / y.size(0)
 
-        return crps
+            return crps
+    
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """

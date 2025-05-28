@@ -5,6 +5,7 @@ import os
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+from datetime import datetime, timedelta
 
 import numpy as np
 import torch
@@ -135,18 +136,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.lon = lon
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
 
-        # TODO: is that needed?
-        # creates on cmip and on input4mip dataset
-        # print("creating input4mips")
-        self.input4mips_ds = Input4MipsDataset(variables=in_variables, **ds_kwargs)
-        # print("creating cmip6")
-        # self.cmip6_ds=self.input4mips_ds
-        self.cmip6_ds = CMIP6Dataset(
-            climate_model=climate_model, num_ensembles=num_ensembles, variables=out_variables, **ds_kwargs
-        )
 
-    # NOTE:() changing this so it can deal with with grib files and netcdf files
-    # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
     def load_into_mem(
         self,
         paths: List[List[str]],
@@ -166,80 +156,69 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
 
         array_list = []
-        # print("paths:", paths)
-        # print("length paths", len(paths))
 
-        # I need to check here that it is doing the right thing
         for vlist in paths:
-            if not vlist:
-                raise ValueError("Received empty list of files for a variable.")
-            # print("length_paths_list", len(vlist))
-            # print the last three characters of the first element of vlist
-            # NOTE:() assert that they are either .nc or .grib - and print an error!
-            first_file = vlist[0]
-            suffix = Path(first_file).suffix
-            if suffix == ".nc":
+            if vlist[0][-3:] == ".nc":
                 temp_data = xr.open_mfdataset(
                     vlist, concat_dim="time", combine="nested"
-                ).compute()  # .compute is not necessary but eh, doesn't hurt
-                # ignore the bnds dimension
-                temp_data = temp_data.drop_dims("bnds")
-                # print("Temp data at the point of reading it in:", temp_data)
-            elif suffix in [".grib", ".grib2"]:
-                # need to install cfgrib, eccodes and likely ecmwflibs to make sure this cfgrib engine works and is available
-                temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
-                # print("Temp data at the point of reading it in:", temp_data)
-            # then get rid of this with some assert ^ see above
-            else:
-                raise ValueError(f"Unrecognized file format: {first_file}. Use .nc, .grib, or .grib2")
-            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, 1036*num_scenarios, 96, 144)
+                ).compute()
+                temp_data = temp_data.drop_dims("bnds", errors="ignore")
 
-            # print("Temp data shape:", temp_data.shape)
-            # temp_data = temp_data.squeeze() # (1036*num_scanarios, 96, 144)
+            elif vlist[0].endswith(".grib"):
+                temp_data = xr.open_mfdataset(
+                    vlist, engine="cfgrib", concat_dim="time", combine="nested"
+                ).compute()
+
+            elif vlist[0].endswith(".grib2"):
+                # Drop leap day files (Feb 29) for grib2
+                filtered_vlist = []
+                for i in range(0, len(vlist), self.seq_len + 1):  # self.seq_len assumed to be 365
+                    block = vlist[i:i + self.seq_len + 1]
+                    if len(block) == self.seq_len + 1:
+                        block = block[:-1]  # drop the last file (Feb 29)
+                    filtered_vlist.extend(block)
+                vlist = filtered_vlist
+
+                temp_data = xr.open_mfdataset(
+                    vlist, engine="cfgrib", concat_dim="time", combine="nested"
+                ).compute()
+
+            else:
+                print("File extension not recognized, please use either .nc or .grib")
+                continue
+
+            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, time, lat, lon)
             array_list.append(temp_data)
 
-        # print("length of the array list:", len(array_list))
-        data = np.concatenate(array_list, axis=0)
-        print("Concatenated data shape:", data.shape)
+        temp_data = np.concatenate(array_list, axis=0)
 
-        total_timesteps = data.shape[1]
-        is_gridded = data.ndim == 4
-        spatial_dims = data.shape[2:]  # (lat, lon) or (n_grids,)
+        if paths[0][0].endswith(".grib"):
+            years = len(paths[0])
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
-        if get_years is not None:
-            n_timesteps = len(get_years)
-            expected_timesteps = n_timesteps * self.seq_len
+        elif paths[0][0].endswith(".grib2"):
+            # Use self.seq_len = 365 (post-leap-day-removal)
+            years = len(vlist) // self.seq_len
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
-            if total_timesteps < expected_timesteps:
-                raise ValueError(f"Too few timesteps: got {total_timesteps}, expected {expected_timesteps} "
-                                f"(years={n_timesteps}, seq_len={self.seq_len})")
-            elif total_timesteps > expected_timesteps:
-                print(f"Trimming data from {total_timesteps} to {expected_timesteps} timesteps.")
-                if data.ndim == 3:
-                    data = data[:, :expected_timesteps, :]
-                elif data.ndim == 4:
-                    data = data[:, :expected_timesteps, :, :]
-                else:
-                    raise ValueError(f"Unexpected number of dimensions in data: {data.ndim}")
         else:
-            n_timesteps = total_timesteps // self.seq_len
-            expected_timesteps = n_timesteps * self.seq_len
-            if data.ndim == 3:
-                data = data[:, :expected_timesteps, :]
-            elif is_gridded:
-                data = data[:, :expected_timesteps, :, :]
-            else:
-                raise ValueError(f"Unexpected number of dimensions in data: {data.ndim}")
+            years = len(paths[0])
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, self.lon, self.lat)
 
-        # Final reshape to (n_timesteps, M, n_vars, lat, lon) or (n_timesteps, M, n_vars, n_grids)
-        reshaped = data.reshape(num_vars, n_timesteps, self.seq_len, *spatial_dims)
-        reshaped = reshaped.transpose((1, 2, 0, *range(3, reshaped.ndim)))  # reorder to (n_timesteps, M, n_vars, ...)
+        if seq_to_seq is False:
+            temp_data = temp_data[:, :, -1, :, :]  # only take last time step
+            temp_data = np.expand_dims(temp_data, axis=2)
 
-        if not seq_to_seq:
-            reshaped = reshaped[:, -1:, ...]  # keep last timestep, preserve dims
-            print("After seq_to_seq=False reshape:", reshaped.shape)
+        if channels_last:
+            temp_data = temp_data.transpose((1, 2, 3, 4, 0))
+        elif paths[0][0][-5:] == ".grib":
+            temp_data = temp_data.transpose((1, 2, 0, 3))
+        else:
+            temp_data = temp_data.transpose((1, 2, 0, 3, 4))
 
-        return reshaped
+        return temp_data
+
+
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 
