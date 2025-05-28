@@ -9,7 +9,6 @@ import numpy as np
 import seaborn as sns
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.basemap import Basemap
 
 from climatem.model.metrics import mcc_latent
 
@@ -489,51 +488,32 @@ class Plotter:
             axes[1].set_title(f"GT mixing. j={j}, val={gt_w[0, i, j]:.2f}")
 
             plt.savefig(path / f"learned_mixing_x{i}.png")
-            plt.close()
 
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path):
-        """
-        Plot the predicted x_hat compared to the ground-truth x
-        Args:
-            x: ground-truth x (for a specific physical variable)
-            x_past: ground-truth x at (t-1)
-            x_hat: x predicted by the model
-            coordinates: xxx
-            path: path where to save the plot
-        """
+        """Plot the predicted x_hat compared to the ground-truth x using Cartopy."""
+        fig, axs = plt.subplots(3, 1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 12))
 
-        fig = plt.figure()
-        fig.suptitle("Ground-truth vs prediction")
+        titles = ["Previous GT", "Ground-truth", "Prediction"]
+        data = [x_past, x, x_hat]
 
-        lat = np.unique(coordinates[:, 0])
-        lon = np.unique(coordinates[:, 1])
-        X, Y = np.meshgrid(lon, lat)
+        lon = coordinates[:, 0]
+        lat = coordinates[:, 1]
+        X, Y = np.meshgrid(np.unique(lon), np.unique(lat))
 
-        for i in range(3):
-            if i == 0:
-                z = x_past
-                axes = fig.add_subplot(311)
-                axes.set_title("Previous GT")
-            if i == 1:
-                z = x
-                axes = fig.add_subplot(312)
-                axes.set_title("Ground-truth")
-            if i == 2:
-                z = x_hat
-                axes = fig.add_subplot(313)
-                axes.set_title("Prediction")
+        for ax, title, z in zip(axs, titles, data):
+            ax.set_global()
+            ax.coastlines()
+            ax.add_feature(cfeature.BORDERS, linestyle=":")
+            ax.add_feature(cfeature.LAND, edgecolor="black")
+            ax.gridlines(draw_labels=False)
 
-            map = Basemap(projection="robin", lon_0=0)
-            map.drawcoastlines()
-            map.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-            # map.drawmeridians(np.arange(map.lonmin, map.lonmax + 30, 60), labels=[0, 0, 0, 1])
+            Z = z.reshape(Y.shape)
+            pcm = ax.pcolormesh(X, Y, Z, cmap="RdBu_r", vmin=-3.5, vmax=3.5, transform=ccrs.PlateCarree())
+            ax.set_title(title)
 
-            Z = z.reshape(X.shape[0], X.shape[1])
-
-            map.contourf(X, Y, Z, latlon=True)
-
-        # plt.colorbar()
-        plt.savefig(path, "prediction.png", format="png")
+        fig.colorbar(pcm, ax=axs, orientation="vertical", shrink=0.7, label="Normalized value")
+        plt.suptitle("Ground-truth vs prediction", fontsize=16)
+        plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
     def plot_compare_predictions_regular_grid(

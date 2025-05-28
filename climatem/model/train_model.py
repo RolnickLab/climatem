@@ -14,6 +14,7 @@ from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
 
+euler_mascheroni = 0.57721566490153286060
 
 class TrainingLatent:
     def __init__(
@@ -616,6 +617,14 @@ class TrainingLatent:
 
         # loss.backward()
         self.accelerator.backward(loss)
+        print("[DEBUG] loss value:", loss)
+
+        # Immediately check for NaNs in model parameters or gradients
+        for name, param in self.model.named_parameters():
+            if torch.isnan(param).any():
+                print(f"[NaN DETECTED] in parameter: {name}")
+            if param.grad is not None and torch.isnan(param.grad).any():
+                print(f"[NaN DETECTED] in gradient: {name}")
 
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
@@ -625,6 +634,7 @@ class TrainingLatent:
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
+            print("[DEBUG] w_decoder:", torch.isnan(self.model.autoencoder.get_w_decoder()).sum())
             assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
@@ -1161,28 +1171,141 @@ class TrainingLatent:
 
         # gaussian_dist = torch.distributions.Normal(mu, sigma)
 
-        y = y
-        mu = mu
-        sigma = sigma
+        if self.model.distr_decoder.__name__ == "GEVDistribution":
+            xi = self.model.xi
 
-        # standardised y
-        sy = (y - mu) / sigma
+            # Expand xi to match mu if needed
+            if isinstance(xi, torch.Tensor) and xi.ndim < mu.ndim:
+                xi = xi.expand_as(mu)
 
-        forecast_dist = dist.Normal(0, 1)
+            eps = 1e-6  # small constant to avoid divide-by-zero or log(0)
 
-        # some precomputations to speed up the gradient
-        pdf = self._normpdf(sy)
-        cdf = forecast_dist.cdf(sy)
+            # Standardized residual
+            t = (y - mu) / sigma
 
-        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
+            # Identify Gumbel regime (xi ~ 0)
+            near_zero = torch.abs(xi) < eps
+            xi_safe = xi.clone()
+            xi_safe[near_zero] = eps  # avoid divide-by-zero in GEV formula
 
-        # calculate the CRPS
-        crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+            # Transformed variable z = 1 + xi * t (GEV support condition)
+            z = 1 + xi_safe * t
+            z = torch.clamp(z, min=eps)  # avoid negative/zero base in pow
 
-        # add together all the CRPS values and divide by the number of samples
-        crps = torch.sum(crps) / y.size(0)
+            # z ** (-1/xi) term used in exp(-z ** -1/xi)
+            inv_xi = -1 / xi_safe
+            pow_z = z**inv_xi  # may return NaN if z < 0 or inf if large
 
-        return crps
+            # Safety: avoid propagating NaNs from z**inv_xi
+            pow_z = torch.nan_to_num(pow_z, nan=1e3, posinf=1e3, neginf=1e3)
+
+            # CDF of GEV: F(y) = exp(-z ** (-1/xi))
+            F_y = torch.exp(-pow_z)
+
+            # Allocate output tensor
+            crps = torch.zeros_like(y)
+
+            # --- GEV branch (xi ≠ 0) ---
+            if torch.any(~near_zero):
+                idx = ~near_zero
+                xi_nz = xi_safe[idx]
+                mu_nz = mu[idx]
+                sigma_nz = sigma[idx]
+                y_nz = y[idx]
+                F_nz = F_y[idx]
+
+                # First term: (μ − y − σ/ξ)(1 − 2F(y))
+                t1 = (mu_nz - y_nz - sigma_nz / xi_nz) * (1 - 2 * F_nz)
+
+                # 2^xi * Gamma(1 - xi)
+                gamma_term = 2**xi_nz * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Lower incomplete gamma: gammainc * Gamma
+                gammainc_val = torch.special.gammainc(1 - xi_nz, -torch.log(F_nz))
+                lower_gamma = gammainc_val * torch.exp(torch.lgamma(1 - xi_nz))
+
+                # Second term: -σ/ξ (gamma_term - 2 * lower_gamma)
+                t2 = -sigma_nz / xi_nz * (gamma_term - 2 * lower_gamma)
+
+                # Sum both terms for GEV CRPS
+                crps[idx] = t1 + t2
+
+            # --- Gumbel branch (xi ≈ 0) ---
+            if torch.any(near_zero):
+                idx = near_zero
+                mu_z = mu[idx]
+                sigma_z = sigma[idx]
+                y_z = y[idx]
+                F_z = F_y[idx].clamp(min=eps, max=1 - eps)  # avoid log(0)
+
+                # log F(y) is always negative
+                log_F_z = torch.log(F_z)
+
+                # Clamp log F(y) to avoid large exponents in A, B
+                log_F_z_clamped = log_F_z.clamp(min=-20.0, max=-1e-3)
+
+                # -- Swamee & Ohija approximation for E₁(x) --
+
+                # A = ln[ (0.56146 / x + 0.65) * (1 + x) ]
+                A_numer = (0.56146 / log_F_z_clamped) + 0.65
+                A_denom = 1 + log_F_z_clamped
+                A_arg = A_numer * A_denom
+                A_arg = A_arg.clamp(min=eps)  # avoid log(0)
+                A = torch.log(A_arg)
+
+                # B = x⁴ * exp(7.7 * x) * (2 + x)^3.7
+                B = (
+                    (log_F_z_clamped**4)
+                    * torch.exp(7.7 * log_F_z_clamped)
+                    * (2 + log_F_z_clamped).clamp(min=eps) ** 3.7
+                )
+
+                # E₁(x) ≈ (A^-7.7 + B)^-0.13
+                expi_approx = (A**-7.7 + B).clamp(min=eps) ** -0.13
+
+                # Final safety (guard against NaNs/infs)
+                expi_approx = torch.nan_to_num(expi_approx, nan=0.0, posinf=1e3, neginf=0.0)
+
+                # CRPS = μ − y + σ (γ − ln 2) − 2σ * E₁(x)
+                t1 = (
+                    mu_z
+                    - y_z
+                    + sigma_z * (euler_mascheroni - torch.log(torch.tensor(2.0, device=y.device, dtype=y.dtype)))
+                )
+                t2 = -2 * sigma_z * expi_approx
+                crps[idx] = t1 + t2
+
+            if torch.isnan(crps).any():
+                print("[NaN] Final CRPS")
+
+            # Clamp final CRPS to ensure numerical validity
+            crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
+            crps = torch.clamp(crps, min=0.0)
+            return torch.mean(crps)
+        else:
+            y = y
+            mu = mu
+            sigma = sigma
+
+            # standardised y
+            sy = (y - mu) / sigma
+
+            forecast_dist = dist.Normal(0, 1)
+
+            # some precomputations to speed up the gradient
+            pdf = self._normpdf(sy)
+            cdf = forecast_dist.cdf(sy)
+
+            pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
+
+            # calculate the CRPS
+            crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+
+            # add together all the CRPS values and divide by the number of samples
+            crps = torch.sum(crps) / y.size(0)
+
+            return crps
+    
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """

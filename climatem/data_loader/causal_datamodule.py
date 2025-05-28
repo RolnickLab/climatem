@@ -10,7 +10,9 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
-from climatem.data_loader.climate_dataset import CMIP6Dataset, Input4MipsDataset
+from climatem.data_loader.cmip6_dataset import CMIP6Dataset
+from climatem.data_loader.input4mip_dataset import Input4MipsDataset
+from climatem.data_loader.era5_dataset import ERA5Dataset
 from climatem.data_loader.savar_dataset import SavarDataset
 
 
@@ -110,6 +112,26 @@ class CausalClimateDataModule(ClimateDataModule):
                     f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
                 )
                 train_val_input4mips = CMIP6Dataset(
+                    years=train_years,
+                    historical_years=train_historical_years,
+                    data_dir=self.hparams.data_dir,
+                    climate_model=self.hparams.train_models,
+                    num_ensembles=self.hparams.num_ensembles,
+                    variables=self.hparams.in_var_ids,
+                    scenarios=self.hparams.train_scenarios,
+                    channels_last=self.hparams.channels_last,
+                    openburning_specs=openburning_specs,
+                    mode="train+val",
+                    output_save_dir=self.hparams.output_save_dir,
+                    lon=self.hparams.lon,
+                    lat=self.hparams.lat,
+                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                    global_normalization=self.hparams.global_normalization,
+                    seasonality_removal=self.hparams.seasonality_removal,
+                    reload_climate_set_data=self.hparams.reload_climate_set_data,
+                )
+            elif "t2m" in self.hparams.in_var_ids:
+                train_val_input4mips = ERA5Dataset(
                     years=train_years,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
