@@ -911,7 +911,6 @@ class NonLinearAutoEncoder(nn.Module):
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
         self.logvar_encoder = nn.Parameter(torch.ones(d_z) * -1)
         self.logvar_decoder = nn.Parameter(torch.ones(d_x) * -1)
-        print_nan_stats("init: self.w_encoder", self.w_encoder)
 
     def get_w_encoder(self):
         if self.use_gumbel_mask:
@@ -938,21 +937,16 @@ class NonLinearAutoEncoder(nn.Module):
                 sampled_mask = self.mask(bs_size)
             else:
                 sampled_mask = self.mask_encoder(bs_size)
-            print_nan_stats("sampled_mask (Gumbel)", sampled_mask)
             return torch.nan_to_num(sampled_mask, nan=0.0)
 
         else:
             if self.tied:
                 fixed_mask = torch.transpose(self.w, 1, 2)
-                print_nan_stats("fixed tied mask (w.T)", fixed_mask)
                 return torch.nan_to_num(fixed_mask, nan=0.0)
             else:
-                print_nan_stats("fixed untied mask (w_encoder)", self.w_encoder)
                 return torch.nan_to_num(self.w_encoder, nan=0.0)
 
     def select_encoder_mask(self, mask, i, j_values):
-        print_nan_stats("select_encoder_mask: mask (before indexing)", mask)
-        print_nan_stats("select_encoder_mask: j_values", j_values)
 
         # Defensive check for out-of-bounds j_values
         if torch.max(j_values) >= mask.shape[1] or torch.min(j_values) < 0:
@@ -961,7 +955,6 @@ class NonLinearAutoEncoder(nn.Module):
 
         try:
             out = mask[i, j_values]
-            print_nan_stats("select_encoder_mask: output mask_", out)
             return out
         except Exception as e:
             print(f"[Exception in select_encoder_mask] {e}")
