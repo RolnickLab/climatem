@@ -196,6 +196,8 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         elif paths[0][0].endswith(".grib2"):
             # Use self.seq_len = 365 (post-leap-day-removal)
+            filtered_vlist = [f for f in vlist if int(f[-10:-6]) <= 365]
+            vlist = filtered_vlist
             years = len(vlist) // self.seq_len
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
@@ -209,7 +211,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         if channels_last:
             temp_data = temp_data.transpose((1, 2, 3, 4, 0))
-        elif paths[0][0][-5:] == ".grib":
+        elif paths[0][0][-5:] in [".grib", "grib2"]:
             temp_data = temp_data.transpose((1, 2, 0, 3))
         else:
             temp_data = temp_data.transpose((1, 2, 0, 3, 4))
