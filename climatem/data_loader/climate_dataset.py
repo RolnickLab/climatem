@@ -171,7 +171,6 @@ class ClimateDataset(torch.utils.data.Dataset):
 
             elif vlist[0].endswith(".grib2"):
                 # Drop leap day files (Feb 29) for grib2
-                filtered_vlist = []
                 # 1. remove {var}_000366 
                 # 2. is 366 remove whatever the 29th feb number day is
                 filtered_vlist = [item for item in vlist if '000366.grib2' not in item]
