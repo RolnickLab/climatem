@@ -10,6 +10,7 @@ from torch.distributions import Distribution
 
 euler_mascheroni = 0.57721566490153286060
 
+
 class Mask(nn.Module):
     def __init__(
         self,
@@ -228,7 +229,6 @@ class LatentTSDCD(nn.Module):
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
         gev_learn_xi: bool = False,
-
     ):
         """
         Args:
@@ -294,7 +294,6 @@ class LatentTSDCD(nn.Module):
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.gev_learn_xi = gev_learn_xi
-
 
         if self.instantaneous:
             self.total_tau = tau + 1
@@ -414,10 +413,10 @@ class LatentTSDCD(nn.Module):
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
-                if torch.isnan(q_mu).any() or torch.isnan(q_std).any():
-                    print(f"NaNs in encoder output at i={i}, t={t}")
-                    print("q_mu:", q_mu)
-                    print("q_std:", q_std)
+                # if torch.isnan(q_mu).any() or torch.isnan(q_std).any():
+                #     print(f"NaNs in encoder output at i={i}, t={t}")
+                #     print("q_mu:", q_mu)
+                #     print("q_std:", q_std)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
 
             # q_mu, q_logvar = self.encoder_decoder(y[:, i], i, encoder=True)  # torch.matmul(self.W, x)
@@ -433,13 +432,11 @@ class LatentTSDCD(nn.Module):
 
             # carry on
             z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
-            print("z[:, :-1, i]", z[:, :-1, i])
-
             # assert torch.all(penultimate_z == z[:, -2, i])
             # assert torch.all(all_z_except_last == z[:, :-1, i])
 
-        mu[:, i] = q_mu
-        std[:, i] = q_std
+            mu[:, i] = q_mu
+            std[:, i] = q_std
 
         return z, mu, std
 
@@ -534,13 +531,13 @@ class LatentTSDCD(nn.Module):
                 + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / pz_std_safe**2
                 - 0.5
             )
-            if torch.isnan(kl_raw).any():
-                print("[NaN DETECTED] In KL raw terms")
-                print("q_std_y_safe:", q_std_y_safe)
-                print("pz_std_safe:", pz_std_safe)
-                print("q_mu_y:", q_mu_y)
-                print("pz_mu:", pz_mu)
-                raise ValueError("NaNs in kl_raw")
+            # if torch.isnan(kl_raw).any():
+            #     print("[NaN DETECTED] In KL raw terms")
+            #     print("q_std_y_safe:", q_std_y_safe)
+            #     print("pz_std_safe:", pz_std_safe)
+            #     print("q_mu_y:", q_mu_y)
+            #     print("pz_mu:", pz_mu)
+            #     raise ValueError("NaNs in kl_raw")
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
         recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
@@ -937,29 +934,19 @@ class NonLinearAutoEncoder(nn.Module):
                 sampled_mask = self.mask(bs_size)
             else:
                 sampled_mask = self.mask_encoder(bs_size)
-            return torch.nan_to_num(sampled_mask, nan=0.0)
-
         else:
             if self.tied:
-                fixed_mask = torch.transpose(self.w, 1, 2)
-                return torch.nan_to_num(fixed_mask, nan=0.0)
+                return torch.transpose(self.w, 1, 2)
             else:
-                return torch.nan_to_num(self.w_encoder, nan=0.0)
+                return self.w_encoder
+        return sampled_mask
 
-    def select_encoder_mask(self, mask, i, j_values):
-
-        # Defensive check for out-of-bounds j_values
-        if torch.max(j_values) >= mask.shape[1] or torch.min(j_values) < 0:
-            print("[IndexError] j_values contains out-of-bounds indices for mask!")
-            print(f"  mask.shape: {mask.shape}, max j: {torch.max(j_values)}, min j: {torch.min(j_values)}")
-
-        try:
-            out = mask[i, j_values]
-            return out
-        except Exception as e:
-            print(f"[Exception in select_encoder_mask] {e}")
-            print(f"mask.shape = {mask.shape}, i = {i}, j_values.shape = {j_values.shape}")
-            raise
+    def select_encoder_mask(self, mask, i, j):
+        if self.use_gumbel_mask:
+            mask = mask[:, i, :, j]
+        else:
+            mask = mask[i, j]
+        return mask
 
     def get_decode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -1256,120 +1243,6 @@ class TransitionModelParamSharing(nn.Module):
         # param_z = self.nn(masked_z)
 
         return param_z
-
-
-class GEVDistribution(Distribution):
-    arg_constraints = {}
-    has_rsample = False
-    support = torch.distributions.constraints.real
-
-    def __init__(self, mu, sigma, xi, validate_args=None):
-        """
-        Generalized Extreme Value (GEV) distribution.
-
-        Args:
-            mu: location parameter
-            sigma: scale parameter (must be > 0)
-            xi: shape parameter
-        """
-        self.mu = mu
-        self.sigma = sigma
-        self.xi = xi
-        batch_shape = torch.broadcast_shapes(mu.shape, sigma.shape, xi.shape)
-        super().__init__(batch_shape, validate_args=validate_args)
-
-    def _standardized(self, value):
-        """Transform to standardized variable z = (x - mu)/sigma"""
-        return (value - self.mu) / self.sigma
-
-    def log_prob(self, value):
-        eps = 1e-6  # larger epsilon to prevent tiny xi/sigma
-        z = self._standardized(value)  # (value - mu) / sigma
-        z = z.clamp(min=-1e4, max=1e4)  # avoid overflow
-
-        sigma = self.sigma.clamp(min=eps)
-        xi = self.xi
-        xi_safe = xi.clone()
-        xi_safe = xi_safe.clamp(min=-1e2, max=1e2)
-
-        t = (1 + xi_safe * z).clamp(min=eps, max=1e6)  # stability in log/pow
-
-        gumbel_mask = xi.abs() < eps
-        log_pdf_gumbel = -z - torch.exp(-z.clamp(min=-100, max=100)) - torch.log(sigma)
-
-        if torch.all(gumbel_mask):
-            return log_pdf_gumbel
-
-        elif torch.all(~gumbel_mask):
-            inv_xi = (1 / xi_safe).clamp(min=-1e2, max=1e2)
-            logt = torch.log(t)
-            pow_term = torch.nan_to_num(t.pow(-inv_xi), nan=1e3, posinf=1e3, neginf=1e3)
-            log_pdf_gev = -((1 + inv_xi) * logt) - pow_term - torch.log(sigma)
-            return log_pdf_gev
-
-        else:
-            log_pdf = torch.empty_like(log_pdf_gumbel)
-
-            # Fill Gumbel values
-            log_pdf[gumbel_mask] = log_pdf_gumbel[gumbel_mask]
-
-            # GEV values
-            gev_mask = ~gumbel_mask
-            xi_gev = xi_safe[gev_mask]
-            sigma_gev = sigma[gev_mask]
-            z_gev = z[gev_mask]
-
-            t_gev = (1 + xi_gev * z_gev).clamp(min=eps, max=1e6)
-            inv_xi_gev = (1 / xi_gev).clamp(min=-1e2, max=1e2)
-
-            logt_gev = torch.log(t_gev)
-            pow_term = torch.nan_to_num(t_gev.pow(-inv_xi_gev), nan=1e3, posinf=1e3, neginf=1e3)
-
-            log_pdf_gev = -((1 + inv_xi_gev) * logt_gev) - pow_term - torch.log(sigma_gev)
-            log_pdf[gev_mask] = log_pdf_gev
-
-            if torch.isnan(log_pdf).any():
-                print("[NaN DETECTED] in GEV log_prob!")
-
-            return log_pdf
-
-    def sample(self, sample_shape=torch.Size()):
-        """Inverse transform sampling from the GEV distribution."""
-        u = torch.rand(sample_shape + self.mu.shape, device=self.mu.device).clamp(1e-6, 1 - 1e-6)
-
-        if torch.any(self.xi.abs() < 1e-8):
-            # Gumbel case
-            return self.mu - self.sigma * torch.log(-torch.log(u))
-        else:
-            return self.mu + self.sigma * ((-torch.log(u)).pow(-self.xi) - 1) / self.xi
-
-    def mean(self):
-        """Return mean if defined (xi < 1)"""
-        # mu = location parameter
-        # sigma = scale parameter
-        # xi = shape parameter
-        # gamma = gamma function
-        # hardcodes the Euler–Mascheroni constant, which is the mean of the Gumbel distribution — the special case of GEV when ξ = 0.
-        if torch.any(self.xi >= 1):
-            # xi values are ≥ 1
-            return torch.tensor(float("nan"), device=self.mu.device)
-        if torch.all(self.xi.abs() < 1e-8):
-            # xi is approximately zero, this returns the Gumbel mean
-            return self.mu + self.sigma * euler_mascheroni
-        else:
-            # general GEV cases where 0 < xi < 1,
-            return torch.tensor(float("nan"), device=self.mu.device)
-
-    def variance(self):
-        """Return variance if defined (xi < 0.5)"""
-        if torch.any(self.xi >= 0.5):
-            return torch.tensor(float("nan"), device=self.mu.device)
-        if torch.all(self.xi.abs() < 1e-8):
-            # closed-form variance of the Gumbel distribution
-            return (pi**2 / 6) * self.sigma**2
-        else:
-            # 0 < xi < 0.5 — currently not implemented
-            return torch.tensor(float("nan"), device=self.mu.device)
 
 
 class GEVDistribution(Distribution):
