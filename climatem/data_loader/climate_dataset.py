@@ -172,11 +172,10 @@ class ClimateDataset(torch.utils.data.Dataset):
             elif vlist[0].endswith(".grib2"):
                 # Drop leap day files (Feb 29) for grib2
                 filtered_vlist = []
-                for i in range(0, len(vlist), self.seq_len + 1):  # self.seq_len assumed to be 365
-                    block = vlist[i:i + self.seq_len + 1]
-                    if len(block) == self.seq_len + 1:
-                        block = block[:-1]  # drop the last file (Feb 29)
-                    filtered_vlist.extend(block)
+                # 1. remove {var}_000366 
+                # 2. is 366 remove whatever the 29th feb number day is
+                filtered_vlist = [item for item in vlist if '000366.grib2' not in item]
+
                 vlist = filtered_vlist
 
                 temp_data = xr.open_mfdataset(
