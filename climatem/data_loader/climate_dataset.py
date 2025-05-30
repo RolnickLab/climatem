@@ -1,26 +1,23 @@
-# NOTE: as of 14th Oct, I am also trying to get this to work for multiple variables.
-
-import glob
-import os
+# import glob
+# import os
+# from datetime import datetime, timedelta
+import itertools
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Union  # Tuple
 
 import numpy as np
 import torch
 import xarray as xr
 
-from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
-    AVAILABLE_MODELS_FIRETYPE,
-    CMIP6_NOM_RES,
-    CMIP6_TEMP_RES,
-    NO_OPENBURNING_VARS,
-    OPENBURNING_MODEL_MAPPING,
-)
-
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
+
+# from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,; CMIP6_NOM_RES,; CMIP6_TEMP_RES,; NO_OPENBURNING_VARS,
+#     AVAILABLE_MODELS_FIRETYPE,
+#     OPENBURNING_MODEL_MAPPING,
+# )
+
 
 log = get_logger()
 
@@ -113,29 +110,15 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
 
-        if climate_model in AVAILABLE_MODELS_FIRETYPE:
-            openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
-        else:
-            openburning_specs = OPENBURNING_MODEL_MAPPING["other"]
+        # if climate_model in AVAILABLE_MODELS_FIRETYPE:
+        #     openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
+        # else:
+        #     openburning_specs = OPENBURNING_MODEL_MAPPING["other"]
 
-        ds_kwargs = dict(
-            scenarios=scenarios,
-            years=self.years,
-            historical_years=self.historical_years,
-            channels_last=channels_last,
-            openburning_specs=openburning_specs,
-            mode=mode,
-            output_save_dir=self.output_save_dir,
-            reload_climate_set_data=self.reload_climate_set_data,
-            seq_to_seq=seq_to_seq,
-            global_normalization=self.global_normalization,
-            seasonality_removal=self.seasonality_removal,
-        )
         self.seq_len = seq_len
         self.lat = lat
         self.lon = lon
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
-
 
     def load_into_mem(
         self,
@@ -159,26 +142,18 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         for vlist in paths:
             if vlist[0][-3:] == ".nc":
-                temp_data = xr.open_mfdataset(
-                    vlist, concat_dim="time", combine="nested"
-                ).compute()
+                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
                 temp_data = temp_data.drop_dims("bnds", errors="ignore")
 
             elif vlist[0].endswith(".grib"):
-                temp_data = xr.open_mfdataset(
-                    vlist, engine="cfgrib", concat_dim="time", combine="nested"
-                ).compute()
-
+                temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
+            # TODO : handle gribs together
             elif vlist[0].endswith(".grib2"):
-                # Drop leap day files (Feb 29) for grib2
-                # 1. remove {var}_000366 
-                # 2. is 366 remove whatever the 29th feb number day is
-                filtered_vlist = [item for item in vlist if '000366.grib2' not in item]
-
-                vlist = filtered_vlist
-
+                # TODO: not all data will have this name to remove leap days + we should remove feb 29?
+                filtered_vlist = list(itertools.chain(*vlist))
+                filtered_vlist = [item for item in vlist if "000366.grib2" not in item]
                 temp_data = xr.open_mfdataset(
-                    vlist, engine="cfgrib", concat_dim="time", combine="nested"
+                    filtered_vlist, engine="cfgrib", concat_dim="time", combine="nested"
                 ).compute()
 
             else:
@@ -218,7 +193,6 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         return temp_data
 
-
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 
@@ -238,7 +212,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.load(self.icosahedral_coordinates_path)
         elif paths[0][0][-5:] == "grib2":
-            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1,2))
+            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
         else:
             for vlist in [paths[0]]:
                 # print("I am in the else of load_coordinates_into_mem")

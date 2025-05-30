@@ -1,6 +1,4 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
-import gc
-
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -16,8 +14,8 @@ from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
 
-
 euler_mascheroni = 0.57721566490153286060
+
 
 class TrainingLatent:
     def __init__(
@@ -611,7 +609,6 @@ class TrainingLatent:
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
             )
-        loss = torch.mean((y - y_pred_all[:, 0]) ** 2)
 
         # backprop
         # mask_prev = self.model.mask.param.clone()
@@ -620,14 +617,14 @@ class TrainingLatent:
         self.optimizer.zero_grad(set_to_none=True)
         # loss.backward()
         self.accelerator.backward(loss)
-        print("[DEBUG] loss value:", loss)
+        # print("[DEBUG] loss value:", loss)
 
         # Immediately check for NaNs in model parameters or gradients
-        for name, param in self.model.named_parameters():
-            if torch.isnan(param).any():
-                print(f"[NaN DETECTED] in parameter: {name}")
-            if param.grad is not None and torch.isnan(param.grad).any():
-                print(f"[NaN DETECTED] in gradient: {name}")
+        # for name, param in self.model.named_parameters():
+        #     if torch.isnan(param).any():
+        #         print(f"[NaN DETECTED] in parameter: {name}")
+        #     if param.grad is not None and torch.isnan(param.grad).any():
+        #         print(f"[NaN DETECTED] in gradient: {name}")
 
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
@@ -636,7 +633,7 @@ class TrainingLatent:
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
-            print("[DEBUG] w_decoder:", torch.isnan(self.model.autoencoder.get_w_decoder()).sum())
+            # print("[DEBUG] w_decoder:", torch.isnan(self.model.autoencoder.get_w_decoder()).sum())
             assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
@@ -1309,7 +1306,6 @@ class TrainingLatent:
             crps = torch.sum(crps) / y.size(0)
 
             return crps
-    
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """
