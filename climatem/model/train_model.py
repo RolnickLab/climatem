@@ -609,7 +609,6 @@ class TrainingLatent:
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
             )
-
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
@@ -617,15 +616,8 @@ class TrainingLatent:
         self.optimizer.zero_grad(set_to_none=True)
         # loss.backward()
         self.accelerator.backward(loss)
-        # print("[DEBUG] loss value:", loss)
-
-        # Immediately check for NaNs in model parameters or gradients
         # for name, param in self.model.named_parameters():
-        #     if torch.isnan(param).any():
-        #         print(f"[NaN DETECTED] in parameter: {name}")
         #     if param.grad is not None and torch.isnan(param.grad).any():
-        #         print(f"[NaN DETECTED] in gradient: {name}")
-
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
@@ -633,8 +625,8 @@ class TrainingLatent:
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
-            # print("[DEBUG] w_decoder:", torch.isnan(self.model.autoencoder.get_w_decoder()).sum())
-            assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
+
+            # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -1283,17 +1275,11 @@ class TrainingLatent:
             crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
             crps = torch.clamp(crps, min=0.0)
             return torch.mean(crps)
+
+        # --- Gaussian fallback ---
         else:
-            y = y
-            mu = mu
-            sigma = sigma
-
-            # standardised y
             sy = (y - mu) / sigma
-
             forecast_dist = dist.Normal(0, 1)
-
-            # some precomputations to speed up the gradient
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
 
