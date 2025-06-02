@@ -2,22 +2,22 @@
 
 import glob
 import os
-import zipfile
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
-
-
 import warnings
-warnings.filterwarnings("ignore", category=FutureWarning, module="cfgrib")
+from pathlib import Path
+from typing import List, Optional, Union
 
-# from climatem.constants import ( 
+# from climatem.plotting.plot_data import plot_species, plot_species_anomaly
+from climatem.utils import get_logger
+
+from .climate_dataset import ClimateDataset
+
+# from climatem.constants import (
 #     ERA5_NOM_RES, # CHRISTINA QUESTION: SEE constants.py
 #     ERA5_TEMP_RES, # CHRISTINA QUESTION: this is "day"?
 # )
 
-# from climatem.plotting.plot_data import plot_species, plot_species_anomaly
-from climatem.utils import get_logger
-from .climate_dataset import ClimateDataset
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="cfgrib")
 
 log = get_logger()
 
@@ -29,6 +29,7 @@ log = get_logger()
 class ERA5Dataset(ClimateDataset):
     """
     Load in reanalysis data from ERA5 for seasonal forecast.
+
     To decide:
     - taking in daily data, daily predictions?
     - No "scenarios" so num_scenarios=1?
@@ -49,16 +50,16 @@ class ERA5Dataset(ClimateDataset):
         scenarios: List[str] = [""],
         variables: List[str] = ["t2m"],
         mode: str = "train",
-        output_save_dir: str = "/home/mila/l/lastc/scratch/results/diagnostics/",
+        output_save_dir: str = "",
         reload_climate_set_data: bool = True,
         channels_last: bool = True,
         seq_to_seq: bool = True,
         global_normalization: bool = True,
         seasonality_removal: bool = True,
         seq_len: int = 365,
-        lat: int = 96, 
+        lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.txt", # CHRISTINA QUESTION: current location, can change to mappings, does it need to by npy?
+        icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.txt",  # CHRISTINA QUESTION: current location, can change to mappings, does it need to by npy?
         *args,
         **kwargs,
     ):  # noqa: C901
@@ -198,6 +199,7 @@ class ERA5Dataset(ClimateDataset):
                             # for y in self.get_years_list(get_years, give_list=True):
                             # print('y is this:', y)
                             # print('here is exp:', exp)
+                            # TODO : make this more general and not specific to how we downloaded the data
                             ensemble_dir = Path(ensemble_dir)
                             var_dir = ensemble_dir / f"{exp}/ERA5_All_Variables_{y}/{y}/daily/gme24"
                             print(f"ALL FILES DIRECTORY: {var_dir}")
@@ -228,11 +230,14 @@ class ERA5Dataset(ClimateDataset):
                     # print('files here after looping through all the ensembles and the years:', all_ensemble_output_nc_files)
                 files_per_var.append(all_ensemble_output_nc_files)
             print("length of files_per_var after looping!:", len(files_per_var))
-            print('files_per_var:', files_per_var)
+            print("files_per_var:", files_per_var)
 
             # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
             self.raw_data = self.load_into_mem(
-                files_per_var, num_vars=len(variables), channels_last=channels_last, seq_to_seq=seq_to_seq, get_years=get_years,
+                files_per_var,
+                num_vars=len(variables),
+                channels_last=channels_last,
+                seq_to_seq=seq_to_seq,
             )
             self.coordinates = self.load_coordinates_into_mem(files_per_var)
 

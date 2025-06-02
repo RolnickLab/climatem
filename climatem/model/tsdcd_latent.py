@@ -11,20 +11,6 @@ from torch.distributions import Distribution
 euler_mascheroni = 0.57721566490153286060
 
 
-def print_nan_stats(name, tensor, verbose=False):
-    if not torch.is_tensor(tensor):
-        print(f"{name}: Not a tensor (type={type(tensor)}), value={tensor}")
-        return
-
-    if torch.isnan(tensor).any() or torch.isinf(tensor).any():
-        print(f"[NaN/Inf Detected] {name}")
-        print(f"  NaNs: {torch.isnan(tensor).sum().item()}, Infs: {torch.isinf(tensor).sum().item()}")
-        if verbose:
-            print(f"  Shape: {tensor.shape}")
-            print(f"  Min: {tensor.min().item()}, Max: {tensor.max().item()}")
-            print(f"  Mean: {tensor.mean().item()}, Std: {tensor.std().item()}")
-
-
 class Mask(nn.Module):
     def __init__(
         self,
@@ -429,10 +415,6 @@ class LatentTSDCD(nn.Module):
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
-                if torch.isnan(q_mu).any() or torch.isnan(q_std).any():
-                    print(f"NaNs in encoder output at i={i}, t={t}")
-                    print("q_mu:", q_mu)
-                    print("q_std:", q_std)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
 
             # q_mu, q_logvar = self.encoder_decoder(y[:, i], i, encoder=True)  # torch.matmul(self.W, x)
@@ -448,13 +430,11 @@ class LatentTSDCD(nn.Module):
 
             # carry on
             z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
-            print("z[:, :-1, i]", z[:, :-1, i])
-
             # assert torch.all(penultimate_z == z[:, -2, i])
             # assert torch.all(all_z_except_last == z[:, :-1, i])
 
-        mu[:, i] = q_mu
-        std[:, i] = q_std
+            mu[:, i] = q_mu
+            std[:, i] = q_std
 
         return z, mu, std
 
@@ -515,6 +495,7 @@ class LatentTSDCD(nn.Module):
         return mu, std
 
     def forward(self, x, y, gt_z, iteration, xi=None):
+
         b = x.size(0)
 
         # sample Zs (based on X)
@@ -548,13 +529,6 @@ class LatentTSDCD(nn.Module):
                 + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / pz_std_safe**2
                 - 0.5
             )
-            if torch.isnan(kl_raw).any():
-                print("[NaN DETECTED] In KL raw terms")
-                print("q_std_y_safe:", q_std_y_safe)
-                print("pz_std_safe:", pz_std_safe)
-                print("q_mu_y:", q_mu_y)
-                print("pz_mu:", pz_mu)
-                raise ValueError("NaNs in kl_raw")
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
         recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
@@ -925,7 +899,6 @@ class NonLinearAutoEncoder(nn.Module):
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
         self.logvar_encoder = nn.Parameter(torch.ones(d_z) * -1)
         self.logvar_decoder = nn.Parameter(torch.ones(d_x) * -1)
-        print_nan_stats("init: self.w_encoder", self.w_encoder)
 
     def get_w_encoder(self):
         if self.use_gumbel_mask:
@@ -944,7 +917,7 @@ class NonLinearAutoEncoder(nn.Module):
         if self.use_gumbel_mask:
             return self.mask.param
         else:
-            return torch.nan_to_num(self.w, nan=0.0).clamp(min=0.0)
+            return self.w
 
     def get_encode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -952,35 +925,19 @@ class NonLinearAutoEncoder(nn.Module):
                 sampled_mask = self.mask(bs_size)
             else:
                 sampled_mask = self.mask_encoder(bs_size)
-            print_nan_stats("sampled_mask (Gumbel)", sampled_mask)
-            return torch.nan_to_num(sampled_mask, nan=0.0)
-
         else:
             if self.tied:
-                fixed_mask = torch.transpose(self.w, 1, 2)
-                print_nan_stats("fixed tied mask (w.T)", fixed_mask)
-                return torch.nan_to_num(fixed_mask, nan=0.0)
+                return torch.transpose(self.w, 1, 2)
             else:
-                print_nan_stats("fixed untied mask (w_encoder)", self.w_encoder)
-                return torch.nan_to_num(self.w_encoder, nan=0.0)
+                return self.w_encoder
+        return sampled_mask
 
-    def select_encoder_mask(self, mask, i, j_values):
-        print_nan_stats("select_encoder_mask: mask (before indexing)", mask)
-        print_nan_stats("select_encoder_mask: j_values", j_values)
-
-        # Defensive check for out-of-bounds j_values
-        if torch.max(j_values) >= mask.shape[1] or torch.min(j_values) < 0:
-            print("[IndexError] j_values contains out-of-bounds indices for mask!")
-            print(f"  mask.shape: {mask.shape}, max j: {torch.max(j_values)}, min j: {torch.min(j_values)}")
-
-        try:
-            out = mask[i, j_values]
-            print_nan_stats("select_encoder_mask: output mask_", out)
-            return out
-        except Exception as e:
-            print(f"[Exception in select_encoder_mask] {e}")
-            print(f"mask.shape = {mask.shape}, i = {i}, j_values.shape = {j_values.shape}")
-            raise
+    def select_encoder_mask(self, mask, i, j):
+        if self.use_gumbel_mask:
+            mask = mask[:, i, :, j]
+        else:
+            mask = mask[i, j]
+        return mask
 
     def get_decode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
@@ -1304,14 +1261,13 @@ class GEVDistribution(Distribution):
         return (value - self.mu) / self.sigma
 
     def log_prob(self, value):
-        eps = 1e-6  # larger epsilon to prevent tiny xi/sigma
+        eps = 1e-6
         z = self._standardized(value)  # (value - mu) / sigma
         z = z.clamp(min=-1e4, max=1e4)  # avoid overflow
 
         sigma = self.sigma.clamp(min=eps)
         xi = self.xi
-        xi_safe = xi.clone()
-        xi_safe = xi_safe.clamp(min=-1e2, max=1e2)
+        xi_safe = xi.clone().clamp(min=-1e2, max=1e2)
 
         t = (1 + xi_safe * z).clamp(min=eps, max=1e6)  # stability in log/pow
 
