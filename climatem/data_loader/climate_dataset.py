@@ -1,7 +1,7 @@
-# NOTE: as of 14th Oct, I am also trying to get this to work for multiple variables.
-
-import glob
-import os
+# import glob
+# import os
+# from datetime import datetime, timedelta
+import itertools
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -10,14 +10,14 @@ import numpy as np
 import torch
 import xarray as xr
 
-from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
-    AVAILABLE_MODELS_FIRETYPE,
-    NO_OPENBURNING_VARS,
-    OPENBURNING_MODEL_MAPPING,
-)
-
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
+
+# from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,; CMIP6_NOM_RES,; CMIP6_TEMP_RES,; NO_OPENBURNING_VARS,
+#     AVAILABLE_MODELS_FIRETYPE,
+#     OPENBURNING_MODEL_MAPPING,
+# )
+
 
 log = get_logger()
 
@@ -102,24 +102,11 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
 
-        if climate_model in AVAILABLE_MODELS_FIRETYPE:
-            openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
-        else:
-            openburning_specs = OPENBURNING_MODEL_MAPPING["other"]
+        # if climate_model in AVAILABLE_MODELS_FIRETYPE:
+        #     openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
+        # else:
+        #     openburning_specs = OPENBURNING_MODEL_MAPPING["other"]
 
-        ds_kwargs = dict(
-            scenarios=scenarios,
-            years=self.years,
-            historical_years=self.historical_years,
-            channels_last=channels_last,
-            openburning_specs=openburning_specs,
-            mode=mode,
-            output_save_dir=self.output_save_dir,
-            reload_climate_set_data=self.reload_climate_set_data,
-            seq_to_seq=seq_to_seq,
-            global_normalization=self.global_normalization,
-            seasonality_removal=self.seasonality_removal,
-        )
         self.seq_len = seq_len
         self.lat = lat
         self.lon = lon
@@ -130,7 +117,7 @@ class ClimateDataset(torch.utils.data.Dataset):
     def load_into_mem(
         self,
         paths: List[str],
-        variables: List[str],
+        num_vars: List[str],
         channels_last: bool = True,
         seq_to_seq: bool = True,
         get_years: Optional[List[int]] = None,
@@ -139,63 +126,66 @@ class ClimateDataset(torch.utils.data.Dataset):
         Load multiple variables from single-file datasets (e.g., NetCDF or GRIB).
 
         Args:
-            paths: List of file paths (each containing all requested variables).
-            variables: List of variable names to extract.
-            channels_last: Whether to keep channel dimension last.
-            seq_to_seq: Whether to retain full sequence or just final timestep.
-            get_years: If provided, used to trim to expected number of time steps.
+            paths (List[List[str]]): absolute to filepath
+            num_vars (int): number of input variables e.g. pr, tas, etc.
+            channels_last (bool, optional): reshape data to channels. Defaults to True.
+            seq_to_seq (bool, optional): TBC. Defaults to True. #TODO
         """
-        all_arrays = []
-        self.input_var_shapes = {}  # {var: flattened size}
 
-        for var in variables:
-            var_data_list = []
-            for file in paths:
-                print(f"[DEBUG] Opening file: {file}")
-                suffix = Path(file).suffix.lower()
-                engine = "cfgrib" if suffix in [".grib", ".grib2"] else None
-                ds = xr.open_dataset(file, engine=engine).compute()
-                if var not in ds:
-                    print(f"[Skipping file] Variable '{var}' not found in {file}")
-                    continue
-                data = ds[var].to_numpy()
-                if data.ndim == 2:
-                    data = data[None, ...]  # shape (1, lat, lon)
-                elif data.ndim == 3:
-                    pass  # shape (T, lat, lon)
-                else:
-                    raise ValueError(f"Unsupported shape {data.shape} for variable '{var}'")
-                var_data_list.append(data)
+        array_list = []
 
-            full_data = np.concatenate(var_data_list, axis=0)  # (T, lat, lon)
-            self.input_var_shapes[var] = np.prod(full_data.shape[1:])
-            all_arrays.append(full_data[None, ...])  # → (1, T, lat, lon)
+        for vlist in paths:
+            if vlist[0][-3:] == ".nc":
+                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
+                temp_data = temp_data.drop_dims("bnds", errors="ignore")
 
-        data = np.concatenate(all_arrays, axis=0)  # (V, T, lat, lon)
-        total_timesteps = data.shape[1]
+            elif vlist[0].endswith(".grib"):
+                temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
+            # TODO : handle gribs together
+            elif vlist[0].endswith(".grib2"):
+                # TODO: not all data will have this name to remove leap days + we should remove feb 29?
+                filtered_vlist = list(itertools.chain(*vlist))
+                filtered_vlist = [item for item in vlist if "000366.grib2" not in item]
+                temp_data = xr.open_mfdataset(
+                    filtered_vlist, engine="cfgrib", concat_dim="time", combine="nested"
+                ).compute()
 
-        if get_years is not None:
-            n_timesteps = len(get_years)
-            expected_timesteps = n_timesteps * self.seq_len
-            data = data[:, :expected_timesteps, ...]
+            else:
+                print("File extension not recognized, please use either .nc or .grib")
+                continue
+
+            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, time, lat, lon)
+            array_list.append(temp_data)
+
+        temp_data = np.concatenate(array_list, axis=0)
+
+        if paths[0][0].endswith(".grib"):
+            years = len(paths[0])
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
+
+        elif paths[0][0].endswith(".grib2"):
+            # Use self.seq_len = 365 (post-leap-day-removal)
+            filtered_vlist = [f for f in vlist if int(f[-10:-6]) <= 365]
+            vlist = filtered_vlist
+            years = len(vlist) // self.seq_len
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
+
         else:
-            n_timesteps = total_timesteps // self.seq_len
-            expected_timesteps = n_timesteps * self.seq_len
-            data = data[:, :expected_timesteps, ...]
+            years = len(paths[0])
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, self.lon, self.lat)
 
-        reshaped = data.reshape(len(variables), n_timesteps, self.seq_len, *data.shape[2:])
-        reshaped = reshaped.transpose(1, 2, 0, *range(3, reshaped.ndim))  # (Y, M, V, ...)
+        if seq_to_seq is False:
+            temp_data = temp_data[:, :, -1, :, :]  # only take last time step
+            temp_data = np.expand_dims(temp_data, axis=2)
 
-        if not seq_to_seq:
-            reshaped = reshaped[:, -1:, ...]
+        if channels_last:
+            temp_data = temp_data.transpose((1, 2, 3, 4, 0))
+        elif paths[0][0][-5:] in [".grib", "grib2"]:
+            temp_data = temp_data.transpose((1, 2, 0, 3))
+        else:
+            temp_data = temp_data.transpose((1, 2, 0, 3, 4))
 
-        # Compute input_var_offsets for later masking
-        self.input_var_offsets = [0]
-        for var in variables:
-            last = self.input_var_offsets[-1]
-            self.input_var_offsets.append(last + self.input_var_shapes[var])
-
-        return reshaped
+        return temp_data
 
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
@@ -209,6 +199,8 @@ class ClimateDataset(torch.utils.data.Dataset):
         if first_file.endswith(".grib") or first_file.endswith(".grib2"):
             print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
             coordinates = np.load(self.icosahedral_coordinates_path)
+        elif paths[0][0][-5:] == "grib2":
+            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
         else:
             temp_data = xr.open_mfdataset(paths[0], concat_dim="time", combine="nested").compute()
             # Try to load `lat` and `lon` directly and fall back to error if not found
@@ -316,7 +308,6 @@ class ClimateDataset(torch.utils.data.Dataset):
         num_years = self.length
 
         data = self.Data
-
 
         if channels_last:
             data = data.transpose((0, 1, 4, 2, 3))

@@ -1,7 +1,7 @@
 # Here we try to modify the climate_data_loader so that we can use data from multiple ensemble members of a climate model, and indeed across climate models.
 
 import os
-from typing import Optional, List
+from typing import Optional
 
 import numpy as np
 import torch
@@ -11,10 +11,9 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
 from climatem.data_loader.cmip6_dataset import CMIP6Dataset
-from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.era5_dataset import ERA5Dataset
+from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.savar_dataset import SavarDataset
-from climatem.data_loader.climate_dataset import ClimateDataset
 
 
 class CausalDataset(torch.utils.data.Dataset):
@@ -85,7 +84,7 @@ class CausalClimateDataModule(ClimateDataModule):
             input_sources = self.hparams.in_var_ids  # e.g. {"era5": ["t2m"], "cmip6": ["ts"]}
 
             for source, vars in input_sources.items():
-                if source=="savar":
+                if source == "savar":
                     train_val_input4mips = SavarDataset(
                         # Make sure these arguments are propagated
                         output_save_dir=self.hparams.output_save_dir,
@@ -105,7 +104,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         is_forced=self.hparams.is_forced,
                         plot_original_data=self.hparams.plot_original_data,
                     )
-                elif source=="era5":
+                elif source == "era5":
                     train_val_input4mips = ERA5Dataset(
                         years=self.hparams.train_years,
                         historical_years=self.hparams.train_historical_years,
@@ -124,7 +123,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
                     )
-                elif source=="cmip6":
+                elif source == "cmip6":
                     train_val_input4mips = CMIP6Dataset(
                         years=train_years,
                         historical_years=train_historical_years,
@@ -186,7 +185,9 @@ class CausalClimateDataModule(ClimateDataModule):
                 dim = self.input_var_shapes[var]
                 for t in range(self.tau):
                     latent_idx = var_idx * self.tau + t
-                    obs_to_latent_mask[latent_idx, offset + t * dim // self.tau : offset + (t + 1) * dim // self.tau] = 1.0
+                    obs_to_latent_mask[
+                        latent_idx, offset + t * dim // self.tau : offset + (t + 1) * dim // self.tau
+                    ] = 1.0
             self.obs_to_latent_mask = obs_to_latent_mask
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,

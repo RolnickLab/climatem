@@ -274,7 +274,7 @@ if __name__ == "__main__":
         params = json.load(f)
     params = update_config_withparse(params, args)
 
-    # get user's scratch directory on Mila cluster:
+    # get user's scratch directory:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
     print ("new data path:", params["data_params"]["data_dir"])

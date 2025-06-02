@@ -32,6 +32,8 @@ This link points you to additional references for setting up your environment co
 
 If you need a package that is not automatically installed, please run `poetry add $(cat requirements_env_emulator.txt)`
 
+4. Install `pre-commit` hooks using `pre-commit install`.
+
 ### 3. Downloading input data
 
 For running the model on real cliamte data, please download monthly climate model data and regrid it to an icosahedral grid using ClimateSet https://github.com/RolnickLab/ClimateSet. 

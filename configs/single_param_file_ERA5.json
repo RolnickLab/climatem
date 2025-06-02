@@ -1,6 +1,6 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST",
+        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST_debug",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
         "d_z": 60,
@@ -15,10 +15,10 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "/home/mila/l/lastc/scratch/data/",
-        "climateset_data": "/home/mila/l/lastc/scratch/data",
+        "data_dir": "$SCRATCH/data",
+        "climateset_data": "$SCRATCH/data",
         "reload_climate_set_data": true,
-        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.txt",
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": [
             "t2m"
         ],
@@ -64,7 +64,7 @@
             20000
         ],
         "lr_scheduler_gamma": 1,
-        "max_iteration": 100000,
+        "max_iteration": 50000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 5

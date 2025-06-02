@@ -1,6 +1,4 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
-import gc
-
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -611,22 +609,15 @@ class TrainingLatent:
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
             )
-        loss = torch.mean((y - y_pred_all[:, 0]) ** 2)
-
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
         # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
         # loss.backward()
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-        with torch.autograd.set_detect_anomaly(True):
-            self.accelerator.backward(loss)
+        self.accelerator.backward(loss)
         # for name, param in self.model.named_parameters():
         #     if param.grad is not None and torch.isnan(param.grad).any():
-        #         print(f"[NaN GRAD] Gradient NaNs found in {name}")
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
@@ -1156,6 +1147,23 @@ class TrainingLatent:
         return (1.0 / torch.sqrt(torch.as_tensor(2.0 * torch.pi))) * torch.exp(-torch.square(x) / 2.0)
 
     def get_crps_loss(self, y, mu, sigma):
+        """
+        Calculate the CRPS loss between the true values and the predicted values. We need to extract the parameters of
+        the Gaussian of the model. I am going to start by just taking the parameters of all the Gaussians for the
+        observations first...
+
+        I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
+
+        I would quite like to do this on future timesteps too.
+
+        Args:
+            y: torch.Tensor, the true values
+            mu: torch.Tensor, the mean of the Gaussians
+            sigma: torch.Tensor, the standard deviation of the Gaussians
+        """
+
+        # gaussian_dist = torch.distributions.Normal(mu, sigma)
+
         if self.model.distr_decoder.__name__ == "GEVDistribution":
             xi = self.model.xi
 
@@ -1275,15 +1283,15 @@ class TrainingLatent:
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
 
-        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
+            pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
 
-        # calculate the CRPS
-        crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+            # calculate the CRPS
+            crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
 
-        # add together all the CRPS values and divide by the number of samples
-        crps = torch.sum(crps) / y.size(0)
+            # add together all the CRPS values and divide by the number of samples
+            crps = torch.sum(crps) / y.size(0)
 
-        return crps
+            return crps
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """
