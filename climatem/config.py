@@ -87,7 +87,7 @@ class dataParams:
         try:
             self.seq_len = SEQ_LEN_MAPPING[temp_res]
         except ValueError:
-            print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
+            print(f"Only monthly/daily resolution is implemented for now, you entered resolution {temp_res}")
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
         self.global_normalization = global_normalization
