@@ -1278,6 +1278,10 @@ class TrainingLatent:
 
         # --- Gaussian fallback ---
         else:
+            y = y
+            mu = mu
+            sigma = sigma
+
             sy = (y - mu) / sigma
             forecast_dist = dist.Normal(0, 1)
             pdf = self._normpdf(sy)
