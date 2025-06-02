@@ -171,7 +171,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         elif paths[0][0].endswith(".grib2"):
             # Use self.seq_len = 365 (post-leap-day-removal)
-            filtered_vlist = [print(item) for item in vlist if '000366.grib2' in item]
+            filtered_vlist = [f for f in vlist if int(f[-10:-6]) <= 365]
             vlist = filtered_vlist
             years = len(vlist) // self.seq_len
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
@@ -207,6 +207,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         Returns:
             np.ndarray: coordinates
         """
+        print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
         print("length paths", len(paths))
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
