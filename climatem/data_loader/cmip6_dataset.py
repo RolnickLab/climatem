@@ -3,17 +3,17 @@
 import glob
 import os
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Union
 
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     CMIP6_NOM_RES,
     CMIP6_TEMP_RES,
     VAR_TO_DIR,
 )
+from climatem.data_loader.climate_dataset import ClimateDataset
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
-from climatem.data_loader.climate_dataset import ClimateDataset
 
 log = get_logger()
 
@@ -30,6 +30,7 @@ class CMIP6Dataset(ClimateDataset):
 
     Keep one scenario for testing # Target shape (85 * 12, 1, 144, 96) # ! * num_scenarios!!
     """
+
     def __init__(
         self,
         years: Union[int, str],
@@ -68,6 +69,42 @@ class CMIP6Dataset(ClimateDataset):
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
 
+        self.setup_paths_and_parameters(
+            data_dir,
+            climate_model,
+            num_ensembles,
+            years,
+            historical_years,
+            channels_last,
+            seq_to_seq,
+            variables,
+            scenarios,
+        )
+        self.resolve_ensemble_dirs(climate_model, num_ensembles)
+        fname = self.load_or_process_data(years, historical_years, seq_to_seq)
+        self.normalize_and_finalize_data(fname)
+
+        self.Data = self.norm_data
+
+        # plot_species(self.Data[:, :, 0, :, :], self.coordinates, variables, "../../TEST_REPO", "before_causal")
+        # self.Data = self._reload_data(self.data_path)
+
+        # Now X and Y is ready for getitem
+        # print("CMIP6 shape", self.Data.shape)
+        self.length = self.Data.shape[0]
+
+    def setup_paths_and_parameters(
+        self,
+        data_dir,
+        climate_model,
+        num_ensembles,
+        years,
+        historical_years,
+        channels_last,
+        seq_to_seq,
+        variables,
+        scenarios,
+    ):
         self.fname_kwargs = dict(
             climate_model=climate_model,
             num_ensembles=num_ensembles,
@@ -83,6 +120,7 @@ class CMIP6Dataset(ClimateDataset):
         # TO-DO: This is just getting the list of .nc files for targets. Put this logic in a function and get input list as well.
         # In a function, we can call CausalDataset() instance for train and test separately to load the data
 
+    def resolve_ensemble_dirs(self, climate_model: str, num_ensembles: int):
         if isinstance(climate_model, str):
             self.root_dir = self.root_dir / climate_model
         else:
@@ -117,8 +155,10 @@ class CMIP6Dataset(ClimateDataset):
             # print("Ensemble directories:", self.ensemble_dirs)
             # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
 
-        fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=self.fname_kwargs)
-        print(f"coordinates_fname {coordinates_fname}")
+    def load_or_process_data(self, years, historical_years, seq_to_seq):
+        fname, coordinates_fname = self.get_save_name_from_kwargs(
+            mode=self.mode, file="target", kwargs=self.fname_kwargs
+        )
 
         # here we reload files if they exist
         if (
@@ -133,7 +173,7 @@ class CMIP6Dataset(ClimateDataset):
             if self.global_normalization:
                 # Load stats and normalize
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                    mode=mode, file="statistics", kwargs=self.fname_kwargs
+                    mode=self.mode, file="statistics", kwargs=self.fname_kwargs
                 )
                 stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
                 self.Data = self.normalize_data(self.raw_data, stats)
@@ -148,146 +188,132 @@ class CMIP6Dataset(ClimateDataset):
             print("NOT RELOADING!!!")
             # Add code here for adding files for input nc data
             # Similar to the loop below for output files
-
+            self.process_and_load_data_from_files(years, historical_years, seq_to_seq)
             # Got all the files paths at this point, now open and merge
+        return fname
 
-            # List of output files
-            files_per_var = []
-            for var in variables:
+    def process_and_load_data_from_files(self, years, historical_years, seq_to_seq):
+        # List of output files
+        files_per_var = []
+        for var in self.variables:
+            for exp in self.scenarios:
+                if exp == "historical":
+                    get_years = historical_years
+                else:
+                    get_years = years
+                # print("ensemble_dirs")
+                # print(self.ensemble_dirs)
 
-                for exp in scenarios:
-                    if exp == "historical":
-                        get_years = historical_years
-                    else:
-                        get_years = years
-                    # print("ensemble_dirs")
-                    # print(self.ensemble_dirs)
+                all_ensemble_output_nc_files = []
 
-                    all_ensemble_output_nc_files = []
+                # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
 
-                    # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
+                # assert that self.ensemble_dirs is a list
+                if isinstance(self.ensemble_dirs, list):
+                    print("self.ensemble_dirs is a list")
+                else:
+                    # print("self.ensemble_dirs is not a list")
+                    # print("self.ensemble_dirs is:", self.ensemble_dirs)
+                    raise ValueError("self.ensemble_dirs is not a list")
 
-                    # assert that self.ensemble_dirs is a list
-                    if isinstance(self.ensemble_dirs, list):
-                        print("self.ensemble_dirs is a list")
-                    else:
-                        # print("self.ensemble_dirs is not a list")
-                        # print("self.ensemble_dirs is:", self.ensemble_dirs)
-                        raise ValueError("self.ensemble_dirs is not a list")
+                for ensemble_dir in self.ensemble_dirs:
+                    print("*****************LOOPING THROUGH ENSEMBLE MEMBERS*****************")
+                    print("ensemble member path:", ensemble_dir)
+                    # I am now identing this:
+                    output_nc_files = []
 
-                    for ensemble_dir in self.ensemble_dirs:
-                        print("*****************LOOPING THROUGH ENSEMBLE MEMBERS*****************")
-                        print("ensemble member path:", ensemble_dir)
-                        # I am now identing this:
-                        output_nc_files = []
-
-                        for y in get_years:
-                            # for y in self.get_years_list(get_years, give_list=True):
-                            # print('y is this:', y)
-                            # print('here is exp:', exp)
-                            var_dir_name = VAR_TO_DIR.get(var, var)
-                            var_dir = ensemble_dir / f"{exp}/{var_dir_name}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
-                            print(f"ALL FILES DIRECTORY: {var_dir}")
-                            files = glob.glob(f"{var_dir}/**/*.nc", recursive=True)
-                            print(f"NC FILES: {files}")
-                            if len(files) == 0:
-                                # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
-                                files = glob.glob(f"{var_dir}/*.grib", recursive=True)
-                            print(f"Grib FILES: {files}")
-                            # print('files here:', files)
-                            # loads all years! implement splitting
-                            output_nc_files += files
-
-                        # print("Here the final var_dir be:", var_dir)
-                        # print('files here after looping through all the years:', output_nc_files)
-                        # print(
-                        #     "length of output_nc_files. after looping through years for 1 of the ensemble members:",
-                        #     len(output_nc_files),
-                        # )
-
-                        all_ensemble_output_nc_files += output_nc_files
+                    for y in get_years:
+                        # for y in self.get_years_list(get_years, give_list=True):
+                        # print('y is this:', y)
+                        # print('here is exp:', exp)
+                        var_dir_name = VAR_TO_DIR.get(var, var)
+                        var_dir = ensemble_dir / f"{exp}/{var_dir_name}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+                        print(f"ALL FILES DIRECTORY: {var_dir}")
+                        files = glob.glob(f"{var_dir}/**/*.nc", recursive=True)
+                        print(f"NC FILES: {files}")
+                        if len(files) == 0:
+                            # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
+                            files = glob.glob(f"{var_dir}/*.grib", recursive=True)
+                        print(f"Grib FILES: {files}")
+                        # print('files here:', files)
+                        # loads all years! implement splitting
+                        output_nc_files += files
 
                     # print("Here the final var_dir be:", var_dir)
+                    # print('files here after looping through all the years:', output_nc_files)
                     # print(
-                    #     "length of all_ensemble_output_nc_files after looping through all ensemble members:",
-                    #     len(all_ensemble_output_nc_files),
+                    #     "length of output_nc_files. after looping through years for 1 of the ensemble members:",
+                    #     len(output_nc_files),
                     # )
-                    # print('files here after looping through all the ensembles and the years:', all_ensemble_output_nc_files)
-                files_per_var.append(all_ensemble_output_nc_files)
-            # print("length of files_per_var after looping!:", len(files_per_var))
-            # print('files_per_var:', files_per_var)
-            print(files_per_var)
-            flat_file_list = [f for file_list in files_per_var for f in file_list]
-            print("[DEBUG] About to call load_into_mem()")
 
-            # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
-            self.raw_data = self.load_into_mem(
-                flat_file_list,
-                variables,
-                channels_last=channels_last,
-                seq_to_seq=seq_to_seq
+                    all_ensemble_output_nc_files += output_nc_files
+
+                # print("Here the final var_dir be:", var_dir)
+                # print(
+                #     "length of all_ensemble_output_nc_files after looping through all ensemble members:",
+                #     len(all_ensemble_output_nc_files),
+                # )
+                # print('files here after looping through all the ensembles and the years:', all_ensemble_output_nc_files)
+            files_per_var.append(all_ensemble_output_nc_files)
+        # print("length of files_per_var after looping!:", len(files_per_var))
+        # print('files_per_var:', files_per_var)
+
+        # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
+        self.raw_data = self.load_into_mem(
+            files_per_var, self.variables, channels_last=self.channels_last, seq_to_seq=seq_to_seq
+        )
+        print("[DEBUG] Finished calling load_into_mem()")
+
+        self.coordinates = self.load_coordinates_into_mem(files_per_var)
+
+    def normalize_and_finalize_data(self, fname):
+        if self.mode in ["train", "train+val"]:
+            print("creating stats fname")
+            print(f"self.fname_kwargs {self.fname_kwargs}")
+            stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                mode=self.mode, file="statistics", kwargs=self.fname_kwargs
             )
-            print("[DEBUG] Finished calling load_into_mem()")
-            print("[DEBUG] input_var_offsets = ", self.input_var_offsets)
+            print("creating stats / coordinates name")
+            print(stats_fname)
+            print(coordinates_fname)
 
-            self.coordinates = self.load_coordinates_into_mem(files_per_var)
+            if os.path.isfile(self.output_save_dir / stats_fname) and self.global_normalization:
+                print("Stats file already exists! Loading from memory.")
+                stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
+                self.norm_data = self.normalize_data(self.raw_data, stats)
+            elif self.global_normalization:
+                stat1, stat2 = self.get_dataset_statistics(self.raw_data, self.mode, mips="cmip6")
+                stats = {"mean": stat1, "std": stat2}
+                self.norm_data = self.normalize_data(self.raw_data, stats)
+                self.write_dataset_statistics(stats_fname, stats)
+                self.write_dataset_statistics(coordinates_fname, self.coordinates)
+            else:
+                self.norm_data = self.raw_data
+            if self.seasonality_removal:
+                self.norm_data = self.remove_seasonality(self.norm_data)
+            # self.norm_data = self.normalize_data(self.raw_data, stats)
 
-            if self.mode in ["train", "train+val"]:
-                print("creating stats fname")
-                print(f"self.fname_kwargs {self.fname_kwargs}")
+        elif self.mode == "test":
+            if self.global_normalization:
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                    mode=mode, file="statistics", kwargs=self.fname_kwargs
+                    mode="train+val", file="statistics", kwargs=self.fname_kwargs
                 )
-                print("creating stats / coordinates name")
-                print(stats_fname)
-                print(coordinates_fname)
+                stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
+                self.norm_data = self.normalize_data(self.raw_data, stats)
+            else:
+                self.norm_data = self.raw_data
+            if self.seasonality_removal:
+                self.norm_data = self.remove_seasonality(self.norm_data)
 
-                if os.path.isfile(self.output_save_dir / stats_fname) and self.global_normalization:
-                    print("Stats file already exists! Loading from memory.")
-                    stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
-                    self.norm_data = self.normalize_data(self.raw_data, stats)
-                elif self.global_normalization:
-                    stat1, stat2 = self.get_dataset_statistics(self.raw_data, self.mode, mips="cmip6")
-                    stats = {"mean": stat1, "std": stat2}
-                    self.norm_data = self.normalize_data(self.raw_data, stats)
-                    self.write_dataset_statistics(stats_fname, stats)
-                    self.write_dataset_statistics(coordinates_fname, self.coordinates)
-                else:
-                    self.norm_data = self.raw_data
-                if self.seasonality_removal:
-                    self.norm_data = self.remove_seasonality(self.norm_data)
-                # self.norm_data = self.normalize_data(self.raw_data, stats)
+        # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
+        # print("In cmip6, just about to save the data.")
+        self.data_path = self.save_data_into_disk(self.raw_data, fname, self.output_save_dir)
+        # print("In cmip6, just saved the data.")
 
-            elif self.mode == "test":
-                if self.global_normalization:
-                    stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
-                        mode="train+val", file="statistics", kwargs=self.fname_kwargs
-                    )
-                    stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
-                    self.norm_data = self.normalize_data(self.raw_data, stats)
-                else:
-                    self.norm_data = self.raw_data
-                if self.seasonality_removal:
-                    self.norm_data = self.remove_seasonality(self.norm_data)
-
-            # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
-            # print("In cmip6, just about to save the data.")
-            self.data_path = self.save_data_into_disk(self.raw_data, fname, self.output_save_dir)
-            # print("In cmip6, just saved the data.")
-
-            # print("In cmip6, just about to copy the data to slurm.")
-            # self.copy_to_slurm(self.input_path)
-            self.copy_to_slurm(self.data_path)
-            # print("In cmip6, just copied the data to slurm.")
-
-            self.Data = self.norm_data
-
-        # plot_species(self.Data[:, :, 0, :, :], self.coordinates, variables, "../../TEST_REPO", "before_causal")
-        # self.Data = self._reload_data(self.data_path)
-
-        # Now X and Y is ready for getitem
-        # print("CMIP6 shape", self.Data.shape)
-        self.length = self.Data.shape[0]
+        # print("In cmip6, just about to copy the data to slurm.")
+        # self.copy_to_slurm(self.input_path)
+        self.copy_to_slurm(self.data_path)
+        # print("In cmip6, just copied the data to slurm.")
 
     def __getitem__(self, index):
         return self.Data[index]

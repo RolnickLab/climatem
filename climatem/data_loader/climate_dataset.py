@@ -117,7 +117,7 @@ class ClimateDataset(torch.utils.data.Dataset):
     def load_into_mem(
         self,
         paths: List[str],
-        num_vars: List[str],
+        variables: List[str],
         channels_last: bool = True,
         seq_to_seq: bool = True,
         get_years: Optional[List[int]] = None,
@@ -127,12 +127,13 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         Args:
             paths (List[List[str]]): absolute to filepath
-            num_vars (int): number of input variables e.g. pr, tas, etc.
+            variables (List[str]): list of input variables e.g. pr, tas, etc.
             channels_last (bool, optional): reshape data to channels. Defaults to True.
             seq_to_seq (bool, optional): TBC. Defaults to True. #TODO
         """
 
         array_list = []
+        self.input_var_shapes = {}
 
         for vlist in paths:
             if vlist[0][-3:] == ".nc":
@@ -158,7 +159,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             array_list.append(temp_data)
 
         temp_data = np.concatenate(array_list, axis=0)
-
+        num_vars = len(variables)
         if paths[0][0].endswith(".grib"):
             years = len(paths[0])
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
