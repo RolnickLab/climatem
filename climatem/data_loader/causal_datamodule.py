@@ -167,33 +167,23 @@ class CausalClimateDataModule(ClimateDataModule):
             datasets.append(train_val_input4mips)
 
             # Construct input_var_shapes and offsets for mask metadata
-            self.input_var_shapes = {}
-            self.input_var_offsets = [0]
-            for var, flat_spatial_dim in train_val_input4mips.input_var_shapes.items():
-                total_dim = self.tau * flat_spatial_dim  # repeat per tau
-                self.input_var_shapes[var] = total_dim
-                self.input_var_offsets.append(self.input_var_offsets[-1] + total_dim)
-
-            self.d = self.input_var_offsets[-1]  # total number of inputs per sample
+            for var, spatial_dim in train_val_input4mips.input_var_shapes.items():
+                self.input_var_shapes[var] = spatial_dim
 
             num_vars = len(self.input_var_shapes)
-            d_x = self.d
-            d_z = self.tau * num_vars  # one latent per var per time step
+            d_x = 1  # variables * latents
+            d_z = num_vars  # num_vars * dims (one latent per var per time step)
 
             obs_to_latent_mask = np.zeros((d_z, d_x), dtype=np.float32)
-            for var_idx, (var, offset) in enumerate(zip(self.input_var_shapes, self.input_var_offsets[:-1])):
+            for var, spatial_dim in train_val_input4mips.input_var_shapes.items():
                 dim = self.input_var_shapes[var]
-                for t in range(self.tau):
-                    latent_idx = var_idx * self.tau + t
-                    obs_to_latent_mask[
-                        latent_idx, offset + t * dim // self.tau : offset + (t + 1) * dim // self.tau
-                    ] = 1.0
+                obs_to_latent_mask[dim:dim] = 1.0
             self.obs_to_latent_mask = obs_to_latent_mask
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,
                 future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
-                num_vars=len(self.input_var_shapes),  # total num vars
+                num_vars=num_vars,  # total num vars
                 num_scenarios=1,
                 num_ensembles=1,
                 num_years=train_val_input4mips.length,
