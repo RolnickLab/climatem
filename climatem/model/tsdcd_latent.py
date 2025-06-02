@@ -926,7 +926,7 @@ class NonLinearAutoEncoder(nn.Module):
         if self.use_gumbel_mask:
             return self.mask.param
         else:
-            return torch.nan_to_num(self.w, nan=0.0).clamp(min=0.0)
+            return self.w
 
     def get_encode_mask(self, bs_size: int):
         if self.use_gumbel_mask:
