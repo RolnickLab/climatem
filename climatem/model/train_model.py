@@ -45,6 +45,10 @@ class TrainingLatent:
         self.data_loader_train = iter(datamodule.train_dataloader(accelerator=accelerator))
         self.data_loader_val = iter(datamodule.val_dataloader())
         self.coordinates = datamodule.coordinates
+        self.input_var_shapes = datamodule.input_var_shapes
+        self.input_var_offsets = datamodule.input_var_offsets
+        self.variables = datamodule.variables
+
         self.exp_params = exp_params
         self.train_params = train_params
         self.optim_params = optim_params
@@ -713,7 +717,11 @@ class TrainingLatent:
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
             if self.iteration % self.plot_params.plot_freq == 0:
-                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                if (
+                    not self.plot_params.savar
+                    and not self.plot_params.chirps
+                    and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4)
+                ):
                     self.plotter.plot_compare_predictions_icosahedral(
                         x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                         y_true=y_original.cpu().detach().numpy(),
@@ -751,6 +759,21 @@ class TrainingLatent:
                         iteration=self.iteration,
                         valid=False,
                         plot_through_time=True,
+                    )
+                if self.plot_params.chirps:
+                    self.plotter.plot_compare_predictions_by_variable(
+                        x_past=x_original[:, -2:, :, :].cpu().detach().numpy(),  # shape (B, 2, V, D)
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        coordinates=self.coordinates,
+                        input_var_shapes=self.input_var_shapes,
+                        input_var_offsets=self.input_var_offsets,
+                        variables=self.variables,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
                     )
                 else:
                     print("Not plotting predictions.")

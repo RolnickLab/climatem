@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPPING
+from climatem.data_loader.chirps_dataset import CHIRPSDataset
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
@@ -35,7 +36,9 @@ class CausalClimateDataModule(ClimateDataModule):
     The setup method is overwritten and performs data preprocessing for causal discovery models.
     """
 
-    def __init__(self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
+    def __init__(
+        self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, d_z=90, **kwargs
+    ):
         super().__init__(self)
 
         # kwargs are initialized as self.hparams by the Lightning module
@@ -47,6 +50,7 @@ class CausalClimateDataModule(ClimateDataModule):
         self.num_months_aggregated = num_months_aggregated
         self.train_val_interval_length = train_val_interval_length
         self.shuffle_train = False  # need to keep order for causal train / val splits
+        self.d_z = d_z
 
     @staticmethod
     def years_to_list(years_str):
@@ -80,7 +84,6 @@ class CausalClimateDataModule(ClimateDataModule):
             # Here add an option for SAVAR dataset
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
-            datasets = []
             input_sources = self.hparams.in_var_ids  # e.g. {"era5": ["t2m"], "cmip6": ["ts"]}
 
             for source, vars in input_sources.items():
@@ -143,12 +146,30 @@ class CausalClimateDataModule(ClimateDataModule):
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
                     )
+                elif source == "chirps":
+                    train_val_input4mips = CHIRPSDataset(
+                        years=train_years,
+                        historical_years=train_historical_years,
+                        data_dir=self.hparams.data_dir,
+                        variables=list(vars),
+                        scenarios=self.hparams.train_scenarios,
+                        channels_last=self.hparams.channels_last,
+                        openburning_specs=openburning_specs,
+                        mode="train+val",
+                        output_save_dir=self.hparams.output_save_dir,
+                        lon=self.hparams.lon,
+                        lat=self.hparams.lat,
+                        icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                        global_normalization=self.hparams.global_normalization,
+                        seasonality_removal=self.hparams.seasonality_removal,
+                        reload_climate_set_data=self.hparams.reload_climate_set_data,
+                    )
                 else:
                     train_val_input4mips = Input4MipsDataset(
                         years=train_years,
                         historical_years=train_historical_years,
                         data_dir=self.hparams.data_dir,
-                        variables=self.hparams.in_var_ids,
+                        variables=list(vars),
                         scenarios=self.hparams.train_scenarios,
                         channels_last=self.hparams.channels_last,
                         openburning_specs=openburning_specs,
@@ -163,34 +184,43 @@ class CausalClimateDataModule(ClimateDataModule):
                     )
 
             ratio_train = 1 - self.hparams.val_split
+            self.d_x = train_val_input4mips.input_var_offsets[-1]
+            self.coordinates = train_val_input4mips.coordinates
+            self.input_var_shapes = train_val_input4mips.input_var_shapes
+            self.input_var_offsets = train_val_input4mips.input_var_offsets
 
-            datasets.append(train_val_input4mips)
+            # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
+            self.obs_to_latent_mask = np.zeros((self.d_z, self.d_x), dtype=np.float32)
 
-            # Construct input_var_shapes and offsets for mask metadata
-            for var, spatial_dim in train_val_input4mips.input_var_shapes.items():
-                self.input_var_shapes[var] = spatial_dim
-
+            # Number of variables
             num_vars = len(self.input_var_shapes)
-            d_x = 1  # variables * latents
-            d_z = num_vars  # num_vars * dims (one latent per var per time step)
+            self.d_z = self.d_z * num_vars
 
-            obs_to_latent_mask = np.zeros((d_z, d_x), dtype=np.float32)
-            for var, spatial_dim in train_val_input4mips.input_var_shapes.items():
-                dim = self.input_var_shapes[var]
-                obs_to_latent_mask[dim:dim] = 1.0
-            self.obs_to_latent_mask = obs_to_latent_mask
+            # For each variable
+            for i, var in enumerate(self.input_var_shapes):
+                spatial_dim = self.input_var_shapes[var]
+                offset = self.input_var_offsets[i]
+
+                latent_start = i * self.d_z
+                latent_end = (i + 1) * self.d_z if i < num_vars - 1 else self.d_z
+
+                for j in range(spatial_dim):
+                    obs_idx = offset + j
+                    self.obs_to_latent_mask[latent_start:latent_end, obs_idx] = 1.0
+
+            print("obs_to_latent_mask.shape", self.obs_to_latent_mask.shape)
+            print("train_val_input4mips.length", train_val_input4mips.length)
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,
                 future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
-                num_vars=num_vars,  # total num vars
+                num_vars=len(vars),
                 num_scenarios=1,
                 num_ensembles=1,
                 num_years=train_val_input4mips.length,
                 ratio_train=ratio_train,
                 num_months_aggregated=self.num_months_aggregated,
                 interval_length=self.train_val_interval_length,
-                obs_to_latent_mask=obs_to_latent_mask,
                 mode="train+val",
             )
             if "savar" in self.hparams.in_var_ids:
@@ -211,8 +241,6 @@ class CausalClimateDataModule(ClimateDataModule):
                 val_x = val_x.reshape((val_x.shape[0], val_x.shape[1], val_x.shape[2], -1))
                 val_y = val_y.reshape((val_y.shape[0], val_y.shape[1], val_y.shape[2], -1))
                 self._data_val = CausalDataset(val_x, val_y)
-
-            self.coordinates = train_val_input4mips.coordinates
 
         if stage in ["test", None]:
             openburning_specs = {

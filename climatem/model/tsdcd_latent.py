@@ -2,6 +2,7 @@
 
 from collections import OrderedDict
 from math import pi
+from typing import Dict, List
 
 import torch
 import torch.distributions as distr
@@ -235,6 +236,8 @@ class LatentTSDCD(nn.Module):
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
         gev_learn_xi: bool = False,
+        input_var_offsets: List[str] = None,
+        input_var_shapes: Dict[str, List[str]] = None,
     ):
         """
         Args:
@@ -299,6 +302,8 @@ class LatentTSDCD(nn.Module):
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.gev_learn_xi = gev_learn_xi
+        self.input_var_offsets = input_var_offsets
+        self.input_var_shapes = input_var_shapes
 
         if self.instantaneous:
             self.total_tau = tau + 1
@@ -344,24 +349,41 @@ class LatentTSDCD(nn.Module):
             self.distr_decoder = distr.normal.Normal
         else:
             raise NotImplementedError(f"Decoder distribution '{distr_decoder}' is not implemented.")
-
+        print("self.d", self.d)
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
             print("NON-LINEAR MIXING")
-            # NOTE:(seb) using the noloop version of non-linear here to make it much faster.
-            self.autoencoder = NonLinearAutoEncoderUniqueMLP_noloop(
-                d,
-                d_x,
-                d_z,
-                self.num_hidden_mixing,
-                self.num_layers_mixing,
-                use_gumbel_mask=False,
-                tied=tied_w,
-                embedding_dim=self.position_embedding_dim,
-                reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
-                gt_w=None,
-                obs_to_latent_mask=torch.tensor(obs_to_latent_mask, dtype=torch.float32),
-            )
+            if self.d > 1:
+                print("MULTIVAR ENCODING")
+                self.autoencoder = NonLinearAutoEncoderUniqueMLP_multivar(
+                    d,
+                    d_x,
+                    d_z,
+                    self.num_hidden_mixing,
+                    self.num_layers_mixing,
+                    use_gumbel_mask=False,
+                    tied=tied_w,
+                    embedding_dim=self.position_embedding_dim,
+                    reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
+                    gt_w=None,
+                    obs_to_latent_mask=torch.tensor(obs_to_latent_mask, dtype=torch.float32),
+                    input_var_offsets=self.input_var_offsets,
+                    input_var_shapes=self.input_var_shapes,
+                )
+            else:
+                # NOTE:(seb) using the noloop version of non-linear here to make it much faster.
+                self.autoencoder = NonLinearAutoEncoderUniqueMLP_noloop(
+                    d,
+                    d_x,
+                    d_z,
+                    self.num_hidden_mixing,
+                    self.num_layers_mixing,
+                    use_gumbel_mask=False,
+                    tied=tied_w,
+                    embedding_dim=self.position_embedding_dim,
+                    reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
+                    gt_w=None,
+                )
         else:
             # print('Using linear mixing')
             print("LINEAR MIXING")
@@ -416,6 +438,7 @@ class LatentTSDCD(nn.Module):
 
         # TODO: Can we remove this for loop?
         for i in range(self.d):
+            print(f"[DEBUG] i={i}, valid range: 0 to {len(self.input_var_offsets) - 2}")
             # get params from the encoder q(z^t | x^t)
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
@@ -451,7 +474,7 @@ class LatentTSDCD(nn.Module):
         mu = torch.zeros(b, self.d, self.d_z)
         std = torch.zeros(b, self.d, self.d_z)
 
-        # print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
+        print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
 
         # learning conditional variance
         # for i in range(self.d):
@@ -464,18 +487,23 @@ class LatentTSDCD(nn.Module):
         # TODO Can we remove this for loop
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
-            # print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
+            print(
+                "This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.",
+                pz_params.shape,
+            )
             # for k in range(self.d_z):
             # print("Doing the transition, and this is the k at the moment.", k)
-            # print("**************************************************")
-            # print("What is the shape of the mask?", mask.shape)
+            print("**************************************************")
+            print("What is the shape of the mask?", mask.shape)
             # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
             # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
             pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
 
-            # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
-            # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
-            # print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
+            print(
+                "Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass."
+            )
+            print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
+            print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
@@ -880,9 +908,21 @@ class LinearAutoEncoder(nn.Module):
 
 
 class NonLinearAutoEncoder(nn.Module):
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w=None, obs_to_latent_mask=None):
+    def __init__(
+        self,
+        d,
+        d_x,
+        d_z,
+        num_hidden,
+        num_layer,
+        use_gumbel_mask,
+        tied,
+        gt_w=None,
+        obs_to_latent_mask=None,
+        input_var_offsets=None,
+        input_var_shapes=None,
+    ):
         ...
-        self.obs_to_latent_mask = obs_to_latent_mask  # shape (d_x, d_z)
         super().__init__()
         if use_gumbel_mask:
             self.use_grad_project = False
@@ -892,6 +932,9 @@ class NonLinearAutoEncoder(nn.Module):
         self.d_z = d_z
         self.tied = tied
         self.use_gumbel_mask = use_gumbel_mask
+        self.input_var_offsets = input_var_offsets
+        self.input_var_shapes = input_var_shapes
+        self.obs_to_latent_mask = obs_to_latent_mask
 
         if self.use_gumbel_mask:
             self.mask = MixingMask(d, d_x, d_z, gt_w)
@@ -982,10 +1025,16 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         embedding_dim,
         reduce_encoding_pos_dim,
         gt_w=None,
-        obs_to_latent_mask=None,
     ):
         super().__init__(
-            d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w, obs_to_latent_mask=obs_to_latent_mask
+            d,
+            d_x,
+            d_z,
+            num_hidden,
+            num_layer,
+            use_gumbel_mask,
+            tied,
+            gt_w,
         )
         # embedding_dim_encoding = d_z // 10
         if not reduce_encoding_pos_dim:
@@ -1015,11 +1064,6 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         # for each latent, select the locations it is mapped to
         mask_ = super().select_encoder_mask(mask, i, j_values)  # mask[i, j_values]
 
-        if self.obs_to_latent_mask is not None:
-            hard_mask = self.obs_to_latent_mask.unsqueeze(0).to(mask_.device)  # (1, d_z, d_x)
-            assert mask_.shape == hard_mask.shape, f"Shape mismatch: {mask_.shape} vs {hard_mask.shape}"
-            mask_ = mask_ * hard_mask
-
         # Could I reduce the memory usage of this?
         # each location create a lask in latents b * d_z * d_x
         # Then concatenate in the last axis (d_x) with the embedding of the latents?
@@ -1033,6 +1077,130 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         mu = self.encoder(x_).squeeze()
 
+        return mu, self.logvar_encoder
+
+    def decode(self, z, i):
+
+        mask = super().get_decode_mask(z.shape[0])
+        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
+
+        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
+        j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
+
+        # Embed all j_values at once
+        embedded_z = self.embedding_decoder(j_values)
+
+        # Select all decoder masks at once
+        mask_ = super().select_decoder_mask(mask, i, j_values)
+
+        if z.ndim < mask_.ndim:
+            z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
+        else:
+            z_expanded = z.expand(-1, self.d_x, -1)
+        z_expanded_copy = z_expanded.clone()
+        z_expanded_copy.mul_(mask_)
+        z_expanded_copy.unsqueeze(2)
+
+        z_ = torch.cat((z_expanded_copy, embedded_z), dim=2)
+
+        del z_expanded
+        del z_expanded_copy
+
+        # Apply the decoder to all z_ at once and squeeze the result
+        mu = self.decoder(z_).squeeze()
+
+        return mu, self.logvar_decoder
+
+    def forward(self, x, i, encode: bool = False):
+        if encode:
+            return self.encode(x, i)
+        else:
+            return self.decode(x, i)
+
+
+class NonLinearAutoEncoderUniqueMLP_multivar(NonLinearAutoEncoder):
+    def __init__(
+        self,
+        d,
+        d_x,
+        d_z,
+        num_hidden,
+        num_layer,
+        use_gumbel_mask,
+        tied,
+        embedding_dim,
+        reduce_encoding_pos_dim,
+        gt_w=None,
+        obs_to_latent_mask=None,
+        input_var_offsets=None,
+        input_var_shapes=None,
+    ):
+        super().__init__(
+            d,
+            d_x,
+            d_z,
+            num_hidden,
+            num_layer,
+            use_gumbel_mask,
+            tied,
+            gt_w,
+            obs_to_latent_mask=obs_to_latent_mask,
+            input_var_offsets=input_var_offsets,
+            input_var_shapes=input_var_shapes,
+        )
+        # embedding_dim_encoding = d_z // 10
+        if not reduce_encoding_pos_dim:
+            self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
+            self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)  # embedding_dim_encoding
+        else:
+            self.embedding_encoder = nn.Embedding(d_z, embedding_dim // 10)
+            self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim // 10, 1)  # embedding_dim_encoding
+        # self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
+        # self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
+
+        self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
+        self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
+
+    def encode(self, x, i):
+        """
+        Encode the input x for variable index i.
+
+        Args:
+            x: Tensor of shape (B, d_x) — full input.
+            i: Index of the variable to encode.
+
+        Returns:
+            mu: Mean of the latent distribution.
+            logvar: Log-variance of the latent distribution.
+        """
+        # Create mask shape (B, d_z, d_x)
+        mask = super().get_encode_mask(x.shape[0])
+        mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
+
+        j_values = torch.arange(self.d_z, device=x.device).expand(x.shape[0], -1)
+        embedded_x = self.embedding_encoder(j_values)  # (B, d_z, embedding_dim)
+
+        mask_ = super().select_encoder_mask(mask, i, j_values)
+
+        if self.obs_to_latent_mask is not None:
+            hard_mask = self.obs_to_latent_mask.unsqueeze(0).to(mask_.device)  # (1, d_z, d_x)
+            if hard_mask.shape[0] != x.shape[0]:
+                hard_mask = hard_mask.expand(x.shape[0], -1, -1)
+            mask_ = mask_ * hard_mask  # (B, d_z, d_x)
+        print(f"i = {i}, len(input_var_offsets) = {len(self.input_var_offsets)}")
+
+        # Extract only the portion of x relevant to variable i
+        start = self.input_var_offsets[i]
+        end = self.input_var_offsets[i + 1]
+        x_var = x[:, start:end]  # (B, d_x_var)
+
+        x_masked = mask_[:, :, start:end] * x_var.unsqueeze(1)  # (B, d_z, d_x_var)
+
+        x_ = torch.cat((x_masked, embedded_x), dim=2)  # (B, d_z, d_x_var + embedding_dim)
+
+        del embedded_x, mask_, x_masked
+
+        mu = self.encoder(x_).squeeze()
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
@@ -1131,43 +1299,45 @@ class TransitionModel(nn.Module):
         # t_total = torch.max(self.tau, z_past.size(1))  # TODO: find right dim
         # param_z = torch.zeros(z_past.size(0), 2)
 
-        # print("In the forward of the transition model, and trying to ascertain which way the information flows through the mask.")
-        # print("The mask is of size: ", mask.size())
-        # print("The z is of size: ", z.size())
+        print(
+            "In the forward of the transition model, and trying to ascertain which way the information flows through the mask."
+        )
+        print("The mask is of size: ", mask.size())
+        print("The z is of size: ", z.size())
 
         # print the unique values and their counts in mask:
-        # print("The unique values of mask are: ", torch.unique(mask))
-        # print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
+        print("The unique values of mask are: ", torch.unique(mask))
+        print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
 
         # print the first few elements of z
 
         z = z.view(mask.size())
 
-        # print("The z is now, after z.view() of size: ", z.size())
+        print("The z is now, after z.view() of size: ", z.size())
 
-        # print("what is mask * z shape? ", (mask * z).size())
+        print("what is mask * z shape? ", (mask * z).size())
 
         masked_z = (mask * z).view(z.size(0), -1)
 
-        # print("mask * z is of size: ", (mask * z).size())
-        # print("The masked_z is of size: ", masked_z.size())
+        print("mask * z is of size: ", (mask * z).size())
+        print("The masked_z is of size: ", masked_z.size())
 
         # print the first few elements of masked_z
-        # print("The first few elements of masked_z are: ", masked_z[0, :10])
+        print("The first few elements of masked_z are: ", masked_z[0, :10])
 
         # print all the unique values of masked_z, and the number of unique values.
-        # print("The unique values of masked_z are: ", torch.unique(masked_z))
+        print("The unique values of masked_z are: ", torch.unique(masked_z))
 
         # count the number of very small values in masked_z
-        # print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
+        print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
 
-        # print("What is i, self_d_z, k? ", i, self.d_z, k)
-        # print("What is i * self.d_z + k? ", i * self.d_z + k)
-        # print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
+        print("What is i, self_d_z, k? ", i, self.d_z, k)
+        print("What is i * self.d_z + k? ", i * self.d_z + k)
+        print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
 
         param_z = self.nn[i * self.d_z + k](masked_z)
 
-        # print("What is the shape of param_z?", param_z.size())
+        print("What is the shape of param_z?", param_z.size())
 
         # param_z = self.nn(masked_z)
 
@@ -1237,6 +1407,9 @@ class TransitionModelParamSharing(nn.Module):
             z.shape[0], -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z)
         embedded_z = self.embedding_transition(j_values)
+        print("z.shape:", z.shape)  # Should be (B, T, d_z)
+        print("mask.shape:", mask.shape)  # Expected to be (B, T, d_x)
+
         masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
         z_ = torch.cat((masked_z, embedded_z), dim=2)
 
@@ -1246,7 +1419,7 @@ class TransitionModelParamSharing(nn.Module):
         del masked_z
         del z_
 
-        # print("What is the shape of param_z?", param_z.size())
+        print("What is the shape of param_z?", param_z.size())
 
         # param_z = self.nn(masked_z)
 

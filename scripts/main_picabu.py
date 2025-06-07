@@ -62,6 +62,11 @@ def main(
 
     # generate data and split train/test
     device = torch.device("cuda" if (torch.cuda.is_available() and experiment_params.gpu) else "cpu")
+    exp_path = Path(experiment_params.exp_path)
+    os.makedirs(exp_path, exist_ok=True)
+
+    intermediate_path = exp_path / "intermediate_objects"
+    os.makedirs(intermediate_path, exist_ok=True)
 
     if data_params.data_format == "hdf5":
         print("IS HDF5")
@@ -119,7 +124,8 @@ def main(
     # val_dataloader = iter(datamodule.val_dataloader())
 
     # WE SHOULD REMOVE THIS, and initialize with params
-    d = len(data_params.in_var_ids)
+    d = sum(map(len, data_params.in_var_ids.values()))
+    datamodule.variables = [v for varlist in data_params.in_var_ids.values() for v in varlist]
     print(f"Using {d} variables")
 
     if model_params.instantaneous:
@@ -127,7 +133,8 @@ def main(
         num_input = d * (experiment_params.tau + 1) * (model_params.tau_neigh * 2 + 1)
     else:
         num_input = d * experiment_params.tau * (model_params.tau_neigh * 2 + 1)
-
+    print("datamodule.input_var_offsets", datamodule.input_var_offsets)
+    print("datamodule.input_var_shapes", datamodule.input_var_shapes)
     # set the model
     model = LatentTSDCD(
         num_layers=model_params.num_layers,
@@ -145,8 +152,8 @@ def main(
         distr_encoder="gaussian",
         distr_transition="gaussian",
         distr_decoder="gaussian",
-        d_x=experiment_params.d_x,
-        d_z=experiment_params.d_z,
+        d_x=datamodule.d_x,
+        d_z=datamodule.d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
         nonlinear_dynamics=model_params.nonlinear_dynamics,
@@ -156,13 +163,16 @@ def main(
         debug_gt_graph=gt_params.debug_gt_graph,
         debug_gt_z=gt_params.debug_gt_z,
         debug_gt_w=gt_params.debug_gt_w,
-        obs_to_latent_mask=datamodule.obs_to_latent_mask,
         # gt_w=data_loader.gt_w,
         # gt_graph=data_loader.gt_graph,
         tied_w=model_params.tied_w,
         # also
         fixed=model_params.fixed,
         fixed_output_fraction=model_params.fixed_output_fraction,
+        obs_to_latent_mask=datamodule.obs_to_latent_mask,
+        input_var_offsets = datamodule.input_var_offsets,
+        input_var_shapes = datamodule.input_var_shapes,
+        # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
     )
 
     # Make folder to save run results
@@ -360,6 +370,8 @@ if __name__ == "__main__":
         experiment_params.lon = int(savar_params.comp_size * savar_params.n_per_col)
         experiment_params.d_x = int(experiment_params.lat * experiment_params.lon)
         plot_params.savar = True
+    if "chirps" in data_params.in_var_ids:
+        plot_params.chirps = True
     else:
         plot_params.savar = False
 
