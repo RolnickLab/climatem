@@ -4,6 +4,7 @@ from collections import OrderedDict
 from math import pi
 from typing import Dict, List
 
+import numpy as np
 import torch
 import torch.distributions as distr
 import torch.nn as nn
@@ -223,6 +224,7 @@ class LatentTSDCD(nn.Module):
         d_z: int,
         tau: int,
         instantaneous: bool,
+        teleconnections: bool,
         nonlinear_mixing: bool,
         nonlinear_dynamics: bool,
         hard_gumbel: bool,
@@ -230,7 +232,7 @@ class LatentTSDCD(nn.Module):
         debug_gt_graph: bool,
         debug_gt_z: bool,
         debug_gt_w: bool,
-        obs_to_latent_mask: tuple,
+        obs_to_latent_mask: np.ndarray,
         gt_graph: torch.tensor = None,
         gt_w: torch.tensor = None,
         tied_w: bool = False,
@@ -260,6 +262,7 @@ class LatentTSDCD(nn.Module):
             d_z: number of latent variables
             tau: size of the timewindow
             instantaneous: if True, models instantaneous connections
+            teleconnections: if True, enter teleconnections regime
             hard_gumbel: if True, use hard sampling for the masks
 
             no_gt: if True, do not use any ground-truth data (useful with realworld dataset)
@@ -292,6 +295,7 @@ class LatentTSDCD(nn.Module):
         self.d_z = d_z
         self.tau = tau
         self.instantaneous = instantaneous
+        self.teleconnections = teleconnections
         self.nonlinear_mixing = nonlinear_mixing
         self.nonlinear_dynamics = nonlinear_dynamics
         self.hard_gumbel = hard_gumbel
@@ -354,9 +358,9 @@ class LatentTSDCD(nn.Module):
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
             print("NON-LINEAR MIXING")
-            if self.d > 1:
-                print("MULTIVAR ENCODING")
-                self.autoencoder = NonLinearAutoEncoderUniqueMLP_multivar(
+            if self.teleconnections:
+                print("TELECONNECTIONS ENCODING")
+                self.autoencoder = NonLinearAutoEncoderUniqueMLP_teleconnections(
                     d,
                     d_x,
                     d_z,
@@ -1121,7 +1125,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
             return self.decode(x, i)
 
 
-class NonLinearAutoEncoderUniqueMLP_multivar(NonLinearAutoEncoder):
+class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
     def __init__(
         self,
         d,
@@ -1164,6 +1168,14 @@ class NonLinearAutoEncoderUniqueMLP_multivar(NonLinearAutoEncoder):
         self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
         self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
 
+        # Precompute teleconnections mask
+        if obs_to_latent_mask is not None:
+            base_mask = torch.tensor(obs_to_latent_mask, dtype=torch.float32)  # shape: (d_z, d_x)
+            self.teleconnections_mask = base_mask.unsqueeze(0)  # shape: (1, d_z, d_x)
+            print(f"[init] Precomputed teleconnections_mask of shape {self.teleconnections_mask.shape}")
+        else:
+            self.teleconnections_mask = None
+
     def encode(self, x, i):
         """
         Encode the input x for variable index i.
@@ -1191,14 +1203,14 @@ class NonLinearAutoEncoderUniqueMLP_multivar(NonLinearAutoEncoder):
         print(f"[encode] mask_.shape after select_encoder_mask: {mask_.shape}")  # (B, d_z, d_x)
 
         # 3. Apply hard mask
-        if self.obs_to_latent_mask is not None:
-            print(f"[encode] Applying obs_to_latent_mask of shape {self.obs_to_latent_mask.shape}")
-            hard_mask = self.obs_to_latent_mask.unsqueeze(0).to(mask_.device)  # (1, d_z, d_x)
-            if hard_mask.shape[0] != x.shape[0]:
-                hard_mask = hard_mask.expand(x.shape[0], -1, -1)  # (B, d_z, d_x)
-            print(f"[encode] hard_mask.shape after expand: {hard_mask.shape}")
-            mask_ = mask_ * hard_mask
-            print(f"[encode] mask_.shape after applying hard_mask: {mask_.shape}")
+        print(f"[encode] hard_mask.shape after expand: {self.teleconnections_mask.shape}")
+        if self.teleconnections_mask is not None:
+            tele_mask = self.teleconnections_mask.to(mask_.device)  # (1, d_z, d_x)
+            if tele_mask.shape[0] != mask_.shape[0]:
+                tele_mask = tele_mask.expand(mask_.shape[0], -1, -1)
+            print(f"[encode] hard_mask.shape after expand: {tele_mask.shape}")
+            mask_ = mask_ * tele_mask
+        print(f"[encode] mask_.shape after applying teleconnections_mask: {mask_.shape}")
 
         # 4. Apply full x to full mask
         print(f"[encode] x.unsqueeze(1).shape = {x.unsqueeze(1).shape}")  # (B, 1, d_x)
@@ -1223,29 +1235,25 @@ class NonLinearAutoEncoderUniqueMLP_multivar(NonLinearAutoEncoder):
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 
-        # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
         j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
-
-        # Embed all j_values at once
         embedded_z = self.embedding_decoder(j_values)
 
-        # Select all decoder masks at once
         mask_ = super().select_decoder_mask(mask, i, j_values)
 
         if z.ndim < mask_.ndim:
             z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
         else:
             z_expanded = z.expand(-1, self.d_x, -1)
-        z_expanded_copy = z_expanded.clone()
-        z_expanded_copy.mul_(mask_)
-        z_expanded_copy.unsqueeze(2)
 
-        z_ = torch.cat((z_expanded_copy, embedded_z), dim=2)
+        if self.teleconnections_mask is not None:
+            tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(z.device)  # (1, d_x, d_z)
+            if tele_mask_T.shape[0] != z.shape[0]:
+                tele_mask_T = tele_mask_T.expand(z.shape[0], -1, -1)  # (B, d_x, d_z)
+            print(f"[decode] teleconnections_mask.T shape after expand: {tele_mask_T.shape}")
+            mask_ = mask_ * tele_mask_T  # Apply to decoder mask
 
-        del z_expanded
-        del z_expanded_copy
-
-        # Apply the decoder to all z_ at once and squeeze the result
+        z_expanded.mul_(mask_)  # Apply final mask
+        z_ = torch.cat((z_expanded, embedded_z), dim=2)
         mu = self.decoder(z_).squeeze()
 
         return mu, self.logvar_decoder

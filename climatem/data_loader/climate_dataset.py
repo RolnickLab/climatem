@@ -47,7 +47,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
-        icosahedral_coordinates_path: Optional[str] = "/mappings/vertex_lonlat_mapping.npy",
+        icosahedral_coordinates_path: Optional[str] = "../../mappings/vertex_lonlat_mapping.npy",
         # input_transform=None,  # TODO: implement
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,

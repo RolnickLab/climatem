@@ -191,10 +191,11 @@ class CausalClimateDataModule(ClimateDataModule):
 
             # Number of variables
             num_vars = len(self.input_var_shapes)
-            self.d_z = self.d_z * num_vars
 
             # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
-            self.obs_to_latent_mask = np.zeros((self.d_z, self.d_x), dtype=np.float32)
+            self.obs_to_latent_mask = np.zeros((self.d_z * num_vars, self.d_x), dtype=np.float32)
+            #  TODO Assertion, one value multiplied by no. of vars, or list
+            # TODO loop over Tuple of self.d_z
 
             # For each variable
             for i, var in enumerate(self.input_var_shapes):
@@ -202,22 +203,23 @@ class CausalClimateDataModule(ClimateDataModule):
                 offset = self.input_var_offsets[i]
 
                 latent_start = i * self.d_z
-                latent_end = (i + 1) * self.d_z if i < num_vars - 1 else self.d_z
+                latent_end = (i + 1) * self.d_z
 
                 for j in range(spatial_dim):
                     obs_idx = offset + j
                     self.obs_to_latent_mask[latent_start:latent_end, obs_idx] = 1.0
+            self.d_z = self.d_z * num_vars
 
-            print("obs_to_latent_mask.shape", self.obs_to_latent_mask.shape)
+            print("obs_to_latent_mask", self.obs_to_latent_mask)
             print("train_val_input4mips.length", train_val_input4mips.length)
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,
                 future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
-                num_vars=len(vars),
-                num_scenarios=1,
-                num_ensembles=1,
-                num_years=train_val_input4mips.length,
+                num_vars=len(self.hparams.in_var_ids),
+                num_scenarios=len(self.hparams.train_scenarios),
+                num_ensembles=self.hparams.num_ensembles,
+                num_years=len(train_years),
                 ratio_train=ratio_train,
                 num_months_aggregated=self.num_months_aggregated,
                 interval_length=self.train_val_interval_length,

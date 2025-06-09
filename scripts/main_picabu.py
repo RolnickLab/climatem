@@ -124,17 +124,21 @@ def main(
     # val_dataloader = iter(datamodule.val_dataloader())
 
     # WE SHOULD REMOVE THIS, and initialize with params
-    d = sum(map(len, data_params.in_var_ids.values()))
+
+    if data_params.isteleconnections:
+        d = 1
+        print("Teleconnections regime enabled — setting d = 1 (shared spatial input across variables)")
+    else:
+        d = sum(map(len, data_params["in_var_ids"].values()))
+        print(f"Using {d} variables based on input structure")
+
     datamodule.variables = [v for varlist in data_params.in_var_ids.values() for v in varlist]
-    print(f"Using {d} variables")
 
     if model_params.instantaneous:
         print("Using instantaneous connections")
         num_input = d * (experiment_params.tau + 1) * (model_params.tau_neigh * 2 + 1)
     else:
         num_input = d * experiment_params.tau * (model_params.tau_neigh * 2 + 1)
-    print("datamodule.input_var_offsets", datamodule.input_var_offsets)
-    print("datamodule.input_var_shapes", datamodule.input_var_shapes)
     # set the model
     model = LatentTSDCD(
         num_layers=model_params.num_layers,
@@ -156,6 +160,7 @@ def main(
         d_z=datamodule.d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
+        teleconnections=data_params.isteleconnections,
         nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,

@@ -9,7 +9,7 @@ class expParams:
         exp_path,  # Path to where the output will be saved i.e. model runs, plots
         _target_: str = "climatem.data_loader.climate_datamodule.ClimateDataModule",
         latent: bool = True,  # Are you using latent variables or not (if not, learn causal variables between all observations)
-        d_z: int = 90,  # Latent dimension
+        d_z: int = 90,  # Latent dimension,  TODO: make a Tuple for multi var latent assignment
         d_x: int = 6250,  # Observation dimension
         lon: int = 144,  # Longitude
         lat: int = 96,  # Latitude
@@ -61,6 +61,7 @@ class dataParams:
         seasonality_removal: bool = False,  # deseasonalize the data?
         channels_last: bool = False,  # last dimension of data is the channel
         ishdf5: bool = False,  # numpy vs hdf5. for now only numpy is supported. Redundant with next param
+        isteleconnections: bool = False,
         data_format: str = "numpy",  # numpy vs hdf5. for now only numpy is supported
         seq_to_seq: bool = True,  # predicting a sequence from a sequence?
         train_val_interval_length: int = 11,
@@ -94,6 +95,7 @@ class dataParams:
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
         self.ishdf5 = ishdf5
+        self.isteleconnections = isteleconnections
         self.data_format = data_format
         self.seq_to_seq = seq_to_seq
         self.train_val_interval_length = train_val_interval_length
