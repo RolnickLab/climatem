@@ -196,6 +196,7 @@ class MLP(nn.Module):
         self.model = nn.Sequential(module_dict)
 
     def forward(self, x) -> torch.Tensor:
+        print("forward x.shape", x.shape)
         return self.model(x)
 
 
@@ -1057,10 +1058,12 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         j_values = torch.arange(self.d_z, device=x.device).expand(
             x.shape[0], -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z) # Is this batch size * d_z? or is d_z here the dimn of observations?
+        print("j_values.shape", j_values.shape)
 
         # For each latent, create an embedding of dimension 100
         embedded_x = self.embedding_encoder(j_values)  # size b * d_z * embedding_dim
-
+        print("embedded_x shape", embedded_x.shape)
+        print("embedded_x", embedded_x)
         # for each latent, select the locations it is mapped to
         mask_ = super().select_encoder_mask(mask, i, j_values)  # mask[i, j_values]
 
@@ -1174,33 +1177,45 @@ class NonLinearAutoEncoderUniqueMLP_multivar(NonLinearAutoEncoder):
             logvar: Log-variance of the latent distribution.
         """
         # Create mask shape (B, d_z, d_x)
+        print("=" * 80)
+        print(f"[encode] variable index i = {i}")
+        print(f"[encode] x.shape = {x.shape}")  # (B, d_x)
+
         mask = super().get_encode_mask(x.shape[0])
         mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
 
         j_values = torch.arange(self.d_z, device=x.device).expand(x.shape[0], -1)
         embedded_x = self.embedding_encoder(j_values)  # (B, d_z, embedding_dim)
 
-        mask_ = super().select_encoder_mask(mask, i, j_values)
+        mask_ = super().select_encoder_mask(mask, i, j_values)  # variable-specific selection
+        print(f"[encode] mask_.shape after select_encoder_mask: {mask_.shape}")  # (B, d_z, d_x)
 
+        # 3. Apply hard mask
         if self.obs_to_latent_mask is not None:
+            print(f"[encode] Applying obs_to_latent_mask of shape {self.obs_to_latent_mask.shape}")
             hard_mask = self.obs_to_latent_mask.unsqueeze(0).to(mask_.device)  # (1, d_z, d_x)
             if hard_mask.shape[0] != x.shape[0]:
-                hard_mask = hard_mask.expand(x.shape[0], -1, -1)
-            mask_ = mask_ * hard_mask  # (B, d_z, d_x)
-        print(f"i = {i}, len(input_var_offsets) = {len(self.input_var_offsets)}")
+                hard_mask = hard_mask.expand(x.shape[0], -1, -1)  # (B, d_z, d_x)
+            print(f"[encode] hard_mask.shape after expand: {hard_mask.shape}")
+            mask_ = mask_ * hard_mask
+            print(f"[encode] mask_.shape after applying hard_mask: {mask_.shape}")
 
-        # Extract only the portion of x relevant to variable i
-        start = self.input_var_offsets[i]
-        end = self.input_var_offsets[i + 1]
-        x_var = x[:, start:end]  # (B, d_x_var)
+        # 4. Apply full x to full mask
+        print(f"[encode] x.unsqueeze(1).shape = {x.unsqueeze(1).shape}")  # (B, 1, d_x)
+        x_masked = mask_ * x.unsqueeze(1)  # (B, d_z, d_x)
+        print(f"[encode] x_masked.shape = {x_masked.shape}")
 
-        x_masked = mask_[:, :, start:end] * x_var.unsqueeze(1)  # (B, d_z, d_x_var)
-
-        x_ = torch.cat((x_masked, embedded_x), dim=2)  # (B, d_z, d_x_var + embedding_dim)
-
+        # 5. Embed + concat
+        x_ = torch.cat((x_masked, embedded_x), dim=2)  # (B, d_z, d_x + embedding_dim)
+        print(f"[encode] x_.shape after concat with embedded_x: {x_.shape}")
         del embedded_x, mask_, x_masked
 
+        # 6. Pass to encoder
         mu = self.encoder(x_).squeeze()
+        print(f"[encode] mu.shape = {mu.shape}")
+        print("=" * 80)
+        # Extract only the portion of x relevant to variable i
+
         return mu, self.logvar_encoder
 
     def decode(self, z, i):
@@ -1316,6 +1331,8 @@ class TransitionModel(nn.Module):
         print("The z is now, after z.view() of size: ", z.size())
 
         print("what is mask * z shape? ", (mask * z).size())
+        print(f"mask.shape = {mask.shape}")  # should be (B, T, d_z)
+        print(f"z[:, :, i].shape = {z[:, :, i].shape}")  # should also be (B, T, d_z)
 
         masked_z = (mask * z).view(z.size(0), -1)
 

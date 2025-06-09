@@ -189,12 +189,12 @@ class CausalClimateDataModule(ClimateDataModule):
             self.input_var_shapes = train_val_input4mips.input_var_shapes
             self.input_var_offsets = train_val_input4mips.input_var_offsets
 
-            # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
-            self.obs_to_latent_mask = np.zeros((self.d_z, self.d_x), dtype=np.float32)
-
             # Number of variables
             num_vars = len(self.input_var_shapes)
             self.d_z = self.d_z * num_vars
+
+            # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
+            self.obs_to_latent_mask = np.zeros((self.d_z, self.d_x), dtype=np.float32)
 
             # For each variable
             for i, var in enumerate(self.input_var_shapes):

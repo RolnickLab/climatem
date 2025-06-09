@@ -339,11 +339,12 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
         data = self.Data
 
+        spatial_dim = self.Data.shape[2]
+
         if channels_last:
             data = data.transpose((0, 1, 4, 2, 3))
 
         # TODO: breaks if not same number of years in each scenario i.e. historical vs ssp
-        print("data", data.shape)
         try:
             data = data.reshape(num_scenarios, num_years * self.seq_len, num_vars, self.lon, self.lat)
 
@@ -352,7 +353,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
                 "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!"
             )
 
-            data = data.reshape(1, num_years * self.seq_len, num_vars, -1)
+            data = data.reshape(1, num_years * self.seq_len, spatial_dim)
             print("reshaped data", data.shape)
         if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated > 1:
             data = self.aggregate_months(data, num_months_aggregated)
