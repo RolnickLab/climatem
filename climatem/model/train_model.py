@@ -542,15 +542,8 @@ class TrainingLatent:
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
             y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
-            y_pred_all[:, k] = y_pred.transpose(1, 2)
-            print("x_bis[:, 1:].shape:", x_bis[:, 1:].shape)
-            print("y_pred.shape before unsqueeze:", y_pred.shape)
-            print("y_pred.unsqueeze(1).shape:", y_pred.unsqueeze(1).shape)
-
-            if y_pred.ndim == 3 and y_pred.shape[1] == 1:  # [B, 1, D]
-                y_pred = y_pred.permute(0, 2, 1).unsqueeze(1)  # [B, 1, D, 1]
-
-            x_bis = torch.cat((x_bis[:, 1:], y_pred), dim=1)  # [B, T, D, 1]
+            y_pred_all[:, k] = y_pred
+            x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
         del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
         assert y.shape == y_pred_all.shape
@@ -1085,8 +1078,6 @@ class TrainingLatent:
         # print("****************************************************************************************")
 
     def get_nll(self, x, y, z=None) -> torch.Tensor:
-        print("x.shape", x.shape)
-
         # this is just running the forward pass of LatentTSDCD...
         elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
         # print('what is len(self.model(arg)) with arguments', len(self.model(x, y, z, self.iteration)))

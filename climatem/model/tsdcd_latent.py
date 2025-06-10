@@ -134,11 +134,6 @@ class MixingMask(nn.Module):
     def forward(self, batch_size):
         param = self.param.unsqueeze(0).repeat(batch_size, 1, 1, 1)
         mask = nn.functional.gumbel_softmax(param, tau=1, hard=False)
-        # USE THIS TO APPLY HARD CONSTRAINTS TO THE MIXING MASK
-        # if self.obs_to_latent_mask is not None:
-        #     mask_tensor = self.obs_to_latent_mask.unsqueeze(0).unsqueeze(0)  # shape (1, 1, d_x, d_z)
-        #     param = param * mask_tensor.to(param.device)
-
         return mask
 
 
@@ -448,9 +443,7 @@ class LatentTSDCD(nn.Module):
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
                 print("x[:, t, i].shape", x[:, t, i].shape)
-                x_in = x[:, t, :, i].permute(0, 2, 1)  # [8, 1, 11190]
-                print("x_in.shape", x_in.shape)
-                q_mu, q_logvar = self.autoencoder(x_in, i, encode=True)
+                q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
