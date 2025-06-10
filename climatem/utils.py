@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
+from scipy.interpolate import RegularGridInterpolator
 from torch import default_generator, randperm
 from torch.utils.data.dataset import Subset
 
@@ -224,3 +225,36 @@ def update_config_withparse(params, args):
                 else:
                     params[key_nested[0]][key_nested[1]] = value
     return params
+
+
+def downscale_data_batch_regular(data, lat, lon, factor):
+    """
+    Downscale a batch of 2D data using RegularGridInterpolator (fast for structured grids).
+
+    Args:
+        data (np.ndarray): shape (T, H, W)
+        lat (np.ndarray): 1D array of latitudes (H,)
+        lon (np.ndarray): 1D array of longitudes (W,)
+        factor (int): downscaling factor
+
+    Returns:
+        np.ndarray: shape (T, H//factor, W//factor)
+    """
+    T, H, W = data.shape
+    assert lat.shape[0] == H, "Latitude dimension mismatch"
+    assert lon.shape[0] == W, "Longitude dimension mismatch"
+
+    # Downscaled grid
+    new_H, new_W = H // factor, W // factor
+    new_lat = np.linspace(lat.min(), lat.max(), new_H)
+    new_lon = np.linspace(lon.min(), lon.max(), new_W)
+    new_lon_grid, new_lat_grid = np.meshgrid(new_lon, new_lat)
+    new_points = np.stack([new_lat_grid.ravel(), new_lon_grid.ravel()], axis=-1)  # shape (new_H * new_W, 2)
+
+    result = []
+    for i in range(T):
+        interp = RegularGridInterpolator((lat, lon), data[i], bounds_error=False, fill_value=np.nan)
+        interpolated = interp(new_points).reshape(new_H, new_W)
+        result.append(interpolated)
+
+    return np.stack(result)

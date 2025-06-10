@@ -67,7 +67,7 @@ def main(
 
     intermediate_path = exp_path / "intermediate_objects"
     os.makedirs(intermediate_path, exist_ok=True)
-
+    print("I get here")
     if data_params.data_format == "hdf5":
         print("IS HDF5")
         return
@@ -226,6 +226,7 @@ def main(
         best_metrics,
         d,
         accelerator,
+        datamodule.d_z,
         wandbname=name,
         profiler=False,
     )

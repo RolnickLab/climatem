@@ -197,6 +197,7 @@ class MLP(nn.Module):
         self.model = nn.Sequential(module_dict)
 
     def forward(self, x) -> torch.Tensor:
+        x = x.float()
         print("forward x.shape", x.shape)
         return self.model(x)
 
@@ -443,11 +444,13 @@ class LatentTSDCD(nn.Module):
 
         # TODO: Can we remove this for loop?
         for i in range(self.d):
-            print(f"[DEBUG] i={i}, valid range: 0 to {len(self.input_var_offsets) - 2}")
             # get params from the encoder q(z^t | x^t)
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
-                q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
+                print("x[:, t, i].shape", x[:, t, i].shape)
+                x_in = x[:, t, :, i].permute(0, 2, 1)  # [8, 1, 11190]
+                print("x_in.shape", x_in.shape)
+                q_mu, q_logvar = self.autoencoder(x_in, i, encode=True)
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
@@ -547,6 +550,7 @@ class LatentTSDCD(nn.Module):
 
         # get params of the transition model p(z^t | z^{<t})
         mask = self.mask(b)
+        print(" mask before transition", mask.shape, "b", b, "x.shape", x.shape)
         if self.instantaneous:
             pz_mu, pz_std = self.transition(z.clone(), mask)
         else:
@@ -1212,15 +1216,15 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             mask_ = mask_ * tele_mask
         print(f"[encode] mask_.shape after applying teleconnections_mask: {mask_.shape}")
 
-        # 4. Apply full x to full mask
-        print(f"[encode] x.unsqueeze(1).shape = {x.unsqueeze(1).shape}")  # (B, 1, d_x)
-        x_masked = mask_ * x.unsqueeze(1)  # (B, d_z, d_x)
+        x_masked = mask_ * x
         print(f"[encode] x_masked.shape = {x_masked.shape}")
 
         # 5. Embed + concat
         x_ = torch.cat((x_masked, embedded_x), dim=2)  # (B, d_z, d_x + embedding_dim)
         print(f"[encode] x_.shape after concat with embedded_x: {x_.shape}")
         del embedded_x, mask_, x_masked
+        print("[DEBUG] x_ dtype before encoder:", x_.dtype)
+        print("[DEBUG] encoder weight dtype:", next(self.encoder.parameters()).dtype)
 
         # 6. Pass to encoder
         mu = self.encoder(x_).squeeze()
@@ -1252,9 +1256,9 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             print(f"[decode] teleconnections_mask.T shape after expand: {tele_mask_T.shape}")
             mask_ = mask_ * tele_mask_T  # Apply to decoder mask
 
-        z_expanded.mul_(mask_)  # Apply final mask
+        z_expanded = z_expanded * mask_
         z_ = torch.cat((z_expanded, embedded_z), dim=2)
-        mu = self.decoder(z_).squeeze()
+        mu = self.decoder(z_)
 
         return mu, self.logvar_decoder
 

@@ -10,7 +10,7 @@ import torch
 import xarray as xr
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
-from climatem.utils import get_logger
+from climatem.utils import downscale_data_batch_regular, get_logger
 
 # from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,; CMIP6_NOM_RES,; CMIP6_TEMP_RES,; NO_OPENBURNING_VARS,
 #     AVAILABLE_MODELS_FIRETYPE,
@@ -159,6 +159,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         variables: List[str],
         channels_last: bool = True,
         seq_to_seq: bool = True,
+        upscaling_factor: int = 2,
     ):
         """
         Load multiple variables from NetCDF/GRIB, align time, return:
@@ -188,8 +189,8 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             raw_datasets.append(ds)
             var_names.append(list(ds.data_vars.keys())[0])
 
-        # Align all datasets in time
         aligned_datasets = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude"])
+        print("aligned_datasets", aligned_datasets)
 
         for i, ds in enumerate(aligned_datasets):
             var_name = var_names[i]
@@ -197,32 +198,56 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             lat = ds.latitude.values
             lon = ds.longitude.values
             t, h, w = arr.shape
-            spatial_dim = h * w
             years = t // self.seq_len
-            arr = arr[: years * self.seq_len].reshape((years, self.seq_len, 1, spatial_dim))  # (years, 365, 1, flat)
+            arr = arr[: years * self.seq_len]
+
+            if var_name == "precipitation_amount" and upscaling_factor > 1:
+                print("var_name", var_name, "upscaling_factor", upscaling_factor)
+                print("arr.shape original", arr.shape)
+                reshaped = arr.reshape(-1, h, w)
+                print("reshaped.shape", reshaped.shape)
+
+                # ✅ New interpolator
+                downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
+                print("downscaled.shape", downscaled.shape)
+
+                new_h, new_w = downscaled.shape[1], downscaled.shape[2]
+                arr = downscaled.reshape(years, self.seq_len, 1, new_h * new_w)
+                input_var_shapes[var_name] = new_h * new_w
+
+                new_lat = np.linspace(lat.min(), lat.max(), new_h)
+                new_lon = np.linspace(lon.min(), lon.max(), new_w)
+                lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
+
+            else:
+                arr = arr.reshape(years, self.seq_len, 1, h * w)
+                input_var_shapes[var_name] = h * w
+                lon_grid, lat_grid = np.meshgrid(lon, lat)
+
+            print("input_var_shapes", input_var_shapes)
+            print("arr.shape", arr.shape)
+
+            input_var_offsets.append(input_var_offsets[-1] + input_var_shapes[var_name])
             array_list.append(arr)
 
-            input_var_shapes[var_name] = spatial_dim
-            input_var_offsets.append(input_var_offsets[-1] + spatial_dim)
-            print("input_var_offsets", input_var_offsets)
-            # Grid coordinates
-            lon_grid, lat_grid = np.meshgrid(lon, lat)
-            coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)  # (flat, 2)
+            coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
             coordinates_list.append(coords)
 
-        # Now concatenate on spatial axis (axis=3), keeping num_vars=1 in axis=2
-        temp_data = np.concatenate(array_list, axis=3)  # shape: (years, 365, 1, total_flat_space)
+            print("input_var_offsets", input_var_offsets)
+
+        temp_data = np.concatenate(array_list, axis=3)
 
         if not seq_to_seq:
-            temp_data = temp_data[:, -1:, :, :]  # last timestep only
-            temp_data = np.expand_dims(temp_data, axis=2)  # shape: (years, 1, 1, total_flat_space)
+            temp_data = temp_data[:, -1:, :, :]
+            temp_data = np.expand_dims(temp_data, axis=2)
 
         if not channels_last:
-            temp_data = temp_data.transpose(0, 1, 3, 2)  # fallback shape
+            temp_data = temp_data.transpose(0, 1, 3, 2)
 
-        coordinates = np.concatenate(coordinates_list, axis=0)  # (total_space, 2)
+        coordinates = np.concatenate(coordinates_list, axis=0)
 
         return temp_data, input_var_shapes, input_var_offsets, coordinates
+
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)
 

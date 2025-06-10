@@ -1,4 +1,5 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -33,6 +34,7 @@ class TrainingLatent:
         best_metrics,
         d,
         accelerator,
+        d_z,
         wandbname="unspecified",
         profiler=False,
         profiler_path="./log",
@@ -63,11 +65,11 @@ class TrainingLatent:
         self.save_path = save_path
         self.plots_path = plots_path
         self.wandbname = wandbname
+        self.d_z = d_z
 
         self.latent = exp_params.latent
         self.no_gt = gt_params.no_gt
         self.debug_gt_z = gt_params.debug_gt_z
-        self.d_z = exp_params.d_z
         self.no_w_constraint = model_params.no_w_constraint
 
         self.d = d
@@ -517,8 +519,10 @@ class TrainingLatent:
         except StopIteration:
             self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(self.data_loader_train)
+            print("before nan_to_num x, y", x.shape, y.shape)
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
+            print("after nan_to_num x, y", x.shape, y.shape)
 
         # y = y[:, 0]
         z = None
@@ -538,8 +542,15 @@ class TrainingLatent:
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
             y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
-            y_pred_all[:, k] = y_pred
-            x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
+            y_pred_all[:, k] = y_pred.transpose(1, 2)
+            print("x_bis[:, 1:].shape:", x_bis[:, 1:].shape)
+            print("y_pred.shape before unsqueeze:", y_pred.shape)
+            print("y_pred.unsqueeze(1).shape:", y_pred.unsqueeze(1).shape)
+
+            if y_pred.ndim == 3 and y_pred.shape[1] == 1:  # [B, 1, D]
+                y_pred = y_pred.permute(0, 2, 1).unsqueeze(1)  # [B, 1, D, 1]
+
+            x_bis = torch.cat((x_bis[:, 1:], y_pred), dim=1)  # [B, T, D, 1]
         del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
         assert y.shape == y_pred_all.shape
@@ -569,6 +580,9 @@ class TrainingLatent:
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
         loss = nll + connect_reg + sparsity_reg
+        print("h_ortho.shape", h_ortho.shape)
+        print("gamma.shape", self.ALM_ortho.gamma.shape)
+
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
@@ -580,6 +594,7 @@ class TrainingLatent:
         spectral_loss = 0
         for k in range(self.future_timesteps):
             px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
+            print("px_mu, px_std", px_mu.shape, px_std.shape)
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
                 y[:, k], y_pred_all[:, k], take_log=True
@@ -1070,6 +1085,7 @@ class TrainingLatent:
         # print("****************************************************************************************")
 
     def get_nll(self, x, y, z=None) -> torch.Tensor:
+        print("x.shape", x.shape)
 
         # this is just running the forward pass of LatentTSDCD...
         elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
@@ -1304,8 +1320,42 @@ class TrainingLatent:
             y = y
             mu = mu
             sigma = sigma
-
+            print("sigma.shape", sigma.shape)
+            print("mu.shape", mu.shape)
+            print("y.shape", y.shape)
             sy = (y - mu) / sigma
+            print("sy.shape", sy.shape)
+
+            # Print shape and stats
+            print("sy.shape:", sy.shape)
+            print(
+                "sy stats — min:",
+                sy.min().item(),
+                "max:",
+                sy.max().item(),
+                "mean:",
+                sy.mean().item(),
+                "std:",
+                sy.std().item(),
+            )
+
+            # Detach and convert to numpy
+            sy_np = sy.detach().cpu().flatten().numpy()
+
+            # Plot histogram
+            plt.figure(figsize=(6, 4))
+            plt.hist(sy_np, bins=100, range=(-10, 10), density=True)
+            plt.title("Distribution of standardized residuals (sy)")
+            plt.xlabel("sy")
+            plt.ylabel("Density")
+            plt.grid(True)
+            plt.tight_layout()
+
+            # Save to file
+            plt.savefig(f"{self.plots_path}/sy_distribution.png")
+
+            plt.close()  # Close the figure to avoid memory leaks
+
             forecast_dist = dist.Normal(0, 1)
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
