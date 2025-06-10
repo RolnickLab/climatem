@@ -133,7 +133,8 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
 
         array_list = []
-        self.input_var_shapes = {}
+        input_var_shapes = {}
+        input_var_offsets = [0]
 
         for vlist in paths:
             if vlist[0][-3:] == ".nc":
@@ -157,6 +158,11 @@ class ClimateDataset(torch.utils.data.Dataset):
 
             temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, time, lat, lon)
             array_list.append(temp_data)
+            var_name = list(temp_data.data_vars.keys())[0]
+            t, h, w = array_list.shape
+            years = t // self.seq_len
+            input_var_shapes[var_name] = h * w
+            input_var_offsets.append(self.input_var_offsets[-1] + h * w)
 
         temp_data = np.concatenate(array_list, axis=0)
         num_vars = len(variables)
@@ -186,7 +192,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         else:
             temp_data = temp_data.transpose((1, 2, 0, 3, 4))
 
-        return temp_data
+        return temp_data, input_var_shapes, input_var_offsets
 
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)

@@ -207,7 +207,6 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
                 reshaped = arr.reshape(-1, h, w)
                 print("reshaped.shape", reshaped.shape)
 
-                # ✅ New interpolator
                 downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
                 print("downscaled.shape", downscaled.shape)
 
@@ -378,8 +377,8 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
                 "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!"
             )
 
-            data = data.reshape(1, num_years * self.seq_len, spatial_dim)
-            print("reshaped data", data.shape)
+            data = data.reshape(1, num_years * self.seq_len, num_vars, spatial_dim)
+
         if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated > 1:
             data = self.aggregate_months(data, num_months_aggregated)
             # for each scenario in data, generate overlapping sequences

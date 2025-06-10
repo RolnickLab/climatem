@@ -436,13 +436,11 @@ class LatentTSDCD(nn.Module):
         std = torch.zeros(b, self.d, self.d_z)
 
         # sample Zs
-
         # TODO: Can we remove this for loop?
         for i in range(self.d):
             # get params from the encoder q(z^t | x^t)
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
-                print("x[:, t, i].shape", x[:, t, i].shape)
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
@@ -1209,12 +1207,12 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             mask_ = mask_ * tele_mask
         print(f"[encode] mask_.shape after applying teleconnections_mask: {mask_.shape}")
 
-        x_masked = mask_ * x
+        x_masked = mask_ * x.unsqueeze(1)
+
         print(f"[encode] x_masked.shape = {x_masked.shape}")
 
         # 5. Embed + concat
-        x_ = torch.cat((x_masked, embedded_x), dim=2)  # (B, d_z, d_x + embedding_dim)
-        print(f"[encode] x_.shape after concat with embedded_x: {x_.shape}")
+        x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)
         del embedded_x, mask_, x_masked
         print("[DEBUG] x_ dtype before encoder:", x_.dtype)
         print("[DEBUG] encoder weight dtype:", next(self.encoder.parameters()).dtype)

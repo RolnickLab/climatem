@@ -56,6 +56,7 @@ class CMIP6Dataset(ClimateDataset):
     ):
         self.mode = mode
         self.variables = variables
+        self.scenarios = scenarios
         self.reload_climate_set_data = reload_climate_set_data
         self.output_save_dir = Path(output_save_dir)
         self.root_dir = Path(data_dir) / "outputs/CMIP6"
@@ -259,7 +260,7 @@ class CMIP6Dataset(ClimateDataset):
         # print('files_per_var:', files_per_var)
 
         # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
-        self.raw_data = self.load_into_mem(
+        self.raw_data, self.input_var_shapes, self.input_var_offsets = self.load_into_mem(
             files_per_var, self.variables, channels_last=self.channels_last, seq_to_seq=seq_to_seq
         )
         print("[DEBUG] Finished calling load_into_mem()")
