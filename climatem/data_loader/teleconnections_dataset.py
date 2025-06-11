@@ -81,7 +81,6 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             scenarios = [scenarios]
 
         self.scenarios = scenarios
-        print("years", years)
         if isinstance(years, int):
             self.years = years
         else:
@@ -190,7 +189,6 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             var_names.append(list(ds.data_vars.keys())[0])
 
         aligned_datasets = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude"])
-        print("aligned_datasets", aligned_datasets)
 
         for i, ds in enumerate(aligned_datasets):
             var_name = var_names[i]
@@ -202,13 +200,9 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             arr = arr[: years * self.seq_len]
 
             if var_name == "precipitation_amount" and upscaling_factor > 1:
-                print("var_name", var_name, "upscaling_factor", upscaling_factor)
-                print("arr.shape original", arr.shape)
                 reshaped = arr.reshape(-1, h, w)
-                print("reshaped.shape", reshaped.shape)
 
                 downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
-                print("downscaled.shape", downscaled.shape)
 
                 new_h, new_w = downscaled.shape[1], downscaled.shape[2]
                 arr = downscaled.reshape(years, self.seq_len, 1, new_h * new_w)
@@ -223,16 +217,11 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
                 input_var_shapes[var_name] = h * w
                 lon_grid, lat_grid = np.meshgrid(lon, lat)
 
-            print("input_var_shapes", input_var_shapes)
-            print("arr.shape", arr.shape)
-
             input_var_offsets.append(input_var_offsets[-1] + input_var_shapes[var_name])
             array_list.append(arr)
 
             coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
             coordinates_list.append(coords)
-
-            print("input_var_offsets", input_var_offsets)
 
         temp_data = np.concatenate(array_list, axis=3)
 

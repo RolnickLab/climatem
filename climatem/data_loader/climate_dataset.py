@@ -82,7 +82,6 @@ class ClimateDataset(torch.utils.data.Dataset):
             scenarios = [scenarios]
 
         self.scenarios = scenarios
-        print("years", years)
         if isinstance(years, int):
             self.years = years
         else:
@@ -200,11 +199,9 @@ class ClimateDataset(torch.utils.data.Dataset):
     # NOTE:() rewriting this currently to try to use icosahedral code...
 
     def load_coordinates_into_mem(self, paths: List[List[str]]) -> np.ndarray:
-        print("length paths", len(paths))
         first_file = paths[0][0]
 
         if first_file.endswith(".grib") or first_file.endswith(".grib2"):
-            print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
             coordinates = np.load(self.icosahedral_coordinates_path)
         elif paths[0][0][-5:] == "grib2":
             coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))

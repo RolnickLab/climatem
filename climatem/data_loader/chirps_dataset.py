@@ -74,7 +74,6 @@ class CHIRPSDataset(TeleconnectionsDataset):
             self.ensemble_dirs = [self.root_dir / ensemble[0]]
         elif num_ensembles == 0:
             self.ensemble_dirs = [self.root_dir]
-            print("self.ensemble_dirs", self.ensemble_dirs)
         else:
             ensembles = os.listdir(self.root_dir)
             self.ensemble_dirs = [self.root_dir / ensemble for ensemble in ensembles]
@@ -99,7 +98,6 @@ class CHIRPSDataset(TeleconnectionsDataset):
                 pattern_grib = f"{self.output_save_dir}/*{var}*.nc"
                 grib_files = glob.glob(pattern_grib, recursive=True)
                 files_per_var.append(grib_files)
-            print("files_per_var", files_per_var)
             self.raw_data, self.input_var_shapes, self.input_var_offsets, self.coordinates = self.load_into_mem(
                 files_per_var,
                 variables,
@@ -135,7 +133,6 @@ class CHIRPSDataset(TeleconnectionsDataset):
                     self.norm_data = self.raw_data
                 if self.seasonality_removal:
                     self.norm_data = self.remove_seasonality(self.norm_data)
-            print("self.raw_data.shape", self.raw_data.shape)
             self.data_path = self.save_data_into_disk(self.raw_data, fname, self.output_save_dir)
             self.copy_to_slurm(self.data_path)
             self.Data = self.norm_data

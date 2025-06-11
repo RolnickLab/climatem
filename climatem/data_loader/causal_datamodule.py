@@ -147,7 +147,6 @@ class CausalClimateDataModule(ClimateDataModule):
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
                     )
                 elif source == "chirps":
-                    print("source", source)
                     train_val_input4mips = CHIRPSDataset(
                         years=train_years,
                         historical_years=train_historical_years,
@@ -189,10 +188,6 @@ class CausalClimateDataModule(ClimateDataModule):
             self.coordinates = train_val_input4mips.coordinates
             self.input_var_shapes = train_val_input4mips.input_var_shapes
             self.input_var_offsets = train_val_input4mips.input_var_offsets
-            print("self.d_x", self.d_x)
-            print("self.coordinates.shape", self.coordinates.shape)
-            print("self.input_var_shapes", self.input_var_shapes)
-            print("self.input_var_offsets", self.input_var_offsets)
             # Number of variables
             num_vars = len(self.input_var_shapes)
 
@@ -213,9 +208,6 @@ class CausalClimateDataModule(ClimateDataModule):
                     obs_idx = offset + j
                     self.obs_to_latent_mask[latent_start:latent_end, obs_idx] = 1.0
             self.d_z = self.d_z * num_vars
-
-            print("obs_to_latent_mask", self.obs_to_latent_mask)
-            print("train_val_input4mips.length", train_val_input4mips.length)
 
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,

@@ -1,5 +1,4 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -49,7 +48,6 @@ class TrainingLatent:
         self.coordinates = datamodule.coordinates
         self.input_var_shapes = datamodule.input_var_shapes
         self.input_var_offsets = datamodule.input_var_offsets
-        self.variables = datamodule.variables
 
         self.exp_params = exp_params
         self.train_params = train_params
@@ -79,7 +77,7 @@ class TrainingLatent:
         self.batch_size = datamodule.hparams.batch_size
         self.tau = exp_params.tau
         self.future_timesteps = exp_params.future_timesteps
-        self.d_x = exp_params.d_x
+        self.d_x = datamodule.d_x
         self.lat = exp_params.lat
         self.lon = exp_params.lon
         self.instantaneous = model_params.instantaneous
@@ -474,7 +472,7 @@ class TrainingLatent:
             self.threshold()
 
         # final plotting and printing
-        self.plotter.plot_sparsity(self, save=True)
+        self.plotter.plot_sparsity(self, self.input_var_shapes, self.input_var_offsets, save=True)
         self.print_results()
 
         # wandb.finish()
@@ -573,8 +571,6 @@ class TrainingLatent:
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
         loss = nll + connect_reg + sparsity_reg
-        print("h_ortho.shape", h_ortho.shape)
-        print("gamma.shape", self.ALM_ortho.gamma.shape)
 
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
@@ -587,7 +583,6 @@ class TrainingLatent:
         spectral_loss = 0
         for k in range(self.future_timesteps):
             px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
-            print("px_mu, px_std", px_mu.shape, px_std.shape)
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
                 y[:, k], y_pred_all[:, k], take_log=True
@@ -778,7 +773,6 @@ class TrainingLatent:
                         coordinates=self.coordinates,
                         input_var_shapes=self.input_var_shapes,
                         input_var_offsets=self.input_var_offsets,
-                        variables=self.variables,
                         path=self.plots_path,
                         iteration=self.iteration,
                         valid=False,
@@ -1068,7 +1062,6 @@ class TrainingLatent:
         # print("The self.ALM_sparsity.gamma * h_sparsity is:", self.ALM_sparsity.gamma * self.train_sparsity_cons)
         # print("The 0.5 * self.ALM_sparsity.mu * h_sparsity**2 is:", (0.5 * self.ALM_sparsity.mu * self.train_sparsity_cons**2))
 
-        print("****************************************************************************************")
         # print("What are the actual values of the constraints?")
         # print("The connect reg is:", self.train_connect_reg)
         # print("The sparsity reg is:", self.train_sparsity_reg)
@@ -1311,41 +1304,7 @@ class TrainingLatent:
             y = y
             mu = mu
             sigma = sigma
-            print("sigma.shape", sigma.shape)
-            print("mu.shape", mu.shape)
-            print("y.shape", y.shape)
             sy = (y - mu) / sigma
-            print("sy.shape", sy.shape)
-
-            # Print shape and stats
-            print("sy.shape:", sy.shape)
-            print(
-                "sy stats — min:",
-                sy.min().item(),
-                "max:",
-                sy.max().item(),
-                "mean:",
-                sy.mean().item(),
-                "std:",
-                sy.std().item(),
-            )
-
-            # Detach and convert to numpy
-            sy_np = sy.detach().cpu().flatten().numpy()
-
-            # Plot histogram
-            plt.figure(figsize=(6, 4))
-            plt.hist(sy_np, bins=100, range=(-10, 10), density=True)
-            plt.title("Distribution of standardized residuals (sy)")
-            plt.xlabel("sy")
-            plt.ylabel("Density")
-            plt.grid(True)
-            plt.tight_layout()
-
-            # Save to file
-            plt.savefig(f"{self.plots_path}/sy_distribution.png")
-
-            plt.close()  # Close the figure to avoid memory leaks
 
             forecast_dist = dist.Normal(0, 1)
             pdf = self._normpdf(sy)
@@ -1381,7 +1340,6 @@ class TrainingLatent:
             y: torch.Tensor, the true values
             y_pred: torch.Tensor, the predicted values
         """
-
         # assert that y_true has 3 dimensions
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
@@ -1396,7 +1354,6 @@ class TrainingLatent:
             fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
             # calculate the spectra of the predicted values
             fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=3)), dim=0)
-
         elif y_true.size(-1) == self.d_x:
 
             y_true = y_true
@@ -1599,7 +1556,7 @@ class TrainingLatent:
             predictions = torch.stack(predictions, dim=1)
             # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
 
-            print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
+            # print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
 
             # then calculate the mean of the predictions along the timesteps
             y_pred_mean = torch.mean(predictions, dim=1)

@@ -193,7 +193,6 @@ class MLP(nn.Module):
 
     def forward(self, x) -> torch.Tensor:
         x = x.float()
-        print("forward x.shape", x.shape)
         return self.model(x)
 
 
@@ -350,7 +349,6 @@ class LatentTSDCD(nn.Module):
             self.distr_decoder = distr.normal.Normal
         else:
             raise NotImplementedError(f"Decoder distribution '{distr_decoder}' is not implemented.")
-        print("self.d", self.d)
         # self.encoder_decoder = EncoderDecoder(self.d, self.d_x, self.d_z, self.nonlinear_mixing, 4, 1, self.debug_gt_w, self.gt_w, self.tied_w)
         if self.nonlinear_mixing:
             print("NON-LINEAR MIXING")
@@ -473,7 +471,7 @@ class LatentTSDCD(nn.Module):
         mu = torch.zeros(b, self.d, self.d_z)
         std = torch.zeros(b, self.d, self.d_z)
 
-        print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
+        # print("What is the shape of the mus and stds that we are going to fill up?", mu.shape, std.shape)
 
         # learning conditional variance
         # for i in range(self.d):
@@ -486,23 +484,12 @@ class LatentTSDCD(nn.Module):
         # TODO Can we remove this for loop
         for i in range(self.d):
             pz_params = torch.zeros(b, self.d_z, 1)
-            print(
-                "This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.",
-                pz_params.shape,
-            )
             # for k in range(self.d_z):
             # print("Doing the transition, and this is the k at the moment.", k)
-            print("**************************************************")
-            print("What is the shape of the mask?", mask.shape)
             # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
             # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
             pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
 
-            print(
-                "Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass."
-            )
-            print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
-            print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
@@ -541,7 +528,7 @@ class LatentTSDCD(nn.Module):
 
         # get params of the transition model p(z^t | z^{<t})
         mask = self.mask(b)
-        print(" mask before transition", mask.shape, "b", b, "x.shape", x.shape)
+
         if self.instantaneous:
             pz_mu, pz_std = self.transition(z.clone(), mask)
         else:
@@ -1057,12 +1044,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         j_values = torch.arange(self.d_z, device=x.device).expand(
             x.shape[0], -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z) # Is this batch size * d_z? or is d_z here the dimn of observations?
-        print("j_values.shape", j_values.shape)
 
         # For each latent, create an embedding of dimension 100
         embedded_x = self.embedding_encoder(j_values)  # size b * d_z * embedding_dim
-        print("embedded_x shape", embedded_x.shape)
-        print("embedded_x", embedded_x)
         # for each latent, select the locations it is mapped to
         mask_ = super().select_encoder_mask(mask, i, j_values)  # mask[i, j_values]
 
@@ -1184,10 +1168,6 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             logvar: Log-variance of the latent distribution.
         """
         # Create mask shape (B, d_z, d_x)
-        print("=" * 80)
-        print(f"[encode] variable index i = {i}")
-        print(f"[encode] x.shape = {x.shape}")  # (B, d_x)
-
         mask = super().get_encode_mask(x.shape[0])
         mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
 
@@ -1195,32 +1175,22 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
         embedded_x = self.embedding_encoder(j_values)  # (B, d_z, embedding_dim)
 
         mask_ = super().select_encoder_mask(mask, i, j_values)  # variable-specific selection
-        print(f"[encode] mask_.shape after select_encoder_mask: {mask_.shape}")  # (B, d_z, d_x)
 
         # 3. Apply hard mask
-        print(f"[encode] hard_mask.shape after expand: {self.teleconnections_mask.shape}")
         if self.teleconnections_mask is not None:
             tele_mask = self.teleconnections_mask.to(mask_.device)  # (1, d_z, d_x)
             if tele_mask.shape[0] != mask_.shape[0]:
                 tele_mask = tele_mask.expand(mask_.shape[0], -1, -1)
-            print(f"[encode] hard_mask.shape after expand: {tele_mask.shape}")
             mask_ = mask_ * tele_mask
-        print(f"[encode] mask_.shape after applying teleconnections_mask: {mask_.shape}")
 
         x_masked = mask_ * x.unsqueeze(1)
-
-        print(f"[encode] x_masked.shape = {x_masked.shape}")
 
         # 5. Embed + concat
         x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)
         del embedded_x, mask_, x_masked
-        print("[DEBUG] x_ dtype before encoder:", x_.dtype)
-        print("[DEBUG] encoder weight dtype:", next(self.encoder.parameters()).dtype)
 
         # 6. Pass to encoder
         mu = self.encoder(x_).squeeze()
-        print(f"[encode] mu.shape = {mu.shape}")
-        print("=" * 80)
         # Extract only the portion of x relevant to variable i
 
         return mu, self.logvar_encoder
@@ -1244,7 +1214,6 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(z.device)  # (1, d_x, d_z)
             if tele_mask_T.shape[0] != z.shape[0]:
                 tele_mask_T = tele_mask_T.expand(z.shape[0], -1, -1)  # (B, d_x, d_z)
-            print(f"[decode] teleconnections_mask.T shape after expand: {tele_mask_T.shape}")
             mask_ = mask_ * tele_mask_T  # Apply to decoder mask
 
         z_expanded = z_expanded * mask_
@@ -1317,47 +1286,47 @@ class TransitionModel(nn.Module):
         # t_total = torch.max(self.tau, z_past.size(1))  # TODO: find right dim
         # param_z = torch.zeros(z_past.size(0), 2)
 
-        print(
-            "In the forward of the transition model, and trying to ascertain which way the information flows through the mask."
-        )
-        print("The mask is of size: ", mask.size())
-        print("The z is of size: ", z.size())
+        # print(
+        #     "In the forward of the transition model, and trying to ascertain which way the information flows through the mask."
+        # )
+        # print("The mask is of size: ", mask.size())
+        # print("The z is of size: ", z.size())
 
         # print the unique values and their counts in mask:
-        print("The unique values of mask are: ", torch.unique(mask))
-        print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
+        # print("The unique values of mask are: ", torch.unique(mask))
+        # print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
 
         # print the first few elements of z
 
         z = z.view(mask.size())
 
-        print("The z is now, after z.view() of size: ", z.size())
+        # print("The z is now, after z.view() of size: ", z.size())
 
-        print("what is mask * z shape? ", (mask * z).size())
-        print(f"mask.shape = {mask.shape}")  # should be (B, T, d_z)
-        print(f"z[:, :, i].shape = {z[:, :, i].shape}")  # should also be (B, T, d_z)
+        # print("what is mask * z shape? ", (mask * z).size())
+        # print(f"mask.shape = {mask.shape}")  # should be (B, T, d_z)
+        # print(f"z[:, :, i].shape = {z[:, :, i].shape}")  # should also be (B, T, d_z)
 
         masked_z = (mask * z).view(z.size(0), -1)
 
-        print("mask * z is of size: ", (mask * z).size())
-        print("The masked_z is of size: ", masked_z.size())
+        # print("mask * z is of size: ", (mask * z).size())
+        # print("The masked_z is of size: ", masked_z.size())
 
         # print the first few elements of masked_z
-        print("The first few elements of masked_z are: ", masked_z[0, :10])
+        # print("The first few elements of masked_z are: ", masked_z[0, :10])
 
         # print all the unique values of masked_z, and the number of unique values.
-        print("The unique values of masked_z are: ", torch.unique(masked_z))
+        # print("The unique values of masked_z are: ", torch.unique(masked_z))
 
         # count the number of very small values in masked_z
-        print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
+        # print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
 
-        print("What is i, self_d_z, k? ", i, self.d_z, k)
-        print("What is i * self.d_z + k? ", i * self.d_z + k)
-        print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
+        # print("What is i, self_d_z, k? ", i, self.d_z, k)
+        # print("What is i * self.d_z + k? ", i * self.d_z + k)
+        # print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
 
         param_z = self.nn[i * self.d_z + k](masked_z)
 
-        print("What is the shape of param_z?", param_z.size())
+        # print("What is the shape of param_z?", param_z.size())
 
         # param_z = self.nn(masked_z)
 
@@ -1427,8 +1396,8 @@ class TransitionModelParamSharing(nn.Module):
             z.shape[0], -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z)
         embedded_z = self.embedding_transition(j_values)
-        print("z.shape:", z.shape)  # Should be (B, T, d_z)
-        print("mask.shape:", mask.shape)  # Expected to be (B, T, d_x)
+        # print("z.shape:", z.shape)  # Should be (B, T, d_z)
+        # print("mask.shape:", mask.shape)  # Expected to be (B, T, d_x)
 
         masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
         z_ = torch.cat((masked_z, embedded_z), dim=2)
@@ -1439,7 +1408,7 @@ class TransitionModelParamSharing(nn.Module):
         del masked_z
         del z_
 
-        print("What is the shape of param_z?", param_z.size())
+        # print("What is the shape of param_z?", param_z.size())
 
         # param_z = self.nn(masked_z)
 
