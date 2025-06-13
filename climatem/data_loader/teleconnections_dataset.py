@@ -10,7 +10,11 @@ import torch
 import xarray as xr
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
-from climatem.utils import downscale_data_batch_regular, get_logger
+from climatem.utils import (
+    downscale_data_batch_regular,
+    get_logger,
+    resize_mask_to_shape,
+)
 
 # from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,; CMIP6_NOM_RES,; CMIP6_TEMP_RES,; NO_OPENBURNING_VARS,
 #     AVAILABLE_MODELS_FIRETYPE,
@@ -189,7 +193,6 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             var_names.append(list(ds.data_vars.keys())[0])
 
         aligned_datasets = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude"])
-
         for i, ds in enumerate(aligned_datasets):
             var_name = var_names[i]
             arr = ds[var_name].to_numpy()  # (time, lat, lon)
@@ -200,27 +203,50 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             arr = arr[: years * self.seq_len]
 
             if var_name == "precipitation_amount" and upscaling_factor > 1:
+                morocco_mask = np.load(f"{self.output_save_dir}/morocco_mask.npy")  # shape: (lat, lon)
+
                 reshaped = arr.reshape(-1, h, w)
 
+                # Downscale the batch
                 downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
-
                 new_h, new_w = downscaled.shape[1], downscaled.shape[2]
-                arr = downscaled.reshape(years, self.seq_len, 1, new_h * new_w)
-                input_var_shapes[var_name] = new_h * new_w
+                arr = downscaled.reshape(years, self.seq_len, 1, new_h, new_w)
 
+                # New lat/lon after downscaling
                 new_lat = np.linspace(lat.min(), lat.max(), new_h)
                 new_lon = np.linspace(lon.min(), lon.max(), new_w)
                 lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
 
+                # Resize the Morocco mask to match new shape
+                morocco_mask_resized = resize_mask_to_shape(morocco_mask, new_h, new_w)
+
+                # Flatten and mask
+                mask_flat = morocco_mask_resized.ravel()
+                arr = arr.reshape(years, self.seq_len, 1, -1)[:, :, :, mask_flat]
+                coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
+
+                input_var_shapes[var_name] = coords.shape[0]
+
+            elif var_name == "precipitation_amount":
+                arr = arr.reshape(years, self.seq_len, 1, h, w)
+
+                # Apply Morocco mask
+                mask_flat = morocco_mask.ravel()
+                arr = arr.reshape(years, self.seq_len, 1, -1)[:, :, :, mask_flat]
+                lon_grid, lat_grid = np.meshgrid(lon, lat)
+                coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
+
+                input_var_shapes[var_name] = coords.shape[0]
+
             else:
                 arr = arr.reshape(years, self.seq_len, 1, h * w)
-                input_var_shapes[var_name] = h * w
                 lon_grid, lat_grid = np.meshgrid(lon, lat)
+                coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
+
+                input_var_shapes[var_name] = h * w
 
             input_var_offsets.append(input_var_offsets[-1] + input_var_shapes[var_name])
             array_list.append(arr)
-
-            coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
             coordinates_list.append(coords)
 
         temp_data = np.concatenate(array_list, axis=3)

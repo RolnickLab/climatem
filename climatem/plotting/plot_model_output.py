@@ -1391,7 +1391,6 @@ class Plotter:
 
         One row per variable, four columns for [GT t-1, GT, Recons, Pred].
         """
-
         print(
             f"x_past.shape: {x_past.shape}, y_true.shape: {y_true.shape}, "
             f"y_recons.shape: {y_recons.shape}, y_hat.shape: {y_hat.shape}"
@@ -1419,9 +1418,19 @@ class Plotter:
                 offset_end = input_var_offsets[var_idx + 1]
                 coords = coordinates[offset_start:offset_end]
 
-                lon = np.unique(coords[:, 0])
-                lat = np.unique(coords[:, 1])
-                lon_grid, lat_grid = np.meshgrid(lon, lat)
+                lon = coords[:, 0]
+                lat = coords[:, 1]
+
+                # Try to determine if we can reshape the grid
+                use_pcolormesh = False
+                try:
+                    lon_unique = np.sort(np.unique(lon))
+                    lat_unique = np.sort(np.unique(lat))
+                    if lon_unique.size * lat_unique.size == spatial_dim:
+                        lon_grid, lat_grid = np.meshgrid(lon_unique, lat_unique)
+                        use_pcolormesh = True
+                except Exception:
+                    use_pcolormesh = False
 
                 for j in range(4):
                     ax = axs[var_idx][j]
@@ -1431,26 +1440,67 @@ class Plotter:
                     ax.add_feature(cfeature.LAND.with_scale("50m"), edgecolor="black")
                     ax.gridlines(draw_labels=False)
 
+                    tensor = data_sources[j]
+                    # Determine safe indexing based on shape
                     if j == 0:
-                        raw_data = data_sources[j][sample, timestep, 0, :]
+                        assert tensor.ndim == 4, f"x_past must be (B, T, V, S); got {tensor.shape}"
+                        if var_idx >= tensor.shape[2]:
+                            print(
+                                f"Warning: var_idx {var_idx} out of bounds for x_past with shape {tensor.shape}. Skipping."
+                            )
+                            continue
+                        raw_data = tensor[sample, timestep, var_idx, :]
                     else:
-                        raw_data = data_sources[j][sample, 0, :]
+                        assert tensor.ndim == 3, f"Expected (B, V, S); got {tensor.shape}"
+                        if var_idx >= tensor.shape[1]:
+                            print(
+                                f"Warning: var_idx {var_idx} out of bounds for tensor {j} with shape {tensor.shape}. Skipping."
+                            )
+                            continue
+                        raw_data = tensor[sample, var_idx, :]
 
-                    data = raw_data[offset_start:offset_end].reshape(lat.size, lon.size)
+                    raw_data = raw_data[offset_start:offset_end]
 
-                    s = ax.pcolormesh(
-                        lon_grid,
-                        lat_grid,
-                        data,
-                        alpha=1,
-                        vmin=-3.5,
-                        vmax=3.5,
-                        cmap="RdBu_r",
-                        transform=ccrs.PlateCarree(),
-                    )
+                    if use_pcolormesh:
+                        try:
+                            data = raw_data.reshape(lat_unique.size, lon_unique.size)
+                            s = ax.pcolormesh(
+                                lon_grid,
+                                lat_grid,
+                                data,
+                                alpha=1,
+                                vmin=-3.5,
+                                vmax=3.5,
+                                cmap="RdBu_r",
+                                transform=ccrs.PlateCarree(),
+                            )
+                        except ValueError as e:
+                            print(f"Reshape failed for var {var}, falling back to scatter: {e}")
+                            s = ax.scatter(
+                                lon,
+                                lat,
+                                c=raw_data,
+                                s=10,
+                                cmap="RdBu_r",
+                                vmin=-3.5,
+                                vmax=3.5,
+                                transform=ccrs.PlateCarree(),
+                            )
+                    else:
+                        s = ax.scatter(
+                            lon,
+                            lat,
+                            c=raw_data,
+                            s=10,
+                            cmap="RdBu_r",
+                            vmin=-3.5,
+                            vmax=3.5,
+                            transform=ccrs.PlateCarree(),
+                        )
+
                     ax.set_title(f"{titles[j]} ({var})", fontsize=14)
 
-                # Add colorbar to the final column of each row
+                # Add colorbar to final column of the row
                 fig.colorbar(s, ax=axs[var_idx][-1], orientation="vertical", shrink=0.8, label=f"Normalised {var}")
 
             timestep_label = timestep + 365

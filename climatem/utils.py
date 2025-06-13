@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 from scipy.interpolate import RegularGridInterpolator
+from scipy.ndimage import zoom
 from torch import default_generator, randperm
 from torch.utils.data.dataset import Subset
 
@@ -258,3 +259,11 @@ def downscale_data_batch_regular(data, lat, lon, factor):
         result.append(interpolated)
 
     return np.stack(result)
+
+
+def resize_mask_to_shape(mask: np.ndarray, new_h: int, new_w: int, threshold=0.5) -> np.ndarray:
+    """Resize the Morocco mask to the new dimensions and threshold to get boolean output."""
+    zoom_h = new_h / mask.shape[0]
+    zoom_w = new_w / mask.shape[1]
+    resized = zoom(mask.astype(float), (zoom_h, zoom_w), order=1)  # bilinear
+    return resized >= threshold
