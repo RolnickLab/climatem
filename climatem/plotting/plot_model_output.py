@@ -466,7 +466,6 @@ class Plotter:
                     learner.iteration,
                     learner.plot_params.plot_through_time,
                     path=learner.plots_path,
-                    idx_region=None,
                     annotate=True,
                     one_plot=True,
                 )
@@ -813,14 +812,15 @@ class Plotter:
 
         colors = plt.cm.rainbow(np.linspace(0, 1, d_z))
 
-        # First, I will assert that I have two columns.
         assert coordinates.shape[1] == 2
 
-        # Then, swap the columns if the first column at the moment is the longitude column.
-        if np.max(coordinates[:, 0]) > 91:
+        # Ensure coordinates are (longitude, latitude)
+        if np.max(coordinates[:, 0]) < 91:
+            coordinates = coordinates  # already (lon, lat)
+        elif np.max(coordinates[:, 0]) > 91:
             coordinates = np.flip(coordinates, axis=1)
-
-        # fig, axs = plt.subplots(1, w_adj.shape[0], subplot_kw={'projection': ccrs.Robinson()}, layout='constrained', figsize=(32, 8))
+        else:
+            coordinates = coordinates[:, [1, 0]]  # swap (lat, lon) to (lon, lat)
 
         if w_adj.shape[0] > 1:
             fig, axs = plt.subplots(
@@ -833,7 +833,6 @@ class Plotter:
             axs = [axs]
 
         for i, ax in enumerate(axs):
-
             ax.set_global()
             ax.coastlines()
             # Add some map features for context
@@ -841,25 +840,20 @@ class Plotter:
             ax.add_feature(cfeature.COASTLINE)
             ax.add_feature(cfeature.LAND, edgecolor="black")
             ax.gridlines(draw_labels=False)
+            alpha = 1.0
 
-            # Unpack coordinates for vectorized scatter plot
-            # something like lonlat_vertex_mapping.txt
-            # lon = coordinates[:, 0]
-            # lat = coordinates[:, 1]
-
-            # Vectorized scatter plot with color array
             for k, color in zip(range(d_z), colors):
-                alpha = 1.0
-
                 region = coordinates[idx[i] == k]
 
                 c = np.repeat(np.array([color]), region.shape[0], axis=0)
 
-                ax.scatter(x=region[:, 1], y=region[:, 0], c=c, alpha=alpha, s=20, transform=ccrs.PlateCarree())
-
-                # add number for each region (that are completely in one of the four quadrants)
                 if annotate:
-                    x, y = self.get_centroid(region[:, 1], region[:, 0])
+                    if np.max(coordinates[:, 0]) > 91:
+                        x, y = self.get_centroid(region[:, 1], region[:, 0])
+                        ax.scatter(x=region[:, 1], y=region[:, 0], c=c, alpha=alpha, s=20, transform=ccrs.PlateCarree())
+                    else:
+                        x, y = self.get_centroid(region[:, 0], region[:, 1])
+                        ax.scatter(x=region[:, 0], y=region[:, 1], c=c, alpha=alpha, s=20, transform=ccrs.PlateCarree())
                     ax.text(x, y, str(k), transform=ccrs.PlateCarree())
 
         if idx_region is not None:
@@ -1393,9 +1387,9 @@ class Plotter:
         valid: str = False,
     ):
         """
-        Plot predictions for each variable using its own spatial grid.
+        Plot predictions for all variables using their own spatial grid.
 
-        Only plots the last two timesteps (T-2, T-1).
+        One row per variable, four columns for [GT t-1, GT, Recons, Pred].
         """
 
         print(
@@ -1406,25 +1400,31 @@ class Plotter:
 
         titles = ["Ground-truth t-1", "Ground truth", "Reconstruction", "Prediction"]
         data_sources = [x_past, y_true, y_recons, y_hat]
+        n_vars = len(input_var_shapes)
 
-        for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
-            print("var_idx", var_idx, "var", var, "spatial_dim", spatial_dim)
-            offset = input_var_offsets[var_idx]
-            coords = coordinates[offset : input_var_offsets[var_idx + 1]]
-            lon = np.unique(coords[:, 0])
-            lat = np.unique(coords[:, 1])
-            lon_grid, lat_grid = np.meshgrid(lon, lat)
+        for timestep in [-2, -1]:
+            fig, axs = plt.subplots(
+                n_vars,
+                4,
+                subplot_kw={"projection": ccrs.PlateCarree()},
+                layout="constrained",
+                figsize=(32, 8 * n_vars),
+            )
 
-            for timestep in [-2, -1]:
-                fig, axs = plt.subplots(
-                    1,
-                    4,
-                    subplot_kw={"projection": ccrs.PlateCarree()},
-                    layout="constrained",
-                    figsize=(32, 8),
-                )
+            if n_vars == 1:
+                axs = [axs]  # ensure 2D indexing
 
-                for j, ax in enumerate(axs):
+            for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
+                offset_start = input_var_offsets[var_idx]
+                offset_end = input_var_offsets[var_idx + 1]
+                coords = coordinates[offset_start:offset_end]
+
+                lon = np.unique(coords[:, 0])
+                lat = np.unique(coords[:, 1])
+                lon_grid, lat_grid = np.meshgrid(lon, lat)
+
+                for j in range(4):
+                    ax = axs[var_idx][j]
                     ax.set_extent([lon.min(), lon.max(), lat.min(), lat.max()], crs=ccrs.PlateCarree())
                     ax.coastlines(resolution="50m")
                     ax.add_feature(cfeature.COASTLINE.with_scale("50m"))
@@ -1436,7 +1436,7 @@ class Plotter:
                     else:
                         raw_data = data_sources[j][sample, 0, :]
 
-                    data = raw_data[offset : offset + spatial_dim].reshape(lat.size, lon.size)
+                    data = raw_data[offset_start:offset_end].reshape(lat.size, lon.size)
 
                     s = ax.pcolormesh(
                         lon_grid,
@@ -1448,17 +1448,18 @@ class Plotter:
                         cmap="RdBu_r",
                         transform=ccrs.PlateCarree(),
                     )
-                    ax.set_title(titles[j])
+                    ax.set_title(f"{titles[j]} ({var})", fontsize=14)
 
-                fig.colorbar(s, ax=axs[-1], orientation="vertical", shrink=0.8, label=f"Normalised {var}")
+                # Add colorbar to the final column of each row
+                fig.colorbar(s, ax=axs[var_idx][-1], orientation="vertical", shrink=0.8, label=f"Normalised {var}")
 
-                timestep_label = timestep + 365
-                fname_prefix = "valid" if valid else "train"
-                fname = f"{fname_prefix}_compare_{var}_t{timestep_label}_sample_{sample}_it{iteration}.png"
+            timestep_label = timestep + 365
+            fname_prefix = "valid" if valid else "train"
+            fname = f"{fname_prefix}_compare_allvars_t{timestep_label}_sample_{sample}_it{iteration}.png"
 
-                plt.suptitle(f"{var} @ timestep {timestep_label}: {', '.join(titles)}", fontsize=20)
-                plt.savefig(path / fname, format="png")
-                plt.close()
+            plt.suptitle(f"Comparison @ timestep {timestep_label}", fontsize=24)
+            plt.savefig(path / fname, format="png")
+            plt.close()
 
     def plot_regions_map_by_var(
         self,
@@ -1469,67 +1470,77 @@ class Plotter:
         iteration: int,
         plot_through_time: bool,
         path,
-        idx_region: int = None,
         annotate: bool = False,
         one_plot: bool = False,
     ):
-        """Plot spatial regions (latent clusters) for each variable separately using precomputed w_adj and coordinate
-        slices."""
+        """Plot spatial regions (latent clusters) for each variable separately on the same figure, zooming to each
+        variable’s extent."""
+        print(
+            f"input_var_shapes: {input_var_shapes}, input_var_offsets: {input_var_offsets}, w_adj.shape: {w_adj.shape}"
+        )
+        print(f"coordinates.shape: {coordinates.shape}")
 
-        assert coordinates.shape[1] == 2, "Coordinates should be of shape (N, 2)"
+        # Flip coordinates once if necessary
+        if np.max(coordinates[:, 0]) > 91:  # latitude in first column
+            coordinates = coordinates[:, [1, 0]]  # now (lon, lat)
+
+        d_z = w_adj.shape[2]
         d_vars = len(input_var_shapes)
-        d_z = w_adj.shape[2]  # total latents = num_vars * latents_per_var
         latents_per_var = d_z // d_vars
         colors = plt.cm.rainbow(np.linspace(0, 1, latents_per_var))
-
-        idx = np.argmax(w_adj, axis=2)  # (num_vars, spatial) → latent index per variable per spatial point
+        idx = np.argmax(w_adj[0], axis=1)  # shape: (spatial,)
 
         fig, axs = plt.subplots(
-            1, d_vars, subplot_kw={"projection": ccrs.Robinson()}, layout="constrained", figsize=(8 * d_vars, 8)
+            d_vars, 1, subplot_kw={"projection": ccrs.PlateCarree()}, figsize=(10, 6 * d_vars), layout="constrained"
         )
-
         if d_vars == 1:
             axs = [axs]
 
         for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
-            ax = axs[var_idx]
             offset_start = input_var_offsets[var_idx]
             offset_end = input_var_offsets[var_idx + 1]
-
+            print("offset_start", offset_start, "offset_end", offset_end)
             coords = coordinates[offset_start:offset_end]
-            if coords[:, 0].max() > 91:
-                coords = coords[:, ::-1]  # flip (lon, lat) to (lat, lon)
+            idx_subset = idx[offset_start:offset_end]
 
-            ax.set_global()
+            lon_min, lon_max = coords[:, 0].min(), coords[:, 0].max()
+            lat_min, lat_max = coords[:, 1].min(), coords[:, 1].max()
+
+            ax = axs[var_idx]
+            ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
             ax.coastlines(resolution="50m")
-            ax.add_feature(cfeature.COASTLINE.with_scale("50m"))
             ax.add_feature(cfeature.LAND.with_scale("50m"), edgecolor="black")
+            ax.add_feature(cfeature.COASTLINE.with_scale("50m"))
+            ax.add_feature(cfeature.BORDERS, linestyle=":")
             ax.gridlines(draw_labels=False)
 
-            idx_subset = idx[var_idx]  # (spatial_dim,) → latent assignments for this var
+            latent_offset = var_idx * latents_per_var
             for k in range(latents_per_var):
-                region_coords = coords[idx_subset == k]
+                global_latent_index = latent_offset + k
+                region_coords = coords[idx_subset == global_latent_index]
                 if region_coords.shape[0] == 0:
                     continue
 
-                c = np.repeat([colors[k]], region_coords.shape[0], axis=0)
                 ax.scatter(
-                    x=region_coords[:, 1], y=region_coords[:, 0], c=c, s=20, alpha=1.0, transform=ccrs.PlateCarree()
+                    x=region_coords[:, 0],
+                    y=region_coords[:, 1],
+                    c=[colors[k]] * region_coords.shape[0],
+                    s=20,
+                    alpha=1.0,
+                    transform=ccrs.PlateCarree(),
                 )
 
                 if annotate:
-                    x_c, y_c = self.get_centroid(region_coords[:, 1], region_coords[:, 0])
+                    x_c, y_c = region_coords[:, 0].mean(), region_coords[:, 1].mean()
                     ax.text(x_c, y_c, str(k), transform=ccrs.PlateCarree())
 
-            ax.set_title(f"Latent regions for {var}", fontsize=16)
+            ax.set_title(f"Latent regions for {var}", fontsize=14)
 
-        # Save
+        # Save file
         fname = "spatial_aggregation"
-        if idx_region is not None:
-            fname += f"{idx_region}"
-        elif plot_through_time:
+        if plot_through_time:
             fname += f"_{iteration}"
-        elif one_plot:
+        if one_plot:
             fname += "_all_clusters"
         fname += ".png"
 

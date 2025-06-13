@@ -388,7 +388,7 @@ class TrainingLatent:
 
             if self.logging_iter > 0 and self.iteration % (self.plot_params.plot_freq) == 0:
                 print(f"Plotting Iteration {self.iteration}")
-                self.plotter.plot_sparsity(self)
+                self.plotter.plot_sparsity(self, self.input_var_shapes, self.input_var_offsets)
                 # trying to save coords and adjacency matrices
                 # Todo propagate the path!
                 if not self.plot_params.savar:
