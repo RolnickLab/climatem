@@ -1417,7 +1417,8 @@ class Plotter:
                 offset_start = input_var_offsets[var_idx]
                 offset_end = input_var_offsets[var_idx + 1]
                 coords = coordinates[offset_start:offset_end]
-
+                print("offset_start", offset_start, "offset_end", offset_end)
+                print("coords.shape", coords.shape)
                 lon = coords[:, 0]
                 lat = coords[:, 1]
 
@@ -1429,6 +1430,7 @@ class Plotter:
                     if lon_unique.size * lat_unique.size == spatial_dim:
                         lon_grid, lat_grid = np.meshgrid(lon_unique, lat_unique)
                         use_pcolormesh = True
+                        print("lon_grid.shape", lon_grid.shape, "lat_grid.shape", lat_grid.shape)
                 except Exception:
                     use_pcolormesh = False
 
@@ -1441,25 +1443,17 @@ class Plotter:
                     ax.gridlines(draw_labels=False)
 
                     tensor = data_sources[j]
-                    # Determine safe indexing based on shape
-                    if j == 0:
-                        assert tensor.ndim == 4, f"x_past must be (B, T, V, S); got {tensor.shape}"
-                        if var_idx >= tensor.shape[2]:
-                            print(
-                                f"Warning: var_idx {var_idx} out of bounds for x_past with shape {tensor.shape}. Skipping."
-                            )
-                            continue
-                        raw_data = tensor[sample, timestep, var_idx, :]
-                    else:
-                        assert tensor.ndim == 3, f"Expected (B, V, S); got {tensor.shape}"
-                        if var_idx >= tensor.shape[1]:
-                            print(
-                                f"Warning: var_idx {var_idx} out of bounds for tensor {j} with shape {tensor.shape}. Skipping."
-                            )
-                            continue
-                        raw_data = tensor[sample, var_idx, :]
 
-                    raw_data = raw_data[offset_start:offset_end]
+                    # Extract spatial slice using offset
+                    if j == 0:
+                        assert tensor.ndim == 4, f"x_past must be (B, T, 1, S); got {tensor.shape}"
+                        full_data = tensor[sample, timestep, 0, :]  # full spatial vector
+                    else:
+                        assert tensor.ndim == 3, f"Expected (B, 1, S); got {tensor.shape}"
+                        full_data = tensor[sample, 0, :]  # full spatial vector
+
+                    # Slice the region for this variable
+                    raw_data = full_data[offset_start:offset_end]
 
                     if use_pcolormesh:
                         try:
