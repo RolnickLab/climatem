@@ -34,6 +34,8 @@ class TrainingLatent:
         d,
         accelerator,
         d_z,
+        lat,
+        lon,
         wandbname="unspecified",
         profiler=False,
         profiler_path="./log",
@@ -64,6 +66,8 @@ class TrainingLatent:
         self.plots_path = plots_path
         self.wandbname = wandbname
         self.d_z = d_z
+        self.lat = len(lat) if lat is not None else None
+        self.lon = len(lon) if lon is not None else None
 
         self.latent = exp_params.latent
         self.no_gt = gt_params.no_gt
@@ -78,8 +82,6 @@ class TrainingLatent:
         self.tau = exp_params.tau
         self.future_timesteps = exp_params.future_timesteps
         self.d_x = datamodule.d_x
-        self.lat = exp_params.lat
-        self.lon = exp_params.lon
         self.instantaneous = model_params.instantaneous
 
         self.patience_freq = 50
@@ -1340,50 +1342,48 @@ class TrainingLatent:
             y: torch.Tensor, the true values
             y_pred: torch.Tensor, the predicted values
         """
-        # assert that y_true has 3 dimensions
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
 
+        # Case 1: reshape into (B, T, lat, lon)
         if y_true.size(-1) == self.lat * self.lon:
+            y_true = y_true.view(y_true.size(0), y_true.size(1), self.lat, self.lon)
+            y_pred = y_pred.view(y_pred.size(0), y_pred.size(1), self.lat, self.lon)
 
-            y_true = torch.reshape(y_true, (y_true.size(0), y_true.size(1), self.lat, self.lon))
-            y_pred = torch.reshape(y_pred, (y_pred.size(0), y_pred.size(1), self.lat, self.lon))
+            # 2D FFT over lat/lon dimensions (-2, -1)
+            fft_true = torch.fft.rfft2(y_true, dim=(-2, -1))
+            fft_pred = torch.fft.rfft2(y_pred, dim=(-2, -1))
 
-            # calculate the spectra of the true values
-            # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
-            # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=3)), dim=0)
+            # Compute power spectrum and average across batch and time
+            power_true = torch.mean(torch.abs(fft_true), dim=(0, 1))  # shape: (lat, rfft_lon)
+            power_pred = torch.mean(torch.abs(fft_pred), dim=(0, 1))
+
+        # Case 2: flattened or masked data (use fallback 1D FFT)
         elif y_true.size(-1) == self.d_x:
-
-            y_true = y_true
-            y_pred = y_pred
-
-            # calculate the spectra of the true values
-            # note we calculate the spectra across space, and then take the mean across the batch
             fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=2)), dim=0)
-            # calculate the spectra of the predicted values
             fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=2)), dim=0)
+            power_true = fft_true
+            power_pred = fft_pred
         else:
-            raise ValueError("The size of the input is a surprise, and should be addressed here.")
+            raise ValueError("Unexpected input shape for spectral loss.")
 
         if take_log:
-            fft_true = torch.log(fft_true)
-            fft_pred = torch.log(fft_pred)
+            power_true = torch.log(power_true + 1e-8)  # avoid log(0)
+            power_pred = torch.log(power_pred + 1e-8)
 
-        # Calculate the power spectrum
-        spectral_loss = torch.abs(fft_pred - fft_true)
+        spectral_loss = torch.abs(power_pred - power_true)
+
+        # Optionally restrict to specific wavenumber bands
         if self.optim_params.fraction_highest_wavenumbers is not None:
             spectral_loss = spectral_loss[
-                :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
+                :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
             ]
         if self.optim_params.fraction_lowest_wavenumbers is not None:
-            spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
+            spectral_loss = spectral_loss[
+                :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
+            ]
 
-        spectral_loss = torch.mean(spectral_loss)
-        # print('what is the shape of the spectral loss?', spectral_loss)
-
-        return spectral_loss
+        return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """

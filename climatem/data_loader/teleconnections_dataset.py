@@ -179,6 +179,8 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         input_var_shapes = {}
         input_var_offsets = [0]
         array_list = []
+        new_lat = None
+        new_lon = None
 
         for vlist in paths:
             if vlist[0].endswith(".nc"):
@@ -260,7 +262,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
         coordinates = np.concatenate(coordinates_list, axis=0)
 
-        return temp_data, input_var_shapes, input_var_offsets, coordinates
+        return temp_data, input_var_shapes, input_var_offsets, coordinates, new_lat, new_lon
 
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
         # or maybe without being split into lats and lons...if we are working on the icosahedral? (years, months, no. of vars, no. of unique coords)

@@ -98,7 +98,14 @@ class CHIRPSDataset(TeleconnectionsDataset):
                 pattern_grib = f"{self.output_save_dir}/*{var}*.nc"
                 grib_files = glob.glob(pattern_grib, recursive=True)
                 files_per_var.append(grib_files)
-            self.raw_data, self.input_var_shapes, self.input_var_offsets, self.coordinates = self.load_into_mem(
+            (
+                self.raw_data,
+                self.input_var_shapes,
+                self.input_var_offsets,
+                self.coordinates,
+                self.new_lat,
+                self.new_lon,
+            ) = self.load_into_mem(
                 files_per_var,
                 variables,
                 channels_last,

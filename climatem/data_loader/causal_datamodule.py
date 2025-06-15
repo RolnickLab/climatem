@@ -188,6 +188,8 @@ class CausalClimateDataModule(ClimateDataModule):
             self.coordinates = train_val_input4mips.coordinates
             self.input_var_shapes = train_val_input4mips.input_var_shapes
             self.input_var_offsets = train_val_input4mips.input_var_offsets
+            self.downscaled_lat = train_val_input4mips.new_lat
+            self.downscaled_lon = train_val_input4mips.new_lon
             # Number of variables
             num_vars = len(self.input_var_shapes)
 
