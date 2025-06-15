@@ -430,22 +430,32 @@ class LatentTSDCD(nn.Module):
         """Encode X and Y into latent variables Z."""
         b = x.size(0)
         z = torch.zeros(b, self.tau + 1, self.d, self.d_z)
+        z = torch.zeros(b, self.tau + 1, self.d, max(self.d_z))
+        for i, dz_i in enumerate(self.d_z):
+            z[:, :, i, :dz_i] = ...
+
         mu = torch.zeros(b, self.d, self.d_z)
         std = torch.zeros(b, self.d, self.d_z)
 
         # sample Zs
         # TODO: Can we remove this for loop?
         for i in range(self.d):
-            # get params from the encoder q(z^t | x^t)
+            dz_i = self.d_z[i]
+
+            # Preallocate (B, tau+1, d_z_i)
+            z_i = torch.zeros(b, self.tau + 1, dz_i, device=x.device)
+            mu_i = torch.zeros(b, dz_i, device=x.device)
+            std_i = torch.zeros(b, dz_i, device=x.device)
+
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
-                z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
-
+                z_i[:, t] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
             # q_mu, q_logvar = self.encoder_decoder(y[:, i], i, encoder=True)  # torch.matmul(self.W, x)
 
+            # final timestep (prediction target)
             q_mu, q_logvar = self.autoencoder(y[:, i], i, encode=True)
             q_std = torch.exp(0.5 * q_logvar)
 
@@ -456,9 +466,18 @@ class LatentTSDCD(nn.Module):
             # assert torch.mean(z[:, -1, i]) == 0.0
 
             # carry on
-            z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+            z_i[:, -1] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+
+            mu_i[:] = q_mu
+            std_i[:] = q_std
             # assert torch.all(penultimate_z == z[:, -2, i])
             # assert torch.all(all_z_except_last == z[:, :-1, i])
+
+            z.append(z_i)  # list of tensors of shape (B, tau+1, d_z[i])
+            mu.append(mu_i)  # list of tensors of shape (B, d_z[i])
+            std.append(std_i)  # get params from the encoder q(z^t | x^t)
+
+            z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
 
             mu[:, i] = q_mu
             std[:, i] = q_std

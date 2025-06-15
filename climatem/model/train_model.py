@@ -66,6 +66,7 @@ class TrainingLatent:
         self.plots_path = plots_path
         self.wandbname = wandbname
         self.d_z = d_z
+        self.total_d_z = sum(self.d_z)
         self.lat = len(lat) if lat is not None else None
         self.lon = len(lon) if lon is not None else None
 
@@ -147,15 +148,15 @@ class TrainingLatent:
         # I think this is just initialising a tensor of zeroes to store results in
         if not self.no_gt:
             self.adj_w_tt = torch.zeros(
-                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
+                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.total_d_z]
             )
             if self.instantaneous:
                 self.adj_tt = torch.zeros(
                     [
                         int(self.train_params.max_iteration / self.train_params.valid_freq),
                         self.tau + 1,
-                        self.d * self.d_z,
-                        self.d * self.d_z,
+                        self.d * self.total_d_z,
+                        self.d * self.total_d_z,
                     ]
                 )
             else:
@@ -163,8 +164,8 @@ class TrainingLatent:
                     [
                         int(self.train_params.max_iteration / self.train_params.valid_freq),
                         self.tau,
-                        self.d * self.d_z,
-                        self.d * self.d_z,
+                        self.d * self.total_d_z,
+                        self.d * self.total_d_z,
                     ]
                 )
         self.logvar_encoder_tt = []
@@ -216,8 +217,8 @@ class TrainingLatent:
             self.acyclic_constraint_normalization = compute_dag_constraint(full_adjacency).item()
 
             if self.latent:
-                self.ortho_normalization = self.d_x * self.d_z
-                self.sparsity_normalization = self.tau * self.d_z * self.d_z
+                self.ortho_normalization = self.d_x * self.total_d_z
+                self.sparsity_normalization = self.tau * self.total_d_z * self.total_d_z
 
     def train_with_QPM(self):  # noqa: C901
         """

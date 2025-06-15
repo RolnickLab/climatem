@@ -156,6 +156,7 @@ def main(
         distr_decoder="gaussian",
         d_x=datamodule.d_x,
         d_z=datamodule.d_z,
+        total_d_z=datamodule.total_d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
         teleconnections=data_params.isteleconnections,
@@ -225,6 +226,7 @@ def main(
         d,
         accelerator,
         datamodule.d_z,
+        datamodule.total_d_z,
         datamodule.downscaled_lat,
         datamodule.downscaled_lon,
         wandbname=name,
@@ -306,13 +308,24 @@ def assert_args(
     if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
         raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
 
-    if experiment_params.latent and (
-        experiment_params.d_z is None
-        or experiment_params.d_x is None
-        or experiment_params.d_z <= 0
-        or experiment_params.d_x <= 0
-    ):
-        raise ValueError("When using latent model, you need to define d_z and d_x with integer values greater than 0")
+    if experiment_params.latent:
+        # Accept either an int or a list
+        if isinstance(experiment_params.d_z, int):
+            if experiment_params.d_z <= 0:
+                raise ValueError("d_z must be > 0 if passed as an integer.")
+            # Convert to list based on number of input variables
+            experiment_params.d_z = [experiment_params.d_z] * len(experiment_params.in_var_ids)
+        elif isinstance(experiment_params.d_z, list):
+            if not all(isinstance(d, int) and d > 0 for d in experiment_params.d_z):
+                raise ValueError("d_z must be a list of positive integers.")
+            if len(experiment_params.d_z) != len(experiment_params.in_var_ids):
+                raise ValueError(f"d_z list length ({len(experiment_params.d_z)}) must match number of variables ({len(experiment_params.in_var_ids)}).")
+        else:
+            raise ValueError("d_z must be either an integer or a list of positive integers.")
+
+        # Check d_x as a scalar
+        if experiment_params.d_x is None or not isinstance(experiment_params.d_x, int) or experiment_params.d_x <= 0:
+            raise ValueError("When using latent model, you need to define d_x with an integer value > 0.")
 
     # string input with limited possible values
     supported_dataformat = ["numpy", "hdf5"]

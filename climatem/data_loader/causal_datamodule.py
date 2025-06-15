@@ -192,6 +192,8 @@ class CausalClimateDataModule(ClimateDataModule):
             self.downscaled_lon = train_val_input4mips.new_lon
             # Number of variables
             num_vars = len(self.input_var_shapes)
+            self.total_d_z = sum(self.d_z)
+            self.obs_to_latent_mask = np.zeros((self.total_d_z, self.d_x), dtype=np.float32)
 
             # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
             self.obs_to_latent_mask = np.zeros((self.d_z * num_vars, self.d_x), dtype=np.float32)
@@ -203,13 +205,12 @@ class CausalClimateDataModule(ClimateDataModule):
                 spatial_dim = self.input_var_shapes[var]
                 offset = self.input_var_offsets[i]
 
-                latent_start = i * self.d_z
-                latent_end = (i + 1) * self.d_z
+                latent_start = sum(self.d_z[:i])
+                latent_end = sum(self.d_z[: i + 1])
 
                 for j in range(spatial_dim):
                     obs_idx = offset + j
                     self.obs_to_latent_mask[latent_start:latent_end, obs_idx] = 1.0
-            self.d_z = self.d_z * num_vars
 
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,

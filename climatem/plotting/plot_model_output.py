@@ -1385,6 +1385,7 @@ class Plotter:
         path,
         iteration: int,
         valid: str = False,
+        show: bool = False,
     ):
         """
         Plot predictions for all variables using their own spatial grid.
@@ -1502,8 +1503,11 @@ class Plotter:
             fname = f"{fname_prefix}_compare_allvars_t{timestep_label}_sample_{sample}_it{iteration}.png"
 
             plt.suptitle(f"Comparison @ timestep {timestep_label}", fontsize=24)
-            plt.savefig(path / fname, format="png")
-            plt.close()
+            if show:
+                plt.show()
+            else:
+                plt.savefig(path / fname, format="png")
+                plt.close()
 
     def plot_regions_map_by_var(
         self,
