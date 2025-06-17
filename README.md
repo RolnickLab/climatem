@@ -34,7 +34,7 @@ If you need a package that is not automatically installed, please run `poetry ad
 
 ### 3. Downloading input data
 
-For running the model on real cliamte data, please download monthly climate model data and regrid it to an icosahedral grid using ClimateSet https://github.com/RolnickLab/ClimateSet. 
+For running the model on real climate data, please download monthly climate model data and regrid it to an icosahedral grid using ClimateSet https://github.com/RolnickLab/ClimateSet. 
 If you have any problem downloading or formatting the data, please get in touch. 
 
 ### 4. Running the model

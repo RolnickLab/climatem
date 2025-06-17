@@ -131,7 +131,7 @@
         "comp_size": 10,
         "noise_val": 0.2,
         "n_per_col": 2,
-        "difficulty": "hard",
+        "difficulty": "med_easy",
         "seasonality": false,
         "overlap": false,
         "is_forced": false,

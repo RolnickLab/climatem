@@ -82,7 +82,7 @@ class CausalClimateDataModule(ClimateDataModule):
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
             if "savar" in self.hparams.in_var_ids:
-                train_val_input4mips = SavarDataset(
+                self.train_val_input4mips = SavarDataset(
                     # Make sure these arguments are propagated
                     output_save_dir=self.hparams.output_save_dir,
                     lat=self.hparams.lat,
@@ -111,7 +111,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 print(
                     f"Causal datamodule self.hparams.icosahedral_coordinates_path {self.hparams.icosahedral_coordinates_path}"
                 )
-                train_val_input4mips = CMIP6Dataset(
+                self.train_val_input4mips = CMIP6Dataset(
                     years=train_years,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
@@ -131,7 +131,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
             elif "t2m" in self.hparams.in_var_ids:
-                train_val_input4mips = ERA5Dataset(
+                self.train_val_input4mips = ERA5Dataset(
                     years=train_years,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
@@ -151,7 +151,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     reload_climate_set_data=self.hparams.reload_climate_set_data,
                 )
             else:
-                train_val_input4mips = Input4MipsDataset(
+                self.train_val_input4mips = Input4MipsDataset(
                     years=train_years,
                     historical_years=train_historical_years,
                     data_dir=self.hparams.data_dir,
@@ -171,7 +171,7 @@ class CausalClimateDataModule(ClimateDataModule):
 
             ratio_train = 1 - self.hparams.val_split
 
-            train, val = train_val_input4mips.get_causal_data(
+            train, val = self.train_val_input4mips.get_causal_data(
                 tau=self.tau,
                 future_timesteps=self.future_timesteps,
                 channels_last=self.hparams.channels_last,
@@ -185,9 +185,9 @@ class CausalClimateDataModule(ClimateDataModule):
                 mode="train+val",
             )
             if "savar" in self.hparams.in_var_ids:
-                self.savar_gt_modes = train_val_input4mips.gt_modes
-                self.savar_gt_noise = train_val_input4mips.gt_noise
-                self.savar_gt_adj = train_val_input4mips.gt_adj
+                self.savar_gt_modes = self.train_val_input4mips.gt_modes
+                self.savar_gt_noise = self.train_val_input4mips.gt_noise
+                self.savar_gt_adj = self.train_val_input4mips.gt_adj
 
             train_x, train_y = train
             train_x = train_x.reshape((train_x.shape[0], train_x.shape[1], train_x.shape[2], -1))
@@ -203,7 +203,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 val_y = val_y.reshape((val_y.shape[0], val_y.shape[1], val_y.shape[2], -1))
                 self._data_val = CausalDataset(val_x, val_y)
 
-            self.coordinates = train_val_input4mips.coordinates
+            self.coordinates = self.train_val_input4mips.coordinates
 
         if stage in ["test", None]:
             openburning_specs = {

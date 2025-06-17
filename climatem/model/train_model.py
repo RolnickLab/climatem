@@ -4,6 +4,7 @@ import gc
 import numpy as np
 import torch
 import torch.distributions as dist
+from pathlib import Path
 
 # we use accelerate for distributed training
 from geopy import distance
@@ -58,8 +59,8 @@ class TrainingLatent:
 
         self.plot_params = plot_params
         self.best_metrics = best_metrics
-        self.save_path = save_path
-        self.plots_path = plots_path
+        self.save_path = Path(save_path)
+        self.plots_path = Path(plots_path)
         self.wandbname = wandbname
 
         self.latent = exp_params.latent
@@ -238,9 +239,9 @@ class TrainingLatent:
         # TODO: Why config here?
         # config = self.hp
         self.accelerator.init_trackers(
-            "gpu-code-wandb",
+            "climatem",
             # config=config,
-            init_kwargs={"wandb": {"name": self.wandbname}},
+            init_kwargs={"wandb": {"config": {"model": self.wandbname}}},
         )
 
         # initialize ALM/QPM for orthogonality and acyclicity constraints

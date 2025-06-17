@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 
 import numpy as np
+import wandb
 import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
@@ -22,6 +23,7 @@ torch.set_warn_always(False)
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
+
 
 class Bunch:
     """A class that has one variable for each entry of a dictionary."""
@@ -214,7 +216,7 @@ def main(
         best_metrics,
         d,
         accelerator,
-        wandbname=name,
+        wandbname="picabu",
         profiler=False,
     )
 
@@ -326,10 +328,10 @@ def assert_args(
 if __name__ == "__main__":
 
     args = parse_args()
-    
+
     root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
     json_path = os.path.join(root_path, "configs", args.config_path)
-    
+
     with open(json_path, "r") as f:
         params = json.load(f)
     config_obj_list = update_config_withparse(params, args)
@@ -337,14 +339,16 @@ if __name__ == "__main__":
     # get user's scratch directory on Mila cluster:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
-    print ("new data path:", params["data_params"]["data_dir"])
+    print("new data path:", params["data_params"]["data_dir"])
 
     params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)
-    print ("new exp path:", params["exp_params"]["exp_path"])
+    print("new exp path:", params["exp_params"]["exp_path"])
 
     # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
-    params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path.absolute().as_posix())
-    print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
+    params["data_params"]["icosahedral_coordinates_path"] = params["data_params"][
+        "icosahedral_coordinates_path"
+    ].replace("$CLIMATEMDIR", root_path)
+    print("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
@@ -369,12 +373,6 @@ if __name__ == "__main__":
     else:
         plot_params.savar = False
 
-    assert_args(
-        experiment_params,
-        data_params,
-        gt_params,
-        optim_params,
-    )
+    assert_args(experiment_params, data_params, gt_params, optim_params)
 
     main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
-

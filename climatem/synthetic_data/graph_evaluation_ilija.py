@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -12,7 +12,6 @@ def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
 
     mat_adj_w = mat_adj_w.reshape((lat, lon, mat_adj_w.shape[1])).transpose((2, 0, 1))
 
-    # argmax
     idx_gt = np.where(modes_gt == modes_gt.max((1, 2))[:, None, None])
     idx_inferred = np.array(np.where(mat_adj_w == mat_adj_w.max((1, 2))[:, None, None]))
 
@@ -69,7 +68,7 @@ def permute_matrix(matrix, permutation):
     return permuted_matrix
 
 
-def load_and_permute_all_matrices(csv_files, permutation, remove_modes=[]):
+def load_and_permute_all_matrices(modes_inferred, modes_gt, adj_w, adj_gt, lat, lon, tau):
     """
     Loads and permutes multiple adjacency matrices, one for each time lag.
 
@@ -81,24 +80,28 @@ def load_and_permute_all_matrices(csv_files, permutation, remove_modes=[]):
         np.ndarray: A 3D NumPy array containing all permuted adjacency matrices
                     where the shape is (number_of_time_lags, n, n).
     """
-    permuted_matrices = []
+    # Find the permutation
+    modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
 
-    for csv_file in csv_files:
-        # Load the adjacency matrix
-        adjacency_matrix = load_adjacency_matrix(csv_file)
+    # Get the flat index of the maximum for each mode
+    idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)  # shape: (n_modes,)
+    idx_inferred_flat = np.argmax(modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1)  # shape: (n_modes,)
 
-        if len(remove_modes):
-            adjacency_matrix = np.delete(adjacency_matrix, remove_modes, 0)
-            adjacency_matrix = np.delete(adjacency_matrix, remove_modes, 1)
+    # Convert flat indices to 2D coordinates (row, col)
+    idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])  # shape: (n_modes, 2)
+    idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
 
-        # Permute the adjacency matrix
-        permuted_matrix = permute_matrix(adjacency_matrix, permutation)
+    # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
+    permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+    print("permutation_list:", permutation_list)
 
-        # Append the permuted matrix to the list
-        permuted_matrices.append(permuted_matrix)
+    # Permute
+    for k in range(tau):
+        adj_w[k] = adj_w[k][np.ix_(permutation_list, permutation_list)]
 
-    # Convert the list of permuted matrices to a NumPy array
-    return np.array(permuted_matrices)
+    print("PERMUTED THE MATRICES")
+
+    return adj_w
 
 
 def binarize_matrix(A, threshold=0.5):
@@ -194,7 +197,7 @@ def plot_adjacency_matrix(
     plt.close()
 
 
-def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold=0.5):
+def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
     """Evaluates the precision, recall, F1-score, and Structural Hamming Distance (SHD) between the inferred and ground
     truth adjacency matrices."""
     # Binarize the matrices before comparison
@@ -320,63 +323,85 @@ def save_equations_to_json(equations, filename):
 # Example usage:
 if __name__ == "__main__":
 
-    # Set parameters here
-    home_path = Path("$HOME")
-    tau = 5
-    threshold = 0.75
-    n_modes_gt = 25
-    difficulty = "easy"
-    iteration = 2999
-    comp_size = 25
+    threshold = 0.5
 
-    n_modes = n_modes_gt
+    # load your existing JSON config
+    config_path = Path("configs/single_param_file_savar.json")
+    with open(config_path, "r") as f:
+        cfg = json.load(f)
+
+    exp = cfg["exp_params"]
+    data = cfg["data_params"]
+    savar = cfg["savar_params"]
+
+    # pull out exactly the bits you used to hard-code
+    tau = exp["tau"]
+    n_modes = exp["d_z"]  # latent dim = number of modes
+    comp_size = savar["comp_size"]
+    time_len = savar["time_len"]
+    is_forced = savar["is_forced"]
+    seasonality = savar["seasonality"]
+    overlap = savar["overlap"]
+    difficulty = savar["difficulty"]
     lat = lon = int(np.sqrt(n_modes)) * comp_size
-    folder_results = home_path / f"predictions_{n_modes_gt}_{difficulty}"
-    savar_folder = home_path / Path("savar_data")
-    savar_fname = f"m_{n_modes_gt}_{difficulty}_savar_name"
-    run_name = "model_results_folder"
-    results_path = folder_results / f"{savar_fname}_{run_name}"
-    csv_files = [results_path / f"adjacency_transition_time_{i}_iteration_{iteration}.csv" for i in np.arange(5, 0, -1)]
+    noise_val = savar["noise_val"]
 
-    # Get the permuted adjacency matrices for all time lags
-    modes_gt = np.load(savar_folder / f"{savar_fname}_mode_weights.npy")
-    mat_adj_w = np.load(results_path / f"adj_w_iteration_{iteration}.npy")[0]
+    home_path = str(Path.home())
+    savar_path = "/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST"
+    results_path = Path(
+        "my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True"
+    )
 
-    if n_modes == 100:
-        # With lots of modes some modes are equal and the other function breaks. This function works for the specifics params of the 100 modes dataset.
-        permutation_list = get_permutation_list_hardcoded_100(mat_adj_w, modes_gt, lat, lon)
-    else:
-        permutation_list = get_permutation_list(mat_adj_w, modes_gt, lat, lon)
-    permuted_matrices = np.array(load_and_permute_all_matrices(csv_files, permutation_list))
+    # Load ground truthh modes
+    savar_folder = home_path + savar_path
+    savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
+    # modes_gt_path = savar_folder / Path(f"/{savar_fname}_mode_weights.npy")
+    modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
+
+    result_folder = home_path / results_path
+    # load CDSD results
+    cdsd_adj_inferred_path = result_folder / Path("plots/graphs.npy")
+    cdsd_modes_inferred_path = result_folder / Path("plots/w_decoder.npy")
+    modes_inferred = np.load(cdsd_modes_inferred_path)
+    adjacency_inferred = np.load(cdsd_adj_inferred_path)
+
+    # if n_modes == 100:
+    #     # With lots of modes some modes are equal and the other function breaks. This function works for the specifics params of the 100 modes dataset.
+    #     permutation_list = get_permutation_list(mat_adj_w, modes_gt, lat, lon)
+    # else:
+    #     permutation_list = get_permutation_list(mat_adj_w, modes_gt, lat, lon)
+    permuted_matrices = np.array(
+        load_and_permute_all_matrices(modes_inferred, modes_gt, adjacency_inferred, adjacency_inferred, lat, lon, tau)
+    )
 
     # Load parameters from npy file
-    params_file = savar_folder / f"{savar_fname}_parameters.npy"
+    params_file = savar_folder + f"/{savar_fname}_parameters.npy"
     params = np.load(params_file, allow_pickle=True).item()
     links_coeffs = params["links_coeffs"]
 
-    gt_adj_list = extract_adjacency_matrix(links_coeffs, n_modes_gt, tau)
+    gt_adj_list = extract_adjacency_matrix(links_coeffs, n_modes, tau)
 
     plot_adjacency_matrix(
         mat1=binarize_matrix(permuted_matrices, threshold),
         mat2=gt_adj_list,
         mat3=gt_adj_list,
-        path=results_path,
+        path=result_folder,
         name=f"permuted_adjacency_thr_{threshold}",
         no_gt=False,
-        iteration=iteration,
+        iteration=20000,
         plot_through_time=True,
     )
 
-    save_equations_to_json(extract_latent_equations(links_coeffs), results_path / "gt_eq")
+    save_equations_to_json(extract_latent_equations(links_coeffs), result_folder / "gt_eq")
     save_equations_to_json(
         extract_equations_from_adjacency(binarize_matrix(permuted_matrices, threshold)),
-        results_path / f"thr_{threshold}_results_eq",
+        result_folder / f"thr_{threshold}_results_eq",
     )
 
     precision, recall, f1, shd = evaluate_adjacency_matrix(permuted_matrices, gt_adj_list, threshold)
     print(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
     results = {"precision": precision, "recall": recall, "f1_score": f1, "shd": shd}
     # Save results as a JSON file
-    json_filename = results_path / f"thr_{threshold}_evaluation_results.json"
+    json_filename = result_folder / f"thr_{threshold}_evaluation_results.json"
     with open(json_filename, "w") as json_file:
         json.dump(results, json_file)
