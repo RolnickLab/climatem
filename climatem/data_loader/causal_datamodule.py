@@ -37,7 +37,7 @@ class CausalClimateDataModule(ClimateDataModule):
     """
 
     def __init__(
-        self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, d_z=90, **kwargs
+        self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, d_z=[90], **kwargs
     ):
         super().__init__(self)
 
@@ -51,6 +51,13 @@ class CausalClimateDataModule(ClimateDataModule):
         self.train_val_interval_length = train_val_interval_length
         self.shuffle_train = False  # need to keep order for causal train / val splits
         self.d_z = d_z
+        if isinstance(d_z, int):
+            num_vars = (
+                len(kwargs["in_var_ids"]) if "in_var_ids" in kwargs and isinstance(kwargs["in_var_ids"], dict) else 1
+            )
+            self.d_z = [d_z] * num_vars
+        else:
+            self.d_z = d_z
 
     @staticmethod
     def years_to_list(years_str):
@@ -190,13 +197,10 @@ class CausalClimateDataModule(ClimateDataModule):
             self.input_var_offsets = train_val_input4mips.input_var_offsets
             self.downscaled_lat = train_val_input4mips.new_lat
             self.downscaled_lon = train_val_input4mips.new_lon
-            # Number of variables
-            num_vars = len(self.input_var_shapes)
             self.total_d_z = sum(self.d_z)
-            self.obs_to_latent_mask = np.zeros((self.total_d_z, self.d_x), dtype=np.float32)
 
             # Initialize obs_to_latent_mask of shape (total_latents, total_observations)
-            self.obs_to_latent_mask = np.zeros((self.d_z * num_vars, self.d_x), dtype=np.float32)
+            self.obs_to_latent_mask = np.zeros((self.total_d_z, self.d_x), dtype=np.float32)
             #  TODO Assertion, one value multiplied by no. of vars, or list
             # TODO loop over Tuple of self.d_z
 

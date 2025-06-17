@@ -212,7 +212,7 @@ class TrainingLatent:
 
         # compute constraint normalization
         with torch.no_grad():
-            d = model.d * model.d_z
+            d = model.d * model.total_d_z
             full_adjacency = torch.ones((d, d)) - torch.eye(d)
             self.acyclic_constraint_normalization = compute_dag_constraint(full_adjacency).item()
 
@@ -256,7 +256,7 @@ class TrainingLatent:
             self.optim_params.ortho_omega_mu,
             self.optim_params.ortho_h_threshold,
             self.optim_params.ortho_min_iter_convergence,
-            dim_gamma=(self.d_z, self.d_z),
+            dim_gamma=(self.total_d_z, self.total_d_z),
         )
 
         self.ALM_sparsity = ALM(
