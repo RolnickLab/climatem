@@ -145,10 +145,11 @@ def main(
         reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
         coeff_kl=optim_params.coeff_kl,
         d=d,
+        #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
-        distr_decoder="gev",
+        distr_decoder="gaussian",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
@@ -336,7 +337,7 @@ if __name__ == "__main__":
         params = json.load(f)
     config_obj_list = update_config_withparse(params, args)
 
-    # get user's scratch directory on Mila cluster:
+    # get user's scratch directory:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
     print("new data path:", params["data_params"]["data_dir"])
