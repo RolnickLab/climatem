@@ -18,6 +18,7 @@ from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, sh
 from climatem.model.train_model import TrainingLatent
 from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.utils import parse_args, update_config_withparse
+from climatem import PROJECT_ROOT, CONFIGS_PATH
 
 torch.set_warn_always(False)
 
@@ -169,7 +170,7 @@ def main(
 
     # Make folder to save run results
     exp_path = Path(experiment_params.exp_path)
-    os.makedirs(exp_path, exist_ok=True)
+    exp_path.mkdir(exist_ok=True)
     data_var_ids_str = (
         str(data_params.in_var_ids)[1:-1]
         .translate({ord("'"): None})
@@ -177,14 +178,14 @@ def main(
         .translate({ord(" "): None})
     )
     name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
-    exp_path = os.path.join(exp_path, name)
-    os.makedirs(exp_path, exist_ok=True)
+    exp_path = exp_path / name
+    exp_path.mkdir(exist_ok=True)
 
     # create path to exp and save hyperparameters
-    save_path = os.path.join(exp_path, "training_results")
-    os.makedirs(save_path, exist_ok=True)
-    plots_path = os.path.join(exp_path, "plots")
-    os.makedirs(plots_path, exist_ok=True)
+    save_path = exp_path / "training_results"
+    save_path.mkdir(exist_ok=True)
+    plots_path = exp_path / "plots"
+    plots_path.mkdir(exist_ok=True)
     # Here could maybe implement a "save()" function inside each class
     hp = {}
     hp["exp_params"] = experiment_params.__dict__
@@ -193,7 +194,7 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
-    with open(os.path.join(exp_path, "params.json"), "w") as file:
+    with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
     # # load the best metrics
@@ -276,11 +277,11 @@ def main(
     metrics["val_smape"] = val_smape
 
     # save the metrics
-    with open(os.path.join(experiment_params.exp_path, "results.json"), "w") as file:
+    with open(Path(experiment_params.exp_path) / "results.json", "w") as file:
         json.dump(metrics, file, indent=4)
 
     # finally, save the model
-    torch.save(trainer.model.state_dict(), os.path.join(experiment_params.exp_path, "model.pth"))
+    torch.save(trainer.model.state_dict(), Path(experiment_params.exp_path) / "model.pth")
 
 
 def assert_args(
@@ -329,8 +330,7 @@ if __name__ == "__main__":
 
     args = parse_args()
 
-    root_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
-    json_path = os.path.join(root_path, "configs", args.config_path)
+    json_path = CONFIGS_PATH / args.config_path
 
     with open(json_path, "r") as f:
         params = json.load(f)
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
     params["data_params"]["icosahedral_coordinates_path"] = params["data_params"][
         "icosahedral_coordinates_path"
-    ].replace("$CLIMATEMDIR", root_path)
+    ].replace("$CLIMATEMDIR", str(PROJECT_ROOT))
     print("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
 
     experiment_params = expParams(**params["exp_params"])
