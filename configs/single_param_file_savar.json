@@ -3,7 +3,7 @@
         "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
-        "d_z": 2,
+        "d_z": 4,
         "d_x": 400,
         "lon": 20,
         "lat": 20,
@@ -115,7 +115,7 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 0.065,
+        "sparsity_upper_threshold": 0.05,
 
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,
