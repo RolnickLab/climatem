@@ -498,7 +498,7 @@ class LatentTSDCD(nn.Module):
             z_i = z[i]  # (B, T, dz_i)
             offset_start = sum(self.d_z[:i])
             offset_end = offset_start + dz_i
-            mask_i = mask[:, :, offset_start:offset_end]
+            mask_i = mask[:, :, offset_start, offset_start:offset_end]  # shape: [B, τ, dz_i, dz_i]
             # print("Doing the transition, and this is the k at the moment.", k)
             # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
             # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")std_i = std_i.expand(b, -1)
@@ -1412,11 +1412,11 @@ class TransitionModelParamSharing(nn.Module):
             # self.logvar = torch.ones(1)  * 0. # nn.Parameter(torch.ones(d) * 0.1)
             # self.logvar = nn.Parameter(torch.ones(d) * -4)
             self.logvar = nn.ParameterList([nn.Parameter(torch.ones(dz_i) * -4) for dz_i in self.d_z])
-            input_dim = self.total_d_z * tau + embedding_dim
+            input_dim = tau + embedding_dim
 
         if self.nonlinear_dynamics:
             print("NON LINEAR DYNAMICS")
-            self.nn = nn.ModuleList([MLP(num_layers, num_hidden, input_dim, self.num_output) for _ in range(d)])
+            self.nn = nn.ModuleList([MLP(num_layers, num_hidden, input_dim, self.num_output) for _ in self.d_z])
         else:
             print("LINEAR DYNAMICS")
             self.nn = nn.ModuleList([MLP(0, 0, input_dim, self.num_output) for _ in range(d)])
