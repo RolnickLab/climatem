@@ -128,7 +128,7 @@ def main(
         d = 1
         print("Teleconnections regime enabled — setting d = 1 (shared spatial input across variables)")
     else:
-        d = sum(map(len, data_params["in_var_ids"].values()))
+        d = sum(map(len, data_params.in_var_ids.values()))
         print(f"Using {d} variables based on input structure")
 
     datamodule.variables = [v for varlist in data_params.in_var_ids.values() for v in varlist]

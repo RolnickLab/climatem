@@ -3,7 +3,10 @@
         "exp_path": "$SCRATCH/results/CHIRPS_DATA_TEST",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
-        "d_z": 90,
+        "d_z": [
+            10,
+            5
+        ],
         "d_x": 6250,
         "lon": 144,
         "lat": 96,
@@ -25,6 +28,7 @@
                 "z"
             ]
         },
+        "isteleconnections": true,
         "num_levels": 1,
         "temp_res": "day",
         "train_historical_years": "1980-2020",
