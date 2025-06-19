@@ -475,7 +475,7 @@ class LatentTSDCD(nn.Module):
             mu.append(mu_i)
             std.append(std_i)
 
-        return z, mu, std
+        return z, torch.stack(mu), torch.stack(std)
 
     def transition(self, z, mask):
 
@@ -518,76 +518,86 @@ class LatentTSDCD(nn.Module):
 
     def decode(self, z):
 
-        mu = torch.zeros(z.size(0), self.d, self.d_x)
-        std = torch.zeros(z.size(0), self.d, self.d_x)
+        mu, std = [], []
 
         # TODO: Can we remove this for loop
         for i in range(self.d):
+            z_i = z[i]
             # px_mu, px_logvar = self.encoder_decoder(z[:, i], i, encoder=False)
 
-            px_mu, px_logvar = self.autoencoder(z[:, i], i, encode=False)
-            if px_mu.ndim == mu.ndim:  # In case of linear mixing with one variable, second dimension is too much
-                # Check that linear autoencoder corresponds to PF when multi varia/bles
-                px_mu = px_mu.squeeze()
+            px_mu, px_logvar = self.autoencoder(z_i, i, encode=False)
+            if px_logvar.ndim == 1:
+                px_logvar = px_logvar.view(1, -1, 1).expand(px_mu.shape)
+            elif px_logvar.shape != px_mu.shape:
+                px_logvar = px_logvar.expand_as(px_mu)
 
-            mu[:, i] = px_mu
-            std[:, i] = torch.exp(0.5 * px_logvar)
+            px_std = torch.exp(0.5 * px_logvar)
+            print("px_mu.shape", px_mu.shape)
+            print("px_logvar.shape", px_logvar.shape)
+            print("px_std.shape", px_std.shape)
+            mu.append(px_mu)
+            std.append(px_std)
 
-        return mu, std
+        return torch.stack(mu), torch.stack(std)
 
     def forward(self, x, y, gt_z, iteration, xi=None):
+        batch_size = x.size(0)
 
-        b = x.size(0)
-
-        # sample Zs (based on X)
-
+        # Encode X and Y into latent variables Z
         z, q_mu_y, q_std_y = self.encode(x, y)
-
         if self.debug_gt_z:
             z = gt_z
 
-        # get params of the transition model p(z^t | z^{<t})
-        mask = self.mask(b)
+        # Compute p(z^t | z^{<t}) transition model
+        mask = self.mask(batch_size)
+        z_input = [z_i[:, :-1].clone() for z_i in z]
+        pz_mu, pz_std = self.transition(z_input, mask)
 
-        if self.instantaneous:
-            pz_mu, pz_std = self.transition([z_i[:, :-1].clone() for z_i in z], mask)
-        else:
-            pz_mu, pz_std = self.transition([z_i[:, :-1].clone() for z_i in z], mask)
-
-        # get params from decoder p(x^t | z^t)
-        # we pass only the last z to the decoder, to get xs.
-
+        # Decode last latent step to predict x^t
         px_mu, px_std = self.decode([z_i[:, -1] for z_i in z])
 
-        # set distribution with obtained parameters
+        # Ensure px_mu is shaped [batch_size, total_d_x, 1]
+        if px_mu.dim() == 4:
+            # [n_vars, B, d_x, 1] → [B, n_vars * d_x, 1]
+            d, B, d_x, C = px_mu.shape
+            px_mu = px_mu.permute(1, 0, 2, 3).reshape(B, d * d_x, C)
+            px_std = px_std.permute(1, 0, 2, 3).reshape(B, d * d_x, C)
+        elif px_mu.dim() == 3 and px_mu.shape[0] != batch_size:
+            raise ValueError(f"px_mu batch mismatch: got {px_mu.shape[0]}, expected {batch_size}")
+
+        # Create distribution
         if self.distr_decoder.__name__ == "GEVDistribution":
-            xi = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
-            px_distr = self.distr_decoder(px_mu, px_std, xi)
+            xi_tensor = self.xi.unsqueeze(0).expand_as(px_mu) if self.gev_learn_xi else torch.full_like(px_mu, self.xi)
+            px_distr = self.distr_decoder(px_mu, px_std, xi_tensor)
+
+            # Numerical safety
             eps = 1e-6
             q_std_y_safe = q_std_y.clamp(min=eps)
             pz_std_safe = pz_std.clamp(min=eps)
+
             kl_raw = (
                 0.5 * (torch.log(pz_std_safe**2) - torch.log(q_std_y_safe**2))
-                + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / pz_std_safe**2
+                + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / (pz_std_safe**2)
                 - 0.5
             )
         else:
+            # Use default decoder (e.g. Normal)
             px_distr = self.distr_decoder(px_mu, px_std)
+
+        # Reconstruction term
         recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
-        # compute the KL, the reconstruction and the ELBO
-        # kl = distr.kl_divergence(q, p).mean()
+
+        # KL divergence
         kl_raw = (
             0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2))
-            + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
+            + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / (pz_std**2)
             - 0.5
         )
-        kl = torch.sum(kl_raw, dim=[2]).mean()
-        # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
-        # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
-        assert kl >= 0, f"KL={kl} has to be >= 0"
+        kl = torch.sum(kl_raw, dim=2).mean()
+        assert kl >= 0, f"KL={kl} must be ≥ 0"
 
-        # TODO: remove - option to change the coefficient of the KL term
-        self.coeff_kl = 1.0
+        # ELBO
+        self.coeff_kl = 1.0  # can be made configurable
         elbo = recons - self.coeff_kl * kl
 
         return elbo, recons, kl, px_mu
@@ -648,9 +658,9 @@ class LatentTSDCD(nn.Module):
         mask = self.mask(b)
 
         if self.instantaneous:
-            pz_mu, pz_std = self.transition(z.clone(), mask)
+            pz_mu, pz_std = self.transition([z_i.clone() for z_i in z], mask)
         else:
-            pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+            pz_mu, pz_std = self.transition([z_i[:, :-1].clone() for z_i in z], mask)
 
         # decode
         px_mu, px_std = self.decode(pz_mu)
@@ -1115,8 +1125,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         # Apply the decoder to all z_ at once and squeeze the result
         mu = self.decoder(z_).squeeze()
-
-        return mu, self.logvar_decoder
+        # mu = self.decoder(z_).unsqueeze(-1)  # ensure shape (batch, d_x, 1)
+        logvar = self.logvar_decoder.view(1, -1, 1).expand(mu.shape)
+        return mu, logvar
 
     def forward(self, x, i, encode: bool = False):
         if encode:
@@ -1168,7 +1179,7 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
 
         self.decoders = nn.ModuleList([MLP(num_layer, num_hidden, dz_i + embedding_dim, 1) for dz_i in d_z])
         self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
-
+        print("obs_to_latent_mask after", obs_to_latent_mask.shape)
         # Precompute teleconnections mask
         if obs_to_latent_mask is not None:
             base_mask = torch.tensor(obs_to_latent_mask, dtype=torch.float32)  # shape: (d_z, d_x)
@@ -1223,30 +1234,33 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
         return mu, logvar
 
     def decode(self, z, i):
-
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 
         j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
         embedded_z = self.embedding_decoder(j_values)
 
-        mask_ = super().select_decoder_mask(mask, i, j_values)
+        if self.teleconnections_mask is not None:
+            latent_start = sum(self.d_z[:i]) if isinstance(self.d_z, list) else i * self.d_z
+            latent_end = latent_start + self.d_z[i]
+            mask_ = mask[:, :, latent_start:latent_end]
+            tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(z.device)  # shape: (1, d_x, total_d_z)
+            tele_mask_T = tele_mask_T[:, :, latent_start:latent_end]
+            tele_mask_T = tele_mask_T.expand(z.shape[0], -1, -1)
+            mask_ = mask_ * tele_mask_T
+        else:
+            mask_ = super().select_decoder_mask(mask, i, j_values)
 
         if z.ndim < mask_.ndim:
             z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
         else:
             z_expanded = z.expand(-1, self.d_x, -1)
 
-        if self.teleconnections_mask is not None:
-            tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(z.device)  # (1, d_x, d_z)
-            if tele_mask_T.shape[0] != z.shape[0]:
-                tele_mask_T = tele_mask_T.expand(z.shape[0], -1, -1)  # (B, d_x, d_z)
-            mask_ = mask_ * tele_mask_T  # Apply to decoder mask
-
         z_expanded = z_expanded * mask_
         z_ = torch.cat((z_expanded, embedded_z), dim=2)
         mu = self.decoders[i](z_)
-
+        if mu.ndim == 2:
+            mu = mu.unsqueeze(-1)
         return mu, self.logvar_decoder
 
     def forward(self, x, i, encode: bool = False):

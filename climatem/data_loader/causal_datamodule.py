@@ -209,8 +209,12 @@ class CausalClimateDataModule(ClimateDataModule):
                 spatial_dim = self.input_var_shapes[var]
                 offset = self.input_var_offsets[i]
 
-                latent_start = sum(self.d_z[:i])
-                latent_end = sum(self.d_z[: i + 1])
+                if isinstance(self.d_z, list):
+                    latent_start = sum(self.d_z[:i])
+                    latent_end = sum(self.d_z[: i + 1])
+                else:
+                    latent_start = i * self.d_z
+                    latent_end = (i + 1) * self.d_z
 
                 for j in range(spatial_dim):
                     obs_idx = offset + j
