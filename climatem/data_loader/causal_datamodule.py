@@ -215,10 +215,22 @@ class CausalClimateDataModule(ClimateDataModule):
                 else:
                     latent_start = i * self.d_z
                     latent_end = (i + 1) * self.d_z
-
+                print("spatial_dim", spatial_dim)
+                print("latent_start", latent_start, "latent_end", latent_end)
                 for j in range(spatial_dim):
                     obs_idx = offset + j
                     self.obs_to_latent_mask[latent_start:latent_end, obs_idx] = 1.0
+                print(
+                    f"[debug] obs_to_latent_mask shape: {self.obs_to_latent_mask.shape}"
+                )  # should be (d_z_total, d_x_total)
+            for var_idx, (var, dim) in enumerate(self.input_var_shapes.items()):
+                start = self.input_var_offsets[var_idx]
+                end = self.input_var_offsets[var_idx + 1]
+                latent_mask = self.obs_to_latent_mask[:, start:end]
+                print(f"[{var}] nonzero latents: {(latent_mask.sum(1) > 0).sum().item()} out of {latent_mask.shape[0]}")
+                print(
+                    f"[{var}] unobserved spatial points: {(latent_mask.sum(0) == 0).sum().item()} / {latent_mask.shape[1]}"
+                )
 
             train, val = train_val_input4mips.get_causal_data(
                 tau=self.tau,

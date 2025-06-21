@@ -279,7 +279,9 @@ class Plotter:
                     annotate=True,
                 )
 
-    def plot_sparsity(self, learner, input_var_shapes=None, input_var_offsets=None, save=False):
+    def plot_sparsity(
+        self, learner, input_var_shapes=None, input_var_offsets=None, d_z=None, total_d_z=None, save=False
+    ):
         """
         Main plotting function.
 
@@ -463,6 +465,8 @@ class Plotter:
                     learner.coordinates,
                     input_var_shapes,
                     input_var_offsets,
+                    d_z,
+                    total_d_z,
                     learner.iteration,
                     learner.plot_params.plot_through_time,
                     path=learner.plots_path,
@@ -1398,90 +1402,88 @@ class Plotter:
         )
         print(f"sample: {sample}, coordinates.shape: {coordinates.shape}")
 
-        titles = ["Ground-truth t-1", "Ground truth", "Reconstruction", "Prediction"]
-        data_sources = [x_past, y_true, y_recons, y_hat]
+        T = x_past.shape[1]
+        if T >= 2:
+            timestep_sets = [-2, -1]
+            titles = ["Ground-truth t-2", "Ground-truth t-1", "Reconstruction", "Prediction"]
+            data_sources = [x_past, x_past, y_recons, y_hat]
+            n_cols = 4
+        else:
+            timestep_sets = [-1]
+            titles = ["Ground-truth t-1", "Reconstruction", "Prediction"]
+            data_sources = [x_past, y_recons, y_hat]
+            n_cols = 3
+            print("[plot] Only one timestep available, skipping t-2")
+
         n_vars = len(input_var_shapes)
 
-        for timestep in [-2, -1]:
-            fig, axs = plt.subplots(
-                n_vars,
-                4,
-                subplot_kw={"projection": ccrs.PlateCarree()},
-                layout="constrained",
-                figsize=(32, 8 * n_vars),
-            )
+        fig, axs = plt.subplots(
+            n_vars,
+            n_cols,
+            subplot_kw={"projection": ccrs.PlateCarree()},
+            layout="constrained",
+            figsize=(8 * n_cols, 6 * n_vars),
+        )
 
-            if n_vars == 1:
-                axs = [axs]  # ensure 2D indexing
+        if n_vars == 1:
+            axs = [axs]  # ensure 2D indexing
 
-            for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
-                offset_start = input_var_offsets[var_idx]
-                offset_end = input_var_offsets[var_idx + 1]
-                coords = coordinates[offset_start:offset_end]
-                print("offset_start", offset_start, "offset_end", offset_end)
-                print("coords.shape", coords.shape)
-                lon = coords[:, 0]
-                lat = coords[:, 1]
+        for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
+            offset_start = input_var_offsets[var_idx]
+            offset_end = input_var_offsets[var_idx + 1]
+            coords = coordinates[offset_start:offset_end]
+            print("offset_start", offset_start, "offset_end", offset_end)
+            print("coords.shape", coords.shape)
+            lon = coords[:, 0]
+            lat = coords[:, 1]
 
-                # Try to determine if we can reshape the grid
+            use_pcolormesh = False
+            try:
+                lon_unique = np.sort(np.unique(lon))
+                lat_unique = np.sort(np.unique(lat))
+                if lon_unique.size * lat_unique.size == spatial_dim:
+                    lon_grid, lat_grid = np.meshgrid(lon_unique, lat_unique)
+                    use_pcolormesh = True
+                    print("lon_grid.shape", lon_grid.shape, "lat_grid.shape", lat_grid.shape)
+            except Exception:
                 use_pcolormesh = False
-                try:
-                    lon_unique = np.sort(np.unique(lon))
-                    lat_unique = np.sort(np.unique(lat))
-                    if lon_unique.size * lat_unique.size == spatial_dim:
-                        lon_grid, lat_grid = np.meshgrid(lon_unique, lat_unique)
-                        use_pcolormesh = True
-                        print("lon_grid.shape", lon_grid.shape, "lat_grid.shape", lat_grid.shape)
-                except Exception:
-                    use_pcolormesh = False
 
-                for j in range(4):
-                    ax = axs[var_idx][j]
-                    ax.set_extent([lon.min(), lon.max(), lat.min(), lat.max()], crs=ccrs.PlateCarree())
-                    ax.coastlines(resolution="50m")
-                    ax.add_feature(cfeature.COASTLINE.with_scale("50m"))
-                    ax.add_feature(cfeature.LAND.with_scale("50m"), edgecolor="black")
-                    ax.gridlines(draw_labels=False)
+            for j in range(n_cols):
+                ax = axs[var_idx][j]
+                ax.set_extent([lon.min(), lon.max(), lat.min(), lat.max()], crs=ccrs.PlateCarree())
+                ax.coastlines(resolution="50m")
+                ax.add_feature(cfeature.COASTLINE.with_scale("50m"))
+                ax.add_feature(cfeature.LAND.with_scale("50m"), edgecolor="black")
+                ax.gridlines(draw_labels=False)
 
-                    tensor = data_sources[j]
+                tensor = data_sources[j]
 
-                    # Extract spatial slice using offset
-                    if j == 0:
-                        assert tensor.ndim == 4, f"x_past must be (B, T, 1, S); got {tensor.shape}"
-                        full_data = tensor[sample, timestep, 0, :]  # full spatial vector
-                    else:
-                        assert tensor.ndim == 3, f"Expected (B, 1, S); got {tensor.shape}"
-                        full_data = tensor[sample, 0, :]  # full spatial vector
+                if isinstance(tensor, np.ndarray) and tensor.ndim == 4:
+                    timestep = timestep_sets[j] if T >= 2 else -1
+                    assert (
+                        -tensor.shape[1] <= timestep < tensor.shape[1]
+                    ), f"Invalid timestep {timestep} for shape {tensor.shape}"
+                    full_data = tensor[sample, timestep, 0, :]
+                else:
+                    full_data = tensor[sample, 0, :]
 
-                    # Slice the region for this variable
-                    raw_data = full_data[offset_start:offset_end]
+                raw_data = full_data[offset_start:offset_end]
 
-                    if use_pcolormesh:
-                        try:
-                            data = raw_data.reshape(lat_unique.size, lon_unique.size)
-                            s = ax.pcolormesh(
-                                lon_grid,
-                                lat_grid,
-                                data,
-                                alpha=1,
-                                vmin=-3.5,
-                                vmax=3.5,
-                                cmap="RdBu_r",
-                                transform=ccrs.PlateCarree(),
-                            )
-                        except ValueError as e:
-                            print(f"Reshape failed for var {var}, falling back to scatter: {e}")
-                            s = ax.scatter(
-                                lon,
-                                lat,
-                                c=raw_data,
-                                s=10,
-                                cmap="RdBu_r",
-                                vmin=-3.5,
-                                vmax=3.5,
-                                transform=ccrs.PlateCarree(),
-                            )
-                    else:
+                if use_pcolormesh:
+                    try:
+                        data = raw_data.reshape(lat_unique.size, lon_unique.size)
+                        s = ax.pcolormesh(
+                            lon_grid,
+                            lat_grid,
+                            data,
+                            alpha=1,
+                            vmin=-3.5,
+                            vmax=3.5,
+                            cmap="RdBu_r",
+                            transform=ccrs.PlateCarree(),
+                        )
+                    except ValueError as e:
+                        print(f"Reshape failed for var {var}, falling back to scatter: {e}")
                         s = ax.scatter(
                             lon,
                             lat,
@@ -1492,22 +1494,32 @@ class Plotter:
                             vmax=3.5,
                             transform=ccrs.PlateCarree(),
                         )
+                else:
+                    s = ax.scatter(
+                        lon,
+                        lat,
+                        c=raw_data,
+                        s=10,
+                        cmap="RdBu_r",
+                        vmin=-3.5,
+                        vmax=3.5,
+                        transform=ccrs.PlateCarree(),
+                    )
 
-                    ax.set_title(f"{titles[j]} ({var})", fontsize=14)
+                ax.set_title(f"{titles[j]} ({var})", fontsize=14)
 
-                # Add colorbar to final column of the row
-                fig.colorbar(s, ax=axs[var_idx][-1], orientation="vertical", shrink=0.8, label=f"Normalised {var}")
+            fig.colorbar(s, ax=axs[var_idx][-1], orientation="vertical", shrink=0.8, label=f"Normalised {var}")
 
-            timestep_label = timestep + 365
-            fname_prefix = "valid" if valid else "train"
-            fname = f"{fname_prefix}_compare_allvars_t{timestep_label}_sample_{sample}_it{iteration}.png"
+        timestep_label = 365  # you can change this if actual timestep indexing is tracked
+        fname_prefix = "valid" if valid else "train"
+        fname = f"{fname_prefix}_compare_allvars_t{timestep_label}_sample_{sample}_it{iteration}.png"
 
-            plt.suptitle(f"Comparison @ timestep {timestep_label}", fontsize=24)
-            if show:
-                plt.show()
-            else:
-                plt.savefig(path / fname, format="png")
-                plt.close()
+        plt.suptitle(f"Comparison @ timestep {timestep_label}", fontsize=24)
+        if show:
+            plt.show()
+        else:
+            plt.savefig(path / fname, format="png")
+            plt.close()
 
     def plot_regions_map_by_var(
         self,
@@ -1515,41 +1527,45 @@ class Plotter:
         coordinates: np.ndarray,
         input_var_shapes: dict,
         input_var_offsets: list,
+        d_z: list,
+        total_d_z: int,
         iteration: int,
         plot_through_time: bool,
         path,
         annotate: bool = False,
         one_plot: bool = False,
     ):
-        """Plot spatial regions (latent clusters) for each variable separately on the same figure, zooming to each
-        variable’s extent."""
+        """Plot spatial regions (latent clusters) for each variable separately on the same figure."""
         print(
             f"input_var_shapes: {input_var_shapes}, input_var_offsets: {input_var_offsets}, w_adj.shape: {w_adj.shape}"
         )
         print(f"coordinates.shape: {coordinates.shape}")
 
-        # Flip coordinates once if necessary
-        if np.max(coordinates[:, 0]) > 91:  # latitude in first column
-            coordinates = coordinates[:, [1, 0]]  # now (lon, lat)
+        # Flip coordinates if necessary
+        if np.max(coordinates[:, 0]) > 91:
+            coordinates = coordinates[:, [1, 0]]  # ensure (lon, lat)
 
-        d_z = w_adj.shape[2]
+        assert isinstance(d_z, list), f"Expected d_z to be a list, got {type(d_z)}"
+        assert w_adj.shape[2] == total_d_z, f"Mismatch: w_adj has {w_adj.shape[2]} latents, but total_d_z={total_d_z}"
+
+        idx = np.argmax(w_adj[0], axis=1)  # shape: (total spatial,)
+
         d_vars = len(input_var_shapes)
-        latents_per_var = d_z // d_vars
-        colors = plt.cm.rainbow(np.linspace(0, 1, latents_per_var))
-        idx = np.argmax(w_adj[0], axis=1)  # shape: (spatial,)
-
         fig, axs = plt.subplots(
             d_vars, 1, subplot_kw={"projection": ccrs.PlateCarree()}, figsize=(10, 6 * d_vars), layout="constrained"
         )
         if d_vars == 1:
             axs = [axs]
 
+        latent_offset = 0
         for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
             offset_start = input_var_offsets[var_idx]
             offset_end = input_var_offsets[var_idx + 1]
-            print("offset_start", offset_start, "offset_end", offset_end)
             coords = coordinates[offset_start:offset_end]
             idx_subset = idx[offset_start:offset_end]
+
+            num_latents = d_z[var_idx]
+            colors = plt.cm.rainbow(np.linspace(0, 1, num_latents))
 
             lon_min, lon_max = coords[:, 0].min(), coords[:, 0].max()
             lat_min, lat_max = coords[:, 1].min(), coords[:, 1].max()
@@ -1562,8 +1578,7 @@ class Plotter:
             ax.add_feature(cfeature.BORDERS, linestyle=":")
             ax.gridlines(draw_labels=False)
 
-            latent_offset = var_idx * latents_per_var
-            for k in range(latents_per_var):
+            for k in range(num_latents):
                 global_latent_index = latent_offset + k
                 region_coords = coords[idx_subset == global_latent_index]
                 if region_coords.shape[0] == 0:
@@ -1583,6 +1598,7 @@ class Plotter:
                     ax.text(x_c, y_c, str(k), transform=ccrs.PlateCarree())
 
             ax.set_title(f"Latent regions for {var}", fontsize=14)
+            latent_offset += num_latents
 
         # Save file
         fname = "spatial_aggregation"

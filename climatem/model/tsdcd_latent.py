@@ -17,7 +17,7 @@ class Mask(nn.Module):
     def __init__(
         self,
         d: int,
-        d_x: int,
+        d_x: int,  # remove this
         tau: int,
         d_z: List[int],
         latent: bool,
@@ -579,7 +579,6 @@ class LatentTSDCD(nn.Module):
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
         assert kl >= 0, f"KL={kl} has to be >= 0"
 
-        # TODO: remove - option to change the coefficient of the KL term
         self.coeff_kl = 1.0
         elbo = recons - self.coeff_kl * kl
 
@@ -1167,10 +1166,20 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
         # Precompute teleconnections mask
         if obs_to_latent_mask is not None:
             base_mask = torch.tensor(obs_to_latent_mask, dtype=torch.float32)  # shape: (d_z, d_x)
+            assert base_mask.ndim == 2, f"Expected obs_to_latent_mask to be 2D, got {base_mask.shape}"
             self.teleconnections_mask = base_mask.unsqueeze(0)  # shape: (1, d_z, d_x)
             print(f"[init] Precomputed teleconnections_mask of shape {self.teleconnections_mask.shape}")
+
+            # Debug: how many latents have *no* observed points
+            latents_with_nothing = (base_mask.sum(dim=1) == 0).sum().item()
+            print(f"[init] Latents with no observed spatial points: {latents_with_nothing} / {base_mask.shape[0]}")
+
+            # Debug: how many spatial points have *no* latent assigned
+            spatial_unassigned = (base_mask.sum(dim=0) == 0).sum().item()
+            print(f"[init] Spatial locations with no latent coverage: {spatial_unassigned} / {base_mask.shape[1]}")
         else:
             self.teleconnections_mask = None
+            print("[init] No teleconnections_mask used.")
 
     def encode(self, x, i):
         """
@@ -1196,21 +1205,17 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
         print("[encode] final telconnections mask shape", mask_.shape)
 
         x_masked = mask_ * x.unsqueeze(1)
-
-        # 5. Embed + concat
         x_ = torch.cat((mask_ * x.unsqueeze(1), embedded_x), dim=2)
         del embedded_x, mask_, x_masked
 
-        # 6. Pass to encoder
         mu = self.encoder(x_).squeeze()
-        # Extract only the portion of x relevant to variable i
         logvar = self.logvar_encoder[i].unsqueeze(0).expand(mu.shape[0], -1)  # shape: (B, dz_i)
 
         return mu, logvar
 
     def decode(self, z, i):
         mask = super().get_decode_mask(z.shape[0])
-        mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
+        mu = torch.zeros((z.shape[0], self.d_x), device=z.device).requires_grad_(False)
 
         j_values = torch.arange(self.d_x, device=z.device).expand(z.shape[0], -1)
         embedded_z = self.embedding_decoder(j_values)
@@ -1241,21 +1246,19 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
         if self.teleconnections_mask is None:
             return mask_
 
-        tele_mask = self.teleconnections_mask.to(mask_.device)  # (1, d_z, d_x)
+        tele_mask = self.teleconnections_mask.to(mask_.device).requires_grad_(False)
         if tele_mask.shape[0] != mask_.shape[0]:
             tele_mask = tele_mask.expand(mask_.shape[0], -1, -1)
         return mask_ * tele_mask
 
     def apply_tele_mask_decode(self, mask_):
         if self.teleconnections_mask is None:
+            print("[decode] No teleconnections_mask present, returning mask_ unchanged.")
             return mask_
-        print(f"[decode] teleconnections_mask shape: {self.teleconnections_mask.shape}")
-        tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(mask_.device)  # (1, d_x, d_z)
-        if tele_mask_T.shape[0] != mask_.shape[0]:
-            tele_mask_T = tele_mask_T.expand(mask_.shape[0], -1, -1)  # (B, d_x, d_z)
-        print(f"[decode] tele_mask_T shape: {tele_mask_T.shape}")
 
-        return mask_ * tele_mask_T
+        tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(mask_.device).requires_grad_(False)
+        masked = mask_ * tele_mask_T
+        return masked
 
 
 class TransitionModel(nn.Module):
