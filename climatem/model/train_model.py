@@ -1095,7 +1095,9 @@ class TrainingLatent:
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
             if isinstance(self.d_z, list):
-                adj = self.model.get_adj()[-1].view(self.d * self.total_d_z, self.d * self.total_d_z)
+                adj = self.model.get_adj()[-1].view(
+                    self.d * self.total_d_z, self.d * self.total_d_z
+                )  # TODO: self.d_z should be a list, update self.total_d_z and self.d_z to avoid if else throughout the code, correct for CMIP6 andf multi-var.
             else:
                 adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
             h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization

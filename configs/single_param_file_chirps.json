@@ -10,7 +10,7 @@
         "d_x": 6250,
         "lon": 144,
         "lat": 96,
-        "tau": 8,
+        "tau": 0,
         "random_seed": 1,
         "gpu": true,
         "num_workers": 0,
