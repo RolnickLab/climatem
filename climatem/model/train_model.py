@@ -1094,7 +1094,10 @@ class TrainingLatent:
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
-            adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
+            if isinstance(self.d_z, list):
+                adj = self.model.get_adj()[-1].view(self.d * self.total_d_z, self.d * self.total_d_z)
+            else:
+                adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
             h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
         else:
             h = torch.as_tensor([0.0])
