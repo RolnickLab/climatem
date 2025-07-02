@@ -67,8 +67,14 @@ def main(
         print("IS HDF5")
         return
     else:
+        if model_params.instantaneous:
+            print("Using instantaneous connections")
+            tau = experiment_params.tau + 1
+        else:
+            tau = experiment_params.tau
+
         datamodule = CausalClimateDataModule(
-            tau=experiment_params.tau,
+            tau=tau,
             future_timesteps=experiment_params.future_timesteps,
             num_months_aggregated=data_params.num_months_aggregated,
             train_val_interval_length=data_params.train_val_interval_length,
@@ -123,11 +129,7 @@ def main(
     d = len(data_params.in_var_ids)
     print(f"Using {d} variables")
 
-    if model_params.instantaneous:
-        print("Using instantaneous connections")
-        num_input = d * (experiment_params.tau + 1) * (model_params.tau_neigh * 2 + 1)
-    else:
-        num_input = d * experiment_params.tau * (model_params.tau_neigh * 2 + 1)
+    num_input = d * tau * (model_params.tau_neigh * 2 + 1)
 
     # set the model
     model = LatentTSDCD(
