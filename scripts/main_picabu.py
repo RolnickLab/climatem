@@ -67,7 +67,7 @@ def main(
         print("IS HDF5")
         return
     else:
-        if model_params.instantaneous:
+        if model_params.instantaneous and experiment_params.tau == 0:
             print("Using instantaneous connections")
             tau = experiment_params.tau + 1
         else:
@@ -128,8 +128,10 @@ def main(
     # WE SHOULD REMOVE THIS, and initialize with params
     d = len(data_params.in_var_ids)
     print(f"Using {d} variables")
-
-    num_input = d * tau * (model_params.tau_neigh * 2 + 1)
+    if model_params.instantaneous:
+        num_input = d * (experiment_params.tau + 1) * (model_params.tau_neigh * 2 + 1)
+    else:
+        num_input = d * (experiment_params.tau) * (model_params.tau_neigh * 2 + 1)
 
     # set the model
     model = LatentTSDCD(

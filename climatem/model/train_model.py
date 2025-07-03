@@ -539,10 +539,9 @@ class TrainingLatent:
             # Shall we do this if instantaneous??
             if not self.instantaneous:
                 y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
-                y_pred_all[:, k] = y_pred
             else:
-                y_pred_all[:, k] = y_pred_recons
-
+                y_pred = y_pred_recons
+            y_pred_all[:, k] = y_pred
             x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
 
         del x_bis, y_pred, nll_bis, recons_bis, kl_bis, y_pred_recons
@@ -1134,11 +1133,6 @@ class TrainingLatent:
             adj = self.model.get_adj()
 
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization
-
-            print(f"self.sparsity_normalization {self.sparsity_normalization}")
-            print(f"torch.norm(adj, p=1) {torch.norm(adj, p=1)}")
-            print(f"sum_of_connections {sum_of_connections}")
-            # print('constraint value, before I subtract a threshold from it:', sum_of_connections)
 
             # If the sum_of_connections is greater than the upper threshold, then we have a violation
             if sum_of_connections > upper_threshold:
