@@ -446,7 +446,7 @@ class LatentTSDCD(nn.Module):
 
         # TODO: Can we remove this for loop?
         for i in range(self.d):
-            # get params from the encoder q(z^t | x^t)
+            # TODO: Can we remove this for loop?
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
@@ -566,21 +566,21 @@ class LatentTSDCD(nn.Module):
             )
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
-        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
-        # compute the KL, the reconstruction and the ELBO
-        # kl = distr.kl_divergence(q, p).mean()
-        kl_raw = (
-            0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2))
-            + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
-            - 0.5
-        )
+            recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
+            # compute the KL, the reconstruction and the ELBO
+            # kl = distr.kl_divergence(q, p).mean()
+            kl_raw = (
+                0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2))
+                + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
+                - 0.5
+            )
+
         kl = torch.sum(kl_raw, dim=[2]).mean()
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
         assert kl >= 0, f"KL={kl} has to be >= 0"
 
-        self.coeff_kl = 1.0
-        elbo = recons - self.coeff_kl * kl
+        elbo = recons - kl
 
         return elbo, recons, kl, px_mu
 
@@ -629,7 +629,6 @@ class LatentTSDCD(nn.Module):
 
         We want to take past time steps and predict the next time step, not to reconstruct the past time steps.
         """
-
         b = x.size(0)
 
         # NOTE: we are not using y here. We encode using both x and y,
