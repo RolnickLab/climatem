@@ -30,8 +30,6 @@ Run `poetry install --with dev` to use formatting tools for code development
 If you do not have poetry yet, follow guidelines in the "Install poetry" section here https://github.com/RolnickLab/lab-basic-template
 This link points you to additional references for setting up your environment correctly. 
 
-If you need a package that is not automatically installed, please run `poetry add $(cat requirements_env_emulator.txt)`
-
 4. Install `pre-commit` hooks using `pre-commit install`.
 
 ### 3. Downloading input data
