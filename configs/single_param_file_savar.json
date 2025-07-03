@@ -18,7 +18,7 @@
     "data_params": {
         "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
         "climateset_data": "$SCRATCH/data/icml_processed_data/picontrol/24_ni", 
-        "reload_climate_set_data": false,
+        "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["savar"],
         "out_var_ids": ["savar"],
@@ -55,7 +55,7 @@
         "lr": 0.001,
         "lr_scheduler_epochs": [10000, 20000],
         "lr_scheduler_gamma": 1,    
-        "max_iteration": 100000,
+        "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 5
@@ -115,7 +115,7 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 0.065,
+        "sparsity_upper_threshold": 0.045,
 
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,

@@ -69,7 +69,7 @@ class ALM:
                 self._compute_delta_gamma(iteration, val_loss)
 
                 # if we have found a stationary point of the augmented loss
-                if abs(self.delta_gamma) < self.omega_gamma or self.delta_gamma > 0:
+                if self.delta_gamma > -abs(self.omega_gamma):
                     self.gamma += self.mu * h
                     self.constraint_violation.append(h_scalar)
 
