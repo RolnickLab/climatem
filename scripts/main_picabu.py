@@ -61,15 +61,7 @@ def main(
     #     os.makedirs(args.exp_path)
 
     # generate data and split train/test
-<<<<<<< HEAD
-    if experiment_params.gpu and torch.cuda.is_available():
-        device = "cuda"
-        print("CUDACUDACUDA")
-    else:
-        device = "cpu"
-=======
     device = torch.device("cuda" if (torch.cuda.is_available() and experiment_params.gpu) else "cpu")
->>>>>>> main
 
     if data_params.data_format == "hdf5":
         print("IS HDF5")
@@ -156,10 +148,11 @@ def main(
         reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
         coeff_kl=optim_params.coeff_kl,
         d=d,
+        #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
-        distr_decoder="gev",
+        distr_decoder="gaussian",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
@@ -188,11 +181,7 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-<<<<<<< HEAD
-    name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}_overlap_{savar_params.overlap}_forcing_{savar_params.is_forced}"
-=======
     name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
->>>>>>> main
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 
@@ -209,7 +198,6 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
-    hp["savar_params"] = savar_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
@@ -237,6 +225,7 @@ def main(
         accelerator,
         wandbname=name,
         profiler=False,
+        profiler_path="./log",
     )
 
     # where is the model at this point?
@@ -357,7 +346,7 @@ if __name__ == "__main__":
         params = json.load(f)
     config_obj_list = update_config_withparse(params, args)
 
-    # get user's scratch directory on Mila cluster:
+    # get user's scratch directory:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
     print ("new data path:", params["data_params"]["data_dir"])
@@ -395,4 +384,3 @@ if __name__ == "__main__":
     )
 
     main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
-

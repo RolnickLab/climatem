@@ -217,7 +217,6 @@ class Plotter:
         if learner.plot_params.savar:
             self.plot_adjacency_matrix(
                 mat1=adj,
-                # Below savar dag
                 mat2=learner.datamodule.savar_gt_adj,
                 path=learner.plots_path,
                 name_suffix="transition",
@@ -368,13 +367,14 @@ class Plotter:
         if learner.plot_params.savar:
             savar_folder = learner.data_params.data_dir
             n_modes = learner.savar_params.n_per_col**2
-            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
+            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}_f1_{learner.savar_params.f_1}_f2_{learner.savar_params.f_2}_ft1_{learner.savar_params.f_time_1}_ft2_{learner.savar_params.f_time_2}_ramp_{learner.savar_params.ramp_type}_linearity_{learner.savar_params.linearity}_polydegs_{learner.savar_params.poly_degrees}"
             # Get the gt mode weights
             modes_gt = np.load(f"{savar_folder}/{savar_fname}_mode_weights.npy")
             if learner.iteration == 500:
                 savar_data = np.load(f"{savar_folder}/{savar_fname}.npy")
                 savar_anim_path = f"{savar_folder}/{savar_fname}_original_savar_data.gif"
                 self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
+                print(modes_gt)
 
         # TODO: plot the prediction vs gt
         # plot_compare_prediction(x, x_hat)
@@ -1471,7 +1471,7 @@ class Plotter:
             return (cax,)
 
         # Create an animation
-        ani = animation.FuncAnimation(fig, animate, frames=100, blit=True)
+        ani = animation.FuncAnimation(fig, animate, frames=100, blit=False)
 
         # Save the animation as a video file
         ani.save(path, writer="pillow", fps=10)

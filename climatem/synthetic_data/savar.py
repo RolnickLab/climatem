@@ -5,17 +5,17 @@ benchmarking causal discovery methods for teleconnections", Tibau et al.
 2022 The main difference with the provided code is the torch/GPU implementation which considerably speeds up the data
 generation process
 """
-from typing import List
-import seaborn as sns
+
 import itertools as it
 from copy import deepcopy
 from math import pi, sin
-import matplotlib.pyplot as plt
+from typing import List
+
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 from tqdm.auto import tqdm
-import torch.nn as nn
 
 
 def dict_to_matrix(links_coeffs, default=0):
@@ -122,7 +122,7 @@ class SAVAR:
         self.tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(self.links_coeffs.values()))
         self.spatial_resolution = deepcopy(self.mode_weights.reshape(self.n_vars, -1).shape[1])
         print("spatial-resolution done")
-            
+
         if self.noise_weights is None:
             self.noise_weights = deepcopy(self.mode_weights)
         if self.latent_noise_cov is None:
@@ -220,8 +220,10 @@ class SAVAR:
 
         # Generate noise from cov
         print("Generate noise_data_field multivariate random")
-        mean_torch = torch.Tensor(np.zeros(self.spatial_resolution)).to(device="cuda")
-        cov = torch.Tensor(self.noise_cov).to(device="cuda")
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float32
+        mean_torch = torch.zeros(self.spatial_resolution, device=dev, dtype=dtype)
+        cov = torch.tensor(self.noise_cov, device=dev, dtype=dtype)
         distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov)  # . to(device="cuda")
         noise_data_field = distrib.sample(sample_shape=torch.Size([self.time_length + self.transient]))
         self.noise_data_field = noise_data_field.detach().cpu().numpy().transpose()
@@ -258,6 +260,7 @@ class SAVAR:
     def _add_external_forcing(self):
         """
         Adds external forcing to the data field using PyTorch tensors for GPU acceleration.
+
         Allows for both linear and nonlinear ramps.
         """
         if self.forcing_dict is None:
@@ -275,41 +278,47 @@ class SAVAR:
             w_f = (w_f != 0).astype(int)  # Convert non-zero elements to 1
 
         print(self.mode_weights.shape)
-        #w_f = w_f / (w_f.max() + 1e-8)  # Normalize to range [0,1]
+        # w_f = w_f / (w_f.max() + 1e-8)  # Normalize to range [0,1]
 
         # Merge last two dims first => shape (d_z, lat*lon)
-        temp = w_f.reshape(w_f.shape[0], w_f.shape[1]*w_f.shape[2])
+        temp = w_f.reshape(w_f.shape[0], w_f.shape[1] * w_f.shape[2])
         # sum over dim=0 => shape (lat*lon,)
-        w_f_sum = torch.tensor(temp.sum(axis=0), dtype=torch.float32, device="cuda")
+
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float32
+        w_f_sum = torch.tensor(temp.sum(axis=0), dtype=dtype, device=dev)
         f_time_1 += self.transient
         f_time_2 += self.transient
         time_length = self.time_length + self.transient
 
-
         # Generate the forcing trend using torch tensors
         if ramp_type == "linear":
-            ramp = torch.linspace(f_1, f_2, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            ramp = torch.linspace(f_1, f_2, f_time_2 - f_time_1, dtype=dtype, device=dev)
         elif ramp_type == "quadratic":
-            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=dtype, device=dev)
             ramp = f_1 + (f_2 - f_1) * t**2
         elif ramp_type == "exponential":
-            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=torch.float32, device=dev)
             ramp = f_1 + (f_2 - f_1) * (torch.exp(t) - 1) / (torch.exp(torch.tensor(1.0)) - 1)
         elif ramp_type == "sigmoid":
-            t = torch.linspace(-6, 6, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            t = torch.linspace(-6, 6, f_time_2 - f_time_1, dtype=dtype, device=dev)
             ramp = f_1 + (f_2 - f_1) * (1 / (1 + torch.exp(-t)))
         elif ramp_type == "sinusoidal":
-            t = torch.linspace(0, pi, f_time_2 - f_time_1, dtype=torch.float32, device="cuda")
+            t = torch.linspace(0, pi, f_time_2 - f_time_1, dtype=dtype, device=dev)
             ramp = f_1 + (f_2 - f_1) * (0.5 * (1 - torch.cos(t)))
         else:
-            raise ValueError("Unsupported ramp type. Choose from 'linear', 'quadratic', 'exponential', 'sigmoid', or 'sinusoidal'.")
+            raise ValueError(
+                "Unsupported ramp type. Choose from 'linear', 'quadratic', 'exponential', 'sigmoid', or 'sinusoidal'."
+            )
 
         # Generate the forcing trend using torch tensors
-        trend = torch.cat([
-            torch.full((f_time_1,), f_1, dtype=torch.float32, device="cuda"),
-            ramp,
-            torch.full((time_length - f_time_2,), f_2, dtype=torch.float32, device="cuda")
-        ]).reshape(1, time_length)
+        trend = torch.cat(
+            [
+                torch.full((f_time_1,), f_1, dtype=dtype, device=dev),
+                ramp,
+                torch.full((time_length - f_time_2,), f_2, dtype=dtype, device=dev),
+            ]
+        ).reshape(1, time_length)
 
         if w_f_sum.dim() == 2:
             w_f_sum = w_f_sum.sum(dim=0, keepdim=True)  # Sum across the correct dimension
@@ -324,11 +333,7 @@ class SAVAR:
 
         print(f"Before addition - Data field mean: {self.data_field.mean()}")
 
-        data_field_before = self.data_field.copy()
-
         self.data_field += self.forcing_data_field
-
-        data_field_after = self.data_field
 
         print(f"After addition - Data field mean: {self.data_field.mean()}")
 
@@ -346,7 +351,7 @@ class SAVAR:
         # mean_forcing = forcing_field.mean(axis=0)
         # mean_data_before = data_field_before.mean(axis=0)
         # mean_data_after = data_field_after.mean(axis=0)
-        
+
         # # Plot 1: Mean Forcing over Time
         # plt.figure(figsize=(10, 4))
         # plt.plot(range(time_length), mean_forcing, label="Mean Forcing", color="blue")
@@ -374,21 +379,21 @@ class SAVAR:
         # plt.savefig(f"mean_data_before_after_forcing_{f_1}_{f_2}_{ramp_type}.png")  # Save to a file
         # plt.close()
 
-
     def _create_linear(self):
         """Weights N \times L data_field L \times T."""
         weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
         # weights_inv = np.linalg.pinv(weights)
-        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
-        weights = torch.Tensor(weights).to(device="cuda")
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device=dev)
+        weights = torch.Tensor(weights).to(device=dev)
         time_len = deepcopy(self.time_length)
         time_len += self.transient
         tau_max = self.tau_max
 
         # phi = dict_to_matrix(self.links_coeffs)
-        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device=dev)
         # data_field = deepcopy(self.data_field)
-        data_field = torch.Tensor(self.data_field).to(device="cuda")
+        data_field = torch.Tensor(self.data_field).to(device=dev)
 
         print("create_linear")
         for t in tqdm(range(tau_max, time_len)):
@@ -398,19 +403,17 @@ class SAVAR:
 
         self.data_field = data_field[..., self.transient :].detach().cpu().numpy()
 
-
     def train_nnar(self, num_epochs=50, learning_rate=0.001, batch_size=32):
         """
-        method for training a very simple single-layer neural network with
-        sigmoid activation (one neuron). We train it here on pairs (past_values, future_value), 
-        but this can be adapted as needed.
+        Method for training a very simple single-layer neural network with sigmoid activation (one neuron).
+
+        We train it here on pairs (past_values, future_value), but this can be adapted as needed.
         """
 
         # A trivial net:  data_in -> [Linear] -> [Sigmoid] -> data_out
-        self.nnar_model = nn.Sequential(
-            nn.Linear(self.spatial_resolution, self.spatial_resolution),
-            nn.Sigmoid()
-        ).to("cuda")
+        self.nnar_model = nn.Sequential(nn.Linear(self.spatial_resolution, self.spatial_resolution), nn.Sigmoid()).to(
+            "cuda"
+        )
 
         optimizer = torch.optim.Adam(self.nnar_model.parameters(), lr=learning_rate)
         loss_fn = nn.MSELoss()
@@ -419,8 +422,8 @@ class SAVAR:
         # (we might later incorporate more lags)
 
         # collect input-output pairs:
-        X = torch.from_numpy(self.data_field[:, :-1].T).float().to("cuda")  
-        Y = torch.from_numpy(self.data_field[:, 1:].T).float().to("cuda")   
+        X = torch.from_numpy(self.data_field[:, :-1].T).float().to("cuda")
+        Y = torch.from_numpy(self.data_field[:, 1:].T).float().to("cuda")
         dataset_size = X.shape[0]
 
         # Simple mini-batch loop
@@ -430,11 +433,11 @@ class SAVAR:
 
             for i in range(0, dataset_size, batch_size):
                 idx = perm[i : i + batch_size]
-                x_batch = X[idx]  
+                x_batch = X[idx]
                 y_batch = Y[idx]
 
                 # forward pass
-                pred = self.nnar_model(x_batch) 
+                pred = self.nnar_model(x_batch)
                 loss = loss_fn(pred, y_batch)
                 batch_losses.append(loss.item())
 
@@ -448,12 +451,11 @@ class SAVAR:
 
         print("Training of single-layer NNAR model completed.")
 
-    
     def _create_nonlinear(self):
         """
-        Generates nonlinear data by applying a (trained or simple) nonlinearity
-        at each time step. This method uses the same logic as _create_linear to step forward in time
-        and adds the nonlinearity (sigmoid) before adding to data_field.
+        Generates nonlinear data by applying a (trained or simple) nonlinearity at each time step. This method uses the
+        same logic as _create_linear to step forward in time and adds the nonlinearity (sigmoid) before adding to
+        data_field.
 
         If train_nnar=True was set, we assume self.nnar_model was trained in generate_data().
         Otherwise, we can do a direct inline "torch.sigmoid(...)" approach.
@@ -475,7 +477,7 @@ class SAVAR:
             nonlinear_contrib = 0.0
             for i in range(tau_max):
                 # get linear combination as in _create_linear
-                lincombo = weights @ phi[..., i] @ mode_weights_tensor @ data_field[..., (t-1 - i):(t - i)]
+                lincombo = weights @ phi[..., i] @ mode_weights_tensor @ data_field[..., (t - 1 - i) : (t - i)]
                 # Apply a sigmoid (or feed it through the small neural net if you want more complexity)
                 lincombo_nl = torch.sigmoid(lincombo)
                 # accumulate
@@ -486,18 +488,22 @@ class SAVAR:
 
         self.data_field = data_field[:, self.transient :].detach().cpu().numpy()
 
-
     def _create_polynomial(self):
-        """
-        Example polynomial autoregression, e.g. x^2 for poly_degree=2.
-        """
+        """Example polynomial autoregression, e.g. x^2 for poly_degree=2."""
         w_np = np.linalg.pinv(self.mode_weights.reshape(self.n_vars, -1))
         phi_np = dict_to_matrix(self.links_coeffs)
 
-        w_torch = torch.Tensor(w_np).to("cuda")
-        phi_torch = torch.Tensor(phi_np).to("cuda")
-        mw_torch = torch.Tensor(self.mode_weights.reshape(self.n_vars, -1)).to("cuda")
-        data_field = torch.Tensor(self.data_field).to("cuda")
+        # choose GPU if available, else CPU — and use float32 everywhere
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float32
+        w_torch = torch.tensor(w_np, device=dev, dtype=dtype)
+        phi_torch = torch.tensor(phi_np, device=dev, dtype=dtype)
+        mw_torch = torch.tensor(
+            self.mode_weights.reshape(self.n_vars, -1),
+            device=dev,
+            dtype=dtype,
+        )
+        data_field = torch.tensor(self.data_field, device=dev, dtype=dtype)
 
         time_len = self.time_length + self.transient
         tau_max = self.tau_max
@@ -507,17 +513,12 @@ class SAVAR:
         for t in tqdm(range(tau_max, time_len)):
             # For each time step, sum over the contributions of all lags
             for i in range(tau_max):
-                lincombo = (
-                    w_torch
-                    @ phi_torch[..., i]
-                    @ mw_torch
-                    @ data_field[..., (t - 1 - i) : (t - i)]
-                )  
+                lincombo = w_torch @ phi_torch[..., i] @ mw_torch @ data_field[..., (t - 1 - i) : (t - i)]
 
                 # For each requested polynomial degree, add its effect
-                poly_sum = 0.0
+                poly_sum = torch.zeros_like(lincombo)
                 for deg in self.poly_degrees:
-                    poly_sum += lincombo ** deg
+                    poly_sum += lincombo**deg
 
                 data_field[:, t] += poly_sum.squeeze(-1)
 

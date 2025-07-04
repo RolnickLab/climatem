@@ -1,25 +1,23 @@
-# NOTE: as of 14th Oct, I am also trying to get this to work for multiple variables.
-
-import glob
-import os
+# import glob
+# import os
+# from datetime import datetime, timedelta
+import itertools
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union  # Tuple
 
 import numpy as np
 import torch
 import xarray as xr
 
-from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
-    AVAILABLE_MODELS_FIRETYPE,
-    CMIP6_NOM_RES,
-    CMIP6_TEMP_RES,
-    NO_OPENBURNING_VARS,
-    OPENBURNING_MODEL_MAPPING,
-)
-
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
+
+# from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,; CMIP6_NOM_RES,; CMIP6_TEMP_RES,; NO_OPENBURNING_VARS,
+#     AVAILABLE_MODELS_FIRETYPE,
+#     OPENBURNING_MODEL_MAPPING,
+# )
+
 
 log = get_logger()
 
@@ -112,44 +110,24 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
 
-        if climate_model in AVAILABLE_MODELS_FIRETYPE:
-            openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
-        else:
-            openburning_specs = OPENBURNING_MODEL_MAPPING["other"]
+        # if climate_model in AVAILABLE_MODELS_FIRETYPE:
+        #     openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
+        # else:
+        #     openburning_specs = OPENBURNING_MODEL_MAPPING["other"]
 
-        ds_kwargs = dict(
-            scenarios=scenarios,
-            years=self.years,
-            historical_years=self.historical_years,
-            channels_last=channels_last,
-            openburning_specs=openburning_specs,
-            mode=mode,
-            output_save_dir=self.output_save_dir,
-            reload_climate_set_data=self.reload_climate_set_data,
-            seq_to_seq=seq_to_seq,
-            global_normalization=self.global_normalization,
-            seasonality_removal=self.seasonality_removal,
-        )
         self.seq_len = seq_len
         self.lat = lat
         self.lon = lon
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
 
-        # TODO: is that needed?
-        # creates on cmip and on input4mip dataset
-        # print("creating input4mips")
-        self.input4mips_ds = Input4MipsDataset(variables=in_variables, **ds_kwargs)
-        # print("creating cmip6")
-        # self.cmip6_ds=self.input4mips_ds
-        self.cmip6_ds = CMIP6Dataset(
-            climate_model=climate_model, num_ensembles=num_ensembles, variables=out_variables, **ds_kwargs
-        )
-
-    # NOTE:() changing this so it can deal with with grib files and netcdf files
-    # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
     def load_into_mem(
-        self, paths: List[List[str]], num_vars: int, channels_last=True, seq_to_seq=True
-    ):  # -> np.ndarray():
+        self,
+        paths: List[List[str]],
+        num_vars: int,
+        channels_last=True,
+        seq_to_seq=True,
+        get_years=None,
+    ):
         """
         Take a file structure of netcdf or grib files and load them into memory.
 
@@ -161,65 +139,58 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
 
         array_list = []
-        # print("paths:", paths)
-        # print("length paths", len(paths))
 
-        # I need to check here that it is doing the right thing
         for vlist in paths:
-            # print("length_paths_list", len(vlist))
-            # print the last three characters of the first element of vlist
-            # NOTE:() assert that they are either .nc or .grib - and print an error!
             if vlist[0][-3:] == ".nc":
-                temp_data = xr.open_mfdataset(
-                    vlist, concat_dim="time", combine="nested"
-                ).compute()  # .compute is not necessary but eh, doesn't hurt
-                # ignore the bnds dimension
-                temp_data = temp_data.drop_dims("bnds")
-                # print("Temp data at the point of reading it in:", temp_data)
-            elif vlist[0][-5:] == ".grib":
-                # need to install cfgrib, eccodes and likely ecmwflibs to make sure this cfgrib engine works and is available
+                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
+                temp_data = temp_data.drop_dims("bnds", errors="ignore")
+
+            elif vlist[0].endswith(".grib"):
                 temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
-                # print("Temp data at the point of reading it in:", temp_data)
-            # then get rid of this with some assert ^ see above
+            # TODO : handle gribs together
+            elif vlist[0].endswith(".grib2"):
+                # TODO: not all data will have this name to remove leap days + we should remove feb 29?
+                filtered_vlist = list(itertools.chain(*vlist))
+                filtered_vlist = [item for item in vlist if "000366.grib2" not in item]
+                temp_data = xr.open_mfdataset(
+                    filtered_vlist, engine="cfgrib", concat_dim="time", combine="nested"
+                ).compute()
+
             else:
                 print("File extension not recognized, please use either .nc or .grib")
+                continue
 
-            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, 1036*num_scenarios, 96, 144)
-
-            # print("Temp data shape:", temp_data.shape)
-            # temp_data = temp_data.squeeze() # (1036*num_scanarios, 96, 144)
+            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, time, lat, lon)
             array_list.append(temp_data)
 
-        # print("length of the array list:", len(array_list))
         temp_data = np.concatenate(array_list, axis=0)
 
-        # print("Temp data shape after concatenation:", temp_data.shape)
-
-        # this is not very neat, but it calc
-        if paths[0][0][-5:] == ".grib":
+        if paths[0][0].endswith(".grib"):
             years = len(paths[0])
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
-            # print("temp data shape", temp_data.shape)
+
+        elif paths[0][0].endswith(".grib2"):
+            # Use self.seq_len = 365 (post-leap-day-removal)
+            filtered_vlist = [f for f in vlist if int(f[-10:-6]) <= 365]
+            vlist = filtered_vlist
+            years = len(vlist) // self.seq_len
+            temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
         else:
             years = len(paths[0])
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, self.lon, self.lat)
-            # print("temp data shape", temp_data.shape)
-
-        # create a new array with the first 3 columns, and then tuple(lon, lat)
 
         if seq_to_seq is False:
             temp_data = temp_data[:, :, -1, :, :]  # only take last time step
             temp_data = np.expand_dims(temp_data, axis=2)
-            # print("seq to 1 temp data shape", temp_data.shape)
+
         if channels_last:
             temp_data = temp_data.transpose((1, 2, 3, 4, 0))
-        elif paths[0][0][-5:] == ".grib":
-            # print("In elif paths[0][0][-5:] == '.grib'")
+        elif paths[0][0][-5:] in [".grib", "grib2"]:
             temp_data = temp_data.transpose((1, 2, 0, 3))
         else:
             temp_data = temp_data.transpose((1, 2, 0, 3, 4))
-        # print("final temp data shape", temp_data.shape)
+
         return temp_data
 
         # (86*num_scenarios!, 12, vars, 96, 144). Desired shape where 86*num_scenaiors can be the batch dimension. Can get items of shape (batch_size, 12, 96, 144) -> #TODO: confirm that one item should be one year of one scenario
@@ -236,10 +207,13 @@ class ClimateDataset(torch.utils.data.Dataset):
         Returns:
             np.ndarray: coordinates
         """
+        print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
         print("length paths", len(paths))
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.load(self.icosahedral_coordinates_path)
+        elif paths[0][0][-5:] == "grib2":
+            coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
         else:
             for vlist in [paths[0]]:
                 # print("I am in the else of load_coordinates_into_mem")
@@ -375,7 +349,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             # print("Trying to regrid to lon, lat if we have regular data...")
             # data = data.reshape(num_scenarios, num_years, num_vars, LON, LAT)
 
-            data = data.reshape(num_scenarios, num_years * 12, num_vars, self.lon, self.lat)
+            data = data.reshape(num_scenarios, num_years * self.seq_len, num_vars, self.lon, self.lat)
 
         except ValueError:
             print(
@@ -389,7 +363,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             # 26/08/24
             # Now we don't split up the ensemble members
 
-            data = data.reshape(1, num_years * 12, num_vars, -1)
+            data = data.reshape(1, num_years * self.seq_len, num_vars, -1)
             # print("Data shape after reshaping:", data.shape)
 
         if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated > 1:
@@ -730,15 +704,15 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         mean = np.nanmean(data, axis=0)
         std = np.nanstd(data, axis=0)
-
         # make a numpy array containing the mean and std for each month:
         remove_season_stats = np.array([mean, std])
 
         np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
 
         print("Just about to return the data after removing seasonality.")
-
-        return (data - mean[None]) / std[None]
+        std_safe = np.where(std == 0, 1, std)
+        deseasonalized = (data - mean[None]) / std_safe[None]
+        return deseasonalized
 
     def write_dataset_statistics(self, fname, stats):
         #            fname = fname.replace('.npz.npy', '.npy')

@@ -1,11 +1,11 @@
 import csv
 import json
 
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import beta
-import matplotlib.animation as animation
 
 from climatem.synthetic_data.savar import SAVAR
 from climatem.synthetic_data.utils import check_stability, create_random_mode
@@ -111,7 +111,7 @@ def generate_save_savar_data(
     f_time_2=8000,
     ramp_type="linear",
     linearity="polynomial",
-    poly_degrees=[2,3],
+    poly_degrees=[2, 3],
     plotting=True,
 ):
 
@@ -119,18 +119,18 @@ def generate_save_savar_data(
     ny = nx = n_per_col * comp_size
     N = n_per_col**2  # Number of components
 
-    if not (0 <= overlap <= 1): raise ValueError("overlap must be between 0 and 1")
+    if not (0 <= overlap <= 1):
+        raise ValueError("overlap must be between 0 and 1")
 
     noise_weights = np.zeros((N, nx, ny))
     modes_weights = np.zeros((N, nx, ny))
-
 
     # Specify the path where you want to save the data
     npy_name = f"{name}.npy"
     save_path = save_dir_path / npy_name
 
     # Center starting position (for fully overlapping modes)
-    center_x_start = (nx - comp_size) // 2 
+    center_x_start = (nx - comp_size) // 2
     center_y_start = (ny - comp_size) // 2
 
     # Create modes weights
@@ -145,14 +145,14 @@ def generate_save_savar_data(
             new_y_start = int((1 - overlap) * orig_y_start + overlap * center_y_start)
             new_x_end = new_x_start + comp_size
             new_y_end = new_y_start + comp_size
-            modes_weights[
-                idx, new_x_start : new_x_end, new_y_start : new_y_end
-            ] = create_random_mode((comp_size, comp_size), random=True)
-    #for k in range(n_per_col):
-    #    for j in range(n_per_col):
-            noise_weights[
-                idx, new_x_start : new_x_end, new_y_start : new_y_end
-            ] = create_random_mode((comp_size, comp_size), random=True)
+            modes_weights[idx, new_x_start:new_x_end, new_y_start:new_y_end] = create_random_mode(
+                (comp_size, comp_size), random=True
+            )
+            # for k in range(n_per_col):
+            #    for j in range(n_per_col):
+            noise_weights[idx, new_x_start:new_x_end, new_y_start:new_y_end] = create_random_mode(
+                (comp_size, comp_size), random=True
+            )
 
     # This is the probabiliity of having a link between latent k and j, with k different from j. latents always have one link with themselves at a previous time.
     if difficulty == "easy":
@@ -297,4 +297,37 @@ def generate_save_savar_data(
     np.save(save_path, savar_model.data_field)
 
     print(f"{name} DONE!")
+
+    plot_original_savar(savar_model.data_field, nx, ny, save_dir_path / f"{name}_original_savar_data2.gif")
     return savar_model.data_field
+
+
+def plot_original_savar(data, lat, lon, path):
+    """Plotting the original savar data."""
+    print(f"data shape {data.shape}")
+    # Get the dimensions
+    time_steps = data.shape[1]
+    data_reshaped = data.T.reshape((time_steps, lat, lon))
+
+    avg_data = np.mean(data_reshaped, axis=0)
+    vmin_avg, vmax_avg = avg_data.min(), avg_data.max()
+    vmin_all, vmax_all = data_reshaped.min(), data_reshaped.max()
+    print(f"avg_data range: {vmin_avg:.3e} to {vmax_avg:.3e}")
+    print(f"full data range: {vmin_all:.3e} to {vmax_all:.3e}")
+
+    fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
+    cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin_avg, vmax=vmax_avg)
+    # cbar = fig.colorbar(cax, ax=ax)
+
+    def animate(i):
+        cax.set_data(data_reshaped[i])
+        ax.set_title(f"Time step: {i+1}")
+        return (cax,)
+
+    # Create an animation
+    ani = animation.FuncAnimation(fig, animate, frames=100, blit=False)
+
+    # Save the animation as a video file
+    ani.save(path, writer="pillow", fps=10)
+
+    plt.close()
