@@ -534,6 +534,10 @@ class LatentTSDCD(nn.Module):
         b = x.size(0)
 
         # sample Zs (based on X)
+        print(f"x.max() {x.max()}")
+        print(f"x.shape {x.shape}")
+        print(f"y.max() {y.max()}")
+        print(f"y.shape {y.shape}")
 
         z, q_mu_y, q_std_y = self.encode(x, y)
 
@@ -543,7 +547,12 @@ class LatentTSDCD(nn.Module):
         # get params of the transition model p(z^t | z^{<t})
         mask = self.mask(b)
         if self.instantaneous:
+            print(f"z.max() {z.max()}")
+            print(f"z.shape {z.shape}")
+
             pz_mu, pz_std = self.transition(z.clone(), mask)
+            print(f"pz_mu.max() {pz_mu.max()}")
+            print(f"pz_mu.shape {pz_mu.shape}")
         else:
             pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
 

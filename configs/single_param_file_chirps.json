@@ -4,13 +4,14 @@
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
         "d_z": [
-            10,
-            5
+            30,
+            30
         ],
         "d_x": 6250,
         "lon": 144,
         "lat": 96,
         "tau": 0,
+        "future_timesteps": 1,
         "random_seed": 1,
         "gpu": true,
         "num_workers": 0,
@@ -18,8 +19,8 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/CHIRPS_DATA_TEST",
-        "climateset_data": "$SCRATCH/data/CHIRPS_DATA_TEST",
+        "data_dir": "/network/scratch/l/lastc/data/CHIRPS_DATA_TEST",
+        "climateset_data": "/network/scratch/l/lastc/data/CHIRPS_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
         "in_var_ids": {
@@ -47,8 +48,8 @@
         "ishdf5": false,
         "global_normalization": true,
         "seasonality_removal": true,
-        "batch_size": 32,
-        "eval_batch_size": 32,
+        "batch_size": 128,
+        "eval_batch_size": 128,
         "channels_last": false,
         "load_train_into_mem": true,
         "load_test_into_mem": true,
@@ -65,27 +66,30 @@
     },
     "train_params": {
         "ratio_train": 0.9,
-        "lr": 0.0005,
+        "lr": 0.001,
         "lr_scheduler_epochs": [
             10000,
             20000
         ],
         "lr_scheduler_gamma": 1,
-        "max_iteration": 50000,
+        "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 5
     },
     "model_params": {
-        "instantaneous": false,
+        "instantaneous": true,
         "no_w_constraint": false,
         "tied_w": true,
         "nonlinear_mixing": true,
+        "num_hidden_mixing": 16,
+        "num_layers_mixing": 2,    
+        "nonlinear_dynamics": true,
         "num_hidden": 8,
         "num_layers": 2,
         "num_output": 2,
-        "num_hidden_mixing": 16,
-        "num_layers_mixing": 2,
+        "position_embedding_dim": 50,
+        "reduce_encoding_pos_dim": false,
         "fixed": false,
         "fixed_output_fraction": null,
         "tau_neigh": 0,
@@ -94,30 +98,41 @@
     "optim_params": {
         "optimizer": "rmsprop",
         "use_sparsity_constraint": true,
+        "binarize_transition": true,
         "crps_coeff": 1,
-        "spectral_coeff": 20,
-        "temporal_spectral_coeff": 2000,
+        "spectral_coeff": 100,
+        "temporal_spectral_coeff": 0,
         "coeff_kl": 1,
+
+        "loss_decay_future_timesteps": 1,
+        "fraction_highest_wavenumbers": 0.5,
+        "fraction_lowest_wavenumbers": null,
+
+        "scheduler_spectra": null,
+
         "reg_coeff": 0.01,
         "reg_coeff_connect": 0,
         "schedule_reg": 0,
         "schedule_ortho": 0,
         "schedule_sparsity": 0,
+
         "ortho_mu_init": 1e5,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
-        "sparsity_mu_init": 1,
+
+        "sparsity_mu_init": 1e-4,
         "sparsity_mu_mult_factor": 1.5,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 0.1,
         "sparsity_min_iter_convergence": 1000,
         "sparsity_upper_threshold": 0.5,
+
         "acyclic_mu_init": 1,
-        "acyclic_mu_mult_factor": 2,
+        "acyclic_mu_mult_factor": 1.5,
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
         "acyclic_h_threshold": 1e-08,
@@ -126,9 +141,10 @@
         "h_acyclic_threshold": null
     },
     "plot_params": {
-        "plot_freq": 500,
+        "plot_freq": 200,
         "plot_through_time": true,
-        "print_freq": 500
+        "print_freq": 200,
+        "save_arrays": false
     },
     "savar_params": {
         "time_len": 10000,

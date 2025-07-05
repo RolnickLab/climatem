@@ -123,6 +123,10 @@ class TrainingLatent:
         self.mu_sparsity_list = []
         self.gamma_sparsity_list = []
 
+        if self.instantaneous:
+            self.mu_acyclicity_list = []
+            self.gamma_acyclicity_list = []
+
         self.valid_loss_list = []
         self.valid_elbo_list = []
         self.valid_recons_list = []
@@ -217,11 +221,11 @@ class TrainingLatent:
             self.acyclic_constraint_normalization = compute_dag_constraint(full_adjacency).item()
 
             if self.latent:
-                self.ortho_normalization = self.d_x * self.d_z
+                self.ortho_normalization = self.d_x * self.total_d_z
                 if self.instantaneous:
-                    self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
+                    self.sparsity_normalization = (self.tau + 1) * self.total_d_z * self.total_d_z
                 else:
-                    self.sparsity_normalization = self.tau * self.d_z * self.d_z
+                    self.sparsity_normalization = self.tau * self.total_d_z * self.total_d_z
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -589,7 +593,7 @@ class TrainingLatent:
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
-            loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
+            loss = loss + self.QPM_acyclic.gamma * h_acyclic + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
         # Remove this component if instantaneous and tau = 0?
         # need to be superbly careful here that we are really using predictions, not the reconstruction
@@ -688,9 +692,10 @@ class TrainingLatent:
         if self.iteration % self.plot_params.print_freq == 0:
             # TODO integrate below in Plotter()
 
-            np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
-            np.save(self.save_path / "y_true_recons_train.npy", y.cpu().detach().numpy())
-            np.save(self.save_path / "y_pred_recons_train.npy", y_pred_all.cpu().detach().numpy())
+            if self.plot_params.save_arrays:
+                np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
+                np.save(self.save_path / "y_true_recons_train.npy", y.cpu().detach().numpy())
+                np.save(self.save_path / "y_pred_recons_train.npy", y_pred_all.cpu().detach().numpy())
 
             # also carry out autoregressive predictions
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
@@ -748,58 +753,36 @@ class TrainingLatent:
                     and not self.plot_params.chirps
                     and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4)
                 ):
-                    self.plotter.plot_compare_predictions_icosahedral(
-                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=False,
-                        plot_through_time=True,
-                    )
-
-                    self.plotter.plot_compare_predictions_icosahedral(
-                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=False,
-                        plot_through_time=True,
-                    )
-
-                    self.plotter.plot_compare_predictions_icosahedral(
-                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=False,
-                        plot_through_time=True,
-                    )
+                    samples = np.random.randint(0, self.batch_size, 3)
+                    for sample in samples:
+                        self.plotter.plot_compare_predictions_icosahedral(
+                            x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                            y_true=y_original.cpu().detach().numpy(),
+                            y_recons=y_original_recons.cpu().detach().numpy(),
+                            y_hat=y_original_pred.cpu().detach().numpy(),
+                            sample=sample,
+                            coordinates=self.coordinates,
+                            path=self.plots_path,
+                            iteration=self.iteration,
+                            valid=False,
+                            plot_through_time=True,
+                        )
                 if self.plot_params.chirps:
-                    self.plotter.plot_compare_predictions_by_variable(
-                        x_past=x_original[:, -2:, :, :].cpu().detach().numpy(),  # shape (B, 2, V, D)
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        input_var_shapes=self.input_var_shapes,
-                        input_var_offsets=self.input_var_offsets,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=False,
-                    )
+                    samples = np.random.randint(0, self.batch_size, 3)
+                    for sample in samples:
+                        self.plotter.plot_compare_predictions_by_variable(
+                            x_past=x_original[:, -2:, :, :].cpu().detach().numpy(),  # shape (B, 2, V, D)
+                            y_true=y_original.cpu().detach().numpy(),
+                            y_recons=y_original_recons.cpu().detach().numpy(),
+                            y_hat=y_original_pred.cpu().detach().numpy(),
+                            sample=sample,
+                            coordinates=self.coordinates,
+                            input_var_shapes=self.input_var_shapes,
+                            input_var_offsets=self.input_var_offsets,
+                            path=self.plots_path,
+                            iteration=self.iteration,
+                            valid=False,
+                        )
                 else:
                     print("Not plotting predictions.")
 
@@ -895,9 +878,10 @@ class TrainingLatent:
 
         if self.iteration % self.plot_params.print_freq == 0:
 
-            np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
-            np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
-            np.save(self.save_path / "y_pred_recons_val.npy", y_pred_all.cpu().detach().numpy())
+            if self.plot_params.save_arrays:
+                np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
+                np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
+                np.save(self.save_path / "y_pred_recons_val.npy", y_pred_all.cpu().detach().numpy())
 
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
                 self.autoregress_prediction_original(valid=True, timesteps=10)
@@ -942,45 +926,47 @@ class TrainingLatent:
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
             if self.iteration % self.plot_params.plot_freq == 0:
-                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
-                    self.plotter.plot_compare_predictions_icosahedral(
-                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=True,
-                        plot_through_time=True,
-                    )
 
-                    self.plotter.plot_compare_predictions_icosahedral(
-                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=True,
-                        plot_through_time=True,
-                    )
+                samples = np.random.randint(0, self.batch_size, 3)
+                y_true = y_original.cpu().detach().numpy()
+                y_recons = y_original_recons.cpu().detach().numpy()
+                y_hat = y_original_pred.cpu().detach().numpy()
 
-                    self.plotter.plot_compare_predictions_icosahedral(
-                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
-                        y_true=y_original.cpu().detach().numpy(),
-                        y_recons=y_original_recons.cpu().detach().numpy(),
-                        y_hat=y_original_pred.cpu().detach().numpy(),
-                        sample=np.random.randint(0, self.batch_size),
-                        coordinates=self.coordinates,
-                        path=self.plots_path,
-                        iteration=self.iteration,
-                        valid=True,
-                        plot_through_time=True,
-                    )
+                if (
+                    not self.plot_params.savar
+                    and not self.plot_params.chirps
+                    and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4)
+                ):
+                    x_past = x_original[:, -1, :, :].cpu().detach().numpy()
+                    for sample in samples:
+                        self.plotter.plot_compare_predictions_icosahedral(
+                            x_past=x_past,
+                            y_true=y_true,
+                            y_recons=y_recons,
+                            y_hat=y_hat,
+                            sample=sample,
+                            coordinates=self.coordinates,
+                            path=self.plots_path,
+                            iteration=self.iteration,
+                            valid=True,
+                            plot_through_time=True,
+                        )
+                if self.plot_params.chirps:
+                    x_past = x_original[:, -2:, :, :].cpu().detach().numpy()
+                    for sample in samples:
+                        self.plotter.plot_compare_predictions_by_variable(
+                            x_past=x_past,  # shape (B, 2, V, D)
+                            y_true=y_true,
+                            y_recons=y_recons,
+                            y_hat=y_hat,
+                            sample=sample,
+                            coordinates=self.coordinates,
+                            input_var_shapes=self.input_var_shapes,
+                            input_var_offsets=self.input_var_offsets,
+                            path=self.plots_path,
+                            iteration=self.iteration,
+                            valid=True,
+                        )
 
         # return x, y, y_pred_all
 
@@ -1056,6 +1042,11 @@ class TrainingLatent:
 
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
+
+        if self.instantaneous:
+            # here we add the acyclicity constraint if the instantaneous connections
+            self.mu_acyclicity_list.append(self.QPM_acyclic.mu)
+            self.gamma_acyclicity_list.append(self.QPM_acyclic.gamma)
 
         if not self.no_gt:
             w = self.model.autoencoder.get_w_decoder()
@@ -1370,45 +1361,85 @@ class TrainingLatent:
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
 
-        # Case 1: reshape into (B, T, lat, lon)
-        if y_true.size(-1) == self.lat * self.lon:
-            y_true = y_true.view(y_true.size(0), y_true.size(1), self.lat, self.lon)
-            y_pred = y_pred.view(y_pred.size(0), y_pred.size(1), self.lat, self.lon)
+        # TODO: Ideally, we'd want here a "2D" method, which could be non-uniform FFT to handle icosahedral grid (but no python package seem to provide this for us),
+        # something inspired from the Lomb–Scargle periodogram (Least square solution to a fit of sinusoidal to our function, doesn;t seem to be implemented in 2D but we could?)
+        # or something using spherical harmonics?
 
-            # 2D FFT over lat/lon dimensions (-2, -1)
-            fft_true = torch.fft.rfft2(y_true, dim=(-2, -1))
-            fft_pred = torch.fft.rfft2(y_pred, dim=(-2, -1))
+        if len(self.input_var_offsets) <= 2:
 
-            # Compute power spectrum and average across batch and time
-            power_true = torch.mean(torch.abs(fft_true), dim=(0, 1))  # shape: (lat, rfft_lon)
-            power_pred = torch.mean(torch.abs(fft_pred), dim=(0, 1))
+            # Case 1: reshape into (B, T, lat, lon)
+            if y_true.size(-1) == self.lat * self.lon:
+                y_true = y_true.view(y_true.size(0), y_true.size(1), self.lat, self.lon)
+                y_pred = y_pred.view(y_pred.size(0), y_pred.size(1), self.lat, self.lon)
 
-        # Case 2: flattened or masked data (use fallback 1D FFT)
-        elif y_true.size(-1) == self.d_x:
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=2)), dim=0)
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=2)), dim=0)
-            power_true = fft_true
-            power_pred = fft_pred
+                # 2D FFT over lat/lon dimensions (-2, -1)
+                fft_true = torch.fft.rfft2(y_true, dim=(-2, -1))
+                fft_pred = torch.fft.rfft2(y_pred, dim=(-2, -1))
+
+                # Compute power spectrum and average across batch and time
+                power_true = torch.mean(torch.abs(fft_true), dim=(1))  # shape: (lat, rfft_lon)
+                power_pred = torch.mean(torch.abs(fft_pred), dim=(1))
+
+            # Case 2: flattened or masked data (use fallback 1D FFT)
+            elif y_true.size(-1) == self.d_x:
+                # Here will make a change -- this is computed
+                power_true = torch.fft.rfft(y_true, dim=2)
+                power_pred = torch.fft.rfft(y_pred, dim=2)
+            else:
+                raise ValueError("Unexpected input shape for spectral loss.")
+
+            if take_log:
+                power_true = torch.log(power_true + 1e-8)  # avoid log(0)
+                power_pred = torch.log(power_pred + 1e-8)
+
+            spectral_loss = torch.mean(torch.abs(power_pred - power_true), dim=0)
+
+            # Optionally restrict to specific wavenumber bands
+            if self.optim_params.fraction_highest_wavenumbers is not None:
+                spectral_loss = spectral_loss[
+                    :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
+                ]
+            if self.optim_params.fraction_lowest_wavenumbers is not None:
+                spectral_loss = spectral_loss[
+                    :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
+                ]
+
+            return torch.mean(spectral_loss)
+
         else:
-            raise ValueError("Unexpected input shape for spectral loss.")
+            # In that case we're in the teleconnections framework and we know it's not lat*lon
+            if not y_true.size(-1) == self.d_x:
+                raise ValueError("Unexpected input shape for spectral loss.")
+            spectral_loss_mean = torch.tensor([0.0])
 
-        if take_log:
-            power_true = torch.log(power_true + 1e-8)  # avoid log(0)
-            power_pred = torch.log(power_pred + 1e-8)
+            for k in range(len(self.input_var_offsets) - 1):
 
-        spectral_loss = torch.abs(power_pred - power_true)
+                y_true_single_var = y_true[:, :, self.input_var_offsets[k] : self.input_var_offsets[k + 1]]
+                y_pred_single_var = y_pred[:, :, self.input_var_offsets[k] : self.input_var_offsets[k + 1]]
 
-        # Optionally restrict to specific wavenumber bands
-        if self.optim_params.fraction_highest_wavenumbers is not None:
-            spectral_loss = spectral_loss[
-                :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
-            ]
-        if self.optim_params.fraction_lowest_wavenumbers is not None:
-            spectral_loss = spectral_loss[
-                :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
-            ]
+                # Here will make a change -- this is computed
+                power_true = torch.abs(torch.fft.rfft(y_true_single_var, dim=2))
+                power_pred = torch.abs(torch.fft.rfft(y_pred_single_var, dim=2))
 
-        return torch.mean(spectral_loss)
+                if take_log:
+                    power_true = torch.log(power_true + 1e-8)  # avoid log(0)
+                    power_pred = torch.log(power_pred + 1e-8)
+
+                spectral_loss = torch.mean(torch.abs(power_pred - power_true), dim=0)
+
+                # Optionally restrict to specific wavenumber bands
+                if self.optim_params.fraction_highest_wavenumbers is not None:
+                    spectral_loss = spectral_loss[
+                        :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
+                    ]
+                if self.optim_params.fraction_lowest_wavenumbers is not None:
+                    spectral_loss = spectral_loss[
+                        :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
+                    ]
+
+                spectral_loss_mean += torch.mean(spectral_loss)
+
+            return spectral_loss_mean
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """
@@ -1515,59 +1546,62 @@ class TrainingLatent:
             with torch.no_grad():
                 y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
 
+            if self.plot_params.save_arrays:
+
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
                 samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 10)
 
-            # append the first prediction
-            predictions.append(y_pred)
-
-            # make a copy of y_pred, which is a tensor
-            x_original = x.clone().detach()
-            y_original = y.clone().detach()
-            y_original_pred = y_pred.clone().detach()
-            y_original_recons = y_pred_recons.clone().detach()
-
-            # save these original values, x_original, y_orginal, y_original_pred
-            np.save(self.save_path / "train_x_ar_0.npy", x_original.detach().cpu().numpy())
-            np.save(self.save_path / "train_y_ar_0.npy", y_original.detach().cpu().numpy())
-            np.save(self.save_path / "train_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
-            np.save(self.save_path / "train_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
-            # np.save(os.path.join(self.hp.exp_path, "train_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
-            # np.save(os.path.join(self.hp.exp_path, "train_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
-            # np.save(os.path.join(self.hp.exp_path, "train_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
-
-            # saving the samples
-            np.save(self.save_path / "train_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
-            np.save(self.save_path / "train_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
-
-            # Now doing the autoregressive rollout...
-            # TODO: implement the autoregressive rollout and also take samples
-            for i in range(1, timesteps):
-
-                # assert that x_original and x are the same
-                if i == 1:
-                    assert torch.allclose(x_original, x)
-
-                # remove the first timestep, so now we have (tau - 1) timesteps,
-                # then append the prediction
-                x = x[:, 1:, :, :]
-
-                x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
-
-                # then predict the next timestep
-                # y at this point is pointless!!!
-                with torch.no_grad():
-                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
-
-                # append the prediction
+                # append the first prediction
                 predictions.append(y_pred)
 
-                assert i != 0
+                # make a copy of y_pred, which is a tensor
+                x_original = x.clone().detach()
+                y_original = y.clone().detach()
+                y_original_pred = y_pred.clone().detach()
+                y_original_recons = y_pred_recons.clone().detach()
 
-                np.save(self.save_path / f"train_x_ar_{i}.npy", x.detach().cpu().numpy())
-                np.save(self.save_path / f"train_y_ar_{i}.npy", y.detach().cpu().numpy())
-                np.save(self.save_path / f"train_y_pred_ar_{i}.npy", y_pred.detach().cpu().numpy())
+                # save these original values, x_original, y_orginal, y_original_pred
+                np.save(self.save_path / "train_x_ar_0.npy", x_original.cpu().numpy())
+                np.save(self.save_path / "train_y_ar_0.npy", y_original.cpu().numpy())
+                np.save(self.save_path / "train_y_pred_ar_0.npy", y_original_pred.cpu().numpy())
+                np.save(self.save_path / "train_y_recons_0.npy", y_original_recons.cpu().numpy())
+                # np.save(os.path.join(self.hp.exp_path, "train_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
+                # np.save(os.path.join(self.hp.exp_path, "train_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
+                # np.save(os.path.join(self.hp.exp_path, "train_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
+
+                # saving the samples
+                np.save(self.save_path / "train_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
+                np.save(self.save_path / "train_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
+
+                # Now doing the autoregressive rollout...
+                # TODO: implement the autoregressive rollout and also take samples
+                for i in range(1, timesteps):
+
+                    # assert that x_original and x are the same
+                    if i == 1:
+                        assert torch.allclose(x_original, x)
+
+                    # remove the first timestep, so now we have (tau - 1) timesteps,
+                    # then append the prediction
+                    x = x[:, 1:, :, :]
+
+                    x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
+
+                    # then predict the next timestep
+                    # y at this point is pointless!!!
+                    with torch.no_grad():
+                        y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+
+                    # append the prediction
+                    predictions.append(y_pred)
+
+                    assert i != 0
+
+                    if self.plot_params.save_arrays:
+                        np.save(self.save_path / f"train_x_ar_{i}.npy", x.detach().cpu().numpy())
+                        np.save(self.save_path / f"train_y_ar_{i}.npy", y.detach().cpu().numpy())
+                        np.save(self.save_path / f"train_y_pred_ar_{i}.npy", y_pred.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_encoded_z_ar_{i}.npy"), z.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_pz_mu_ar_{i}.npy"), pz_mu.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_pz_std_ar_{i}.npy"), pz_std.detach().cpu().numpy())
@@ -1576,65 +1610,69 @@ class TrainingLatent:
                 # np.save(os.path.join(self.hp.exp_path, f"train_samples_from_xs_{i}.npy"), samples_from_xs.detach().cpu().numpy())
                 # np.save(os.path.join(self.hp.exp_path, f"train_samples_from_zs_{i}.npy"), samples_from_zs.detach().cpu().numpy())
 
-            # at the end of this for loop, make the prediction a tensor
+                # at the end of this for loop, make the prediction a tensor
 
-            predictions = torch.stack(predictions, dim=1)
-            # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
+                predictions = torch.stack(predictions, dim=1)
+                # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
 
-            # print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
+                # print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
 
-            # then calculate the mean of the predictions along the timesteps
-            y_pred_mean = torch.mean(predictions, dim=1)
-            # calculate the variance of the predictions along the timesteps dimension
-            y_pred_var = torch.var(predictions, dim=1)
-            print("What is the shape of the mean of the predictions?", y_pred_mean.shape)
-            print("What is the shape of the variance of the predictions?", y_pred_var.shape)
+                # then calculate the mean of the predictions along the timesteps
+                y_pred_mean = torch.mean(predictions, dim=1)
+                # calculate the variance of the predictions along the timesteps dimension
+                y_pred_var = torch.var(predictions, dim=1)
+                print("What is the shape of the mean of the predictions?", y_pred_mean.shape)
+                print("What is the shape of the variance of the predictions?", y_pred_var.shape)
 
-            # take the mean of the predictions along the batch and coordinates dimension:
-            print(
-                "What is the shape when I try to take the mean across the batch and coordinates:",
-                torch.mean(y_pred_mean, dim=(0, 2)),
-            )
+                # take the mean of the predictions along the batch and coordinates dimension:
+                print(
+                    "What is the shape when I try to take the mean across the batch and coordinates:",
+                    torch.mean(y_pred_mean, dim=(0, 2)),
+                )
 
-            # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
-            # I will do this by calculating the spatial spectra of the true values and the predicted values, and then calculating a score between them.
-            # This is a measure of how well the model is predicting the spatial spectra of the true values.
+                # Ok, well done me. Now actually, what I want to do is to compare the spatial spectra of the true values and the predicted values.
+                # I will do this by calculating the spatial spectra of the true values and the predicted values, and then calculating a score between them.
+                # This is a measure of how well the model is predicting the spatial spectra of the true values.
 
-            # here I calculate the spatial spectra across the coordinates, then I average across the batch and across the timesteps
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1))
+                # here I calculate the spatial spectra across the coordinates, then I average across the batch and across the timesteps
+                fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1))
 
-            # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(predictions[:, :, :, :], dim=3)), dim=(0, 1))
+                # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
+                fft_pred = torch.mean(torch.abs(torch.fft.rfft(predictions[:, :, :, :], dim=3)), dim=(0, 1))
 
-            # calculate the difference between the true and predicted spatial spectra
-            spatial_spectra_score = torch.abs(fft_pred - fft_true)
-            # take the mean across the frequencies, the 1st dimension
-            spatial_spectra_score = torch.mean(spatial_spectra_score, dim=1)
+                # calculate the difference between the true and predicted spatial spectra
+                spatial_spectra_score = torch.abs(fft_pred - fft_true)
+                # take the mean across the frequencies, the 1st dimension
+                spatial_spectra_score = torch.mean(spatial_spectra_score, dim=1)
 
-            print("Spatial spectra score, lower is better...should be a spectra for each var", spatial_spectra_score)
+                print(
+                    "Spatial spectra score, lower is better...should be a spectra for each var", spatial_spectra_score
+                )
 
-            # if this spatial_spectra_score is the lowest we have seen, then save the predictions
-            if self.best_spatial_spectra_score is None:
-                self.best_spatial_spectra_score = spatial_spectra_score
+                # if this spatial_spectra_score is the lowest we have seen, then save the predictions
+                if self.best_spatial_spectra_score is None:
+                    self.best_spatial_spectra_score = spatial_spectra_score
 
-            # assert that self.best_spatial_spectra_score is not None
-            assert self.best_spatial_spectra_score is not None
+                # assert that self.best_spatial_spectra_score is not None
+                assert self.best_spatial_spectra_score is not None
 
-            # check if every element of spatial_spectra_score is less than the best_spatial_spectra_score:
-            print(torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
+                # check if every element of spatial_spectra_score is less than the best_spatial_spectra_score:
+                print(torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
 
-            print("new score", spatial_spectra_score)
-            print("previous best score", self.best_spatial_spectra_score)
+                print("new score", spatial_spectra_score)
+                print("previous best score", self.best_spatial_spectra_score)
 
-            if torch.all(spatial_spectra_score < self.best_spatial_spectra_score):
-                print("The spatial spectra score is the best we have seen for all variables, I am in the if.")
+                if torch.all(spatial_spectra_score < self.best_spatial_spectra_score):
+                    print("The spatial spectra score is the best we have seen for all variables, I am in the if.")
 
-                self.best_spatial_spectra_score = spatial_spectra_score
-                print(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
+                    self.best_spatial_spectra_score = spatial_spectra_score
+                    print(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
 
-                # save the model in its current state
-                print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
-                torch.save(self.model.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
+                    # save the model in its current state
+                    print(
+                        "Saving the model, since the spatial spectra score is the best we have seen for all variables."
+                    )
+                    torch.save(self.model.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
 
         else:
 
@@ -1659,44 +1697,47 @@ class TrainingLatent:
                 y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
 
                 # predict and take 100 samples too
-                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
+                # samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
 
-            x_original = x.clone().detach()
-            y_original = y.clone().detach()
-            y_original_pred = y_pred.clone().detach()
-            y_original_recons = y_pred_recons.clone().detach()
+            if self.plot_params.save_arrays:
 
-            # # FOLLOWING LINES FOR DEBUGGING ONLY make a copy of y_pred, which is a tensor
-            # # saving these
-            # np.save(self.save_path / "val_x_ar_0.npy", x_original.detach().cpu().numpy())
-            # np.save(self.save_path / "val_y_ar_0.npy", y_original.detach().cpu().numpy())
-            # np.save(self.save_path / "val_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
-            # np.save(self.save_path / "val_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
-            # # np.save(os.path.join(self.hp.exp_path, "val_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
-            # # np.save(os.path.join(self.hp.exp_path, "val_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
-            # # np.save(os.path.join(self.hp.exp_path, "val_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
+                x_original = x.clone().detach()
+                y_original = y.clone().detach()
+                y_original_pred = y_pred.clone().detach()
+                y_original_recons = y_pred_recons.clone().detach()
 
-            # # saving the samples
-            # np.save(self.save_path / "val_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
-            # np.save(self.save_path / "val_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
+                # # FOLLOWING LINES FOR DEBUGGING ONLY make a copy of y_pred, which is a tensor
+                # # saving these
+                # np.save(self.save_path / "val_x_ar_0.npy", x_original.detach().cpu().numpy())
+                # np.save(self.save_path / "val_y_ar_0.npy", y_original.detach().cpu().numpy())
+                # np.save(self.save_path / "val_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
+                # np.save(self.save_path / "val_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
+                # # np.save(os.path.join(self.hp.exp_path, "val_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
+                # # np.save(os.path.join(self.hp.exp_path, "val_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
+                # # np.save(os.path.join(self.hp.exp_path, "val_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
 
-            for i in range(1, timesteps):
+                # # saving the samples
+                # np.save(self.save_path / "val_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
+                # np.save(self.save_path / "val_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
 
-                # remove the first timestep, so now we have (tau - 1) timesteps
+                for i in range(1, timesteps):
 
-                x = x[:, 1:, :, :]
-                x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
+                    # remove the first timestep, so now we have (tau - 1) timesteps
 
-                with torch.no_grad():
-                    # then predict the next timestep
-                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                    x = x[:, 1:, :, :]
+                    x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
 
-                np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
-                np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())
-                np.save(self.save_path / f"val_y_pred_ar_{i}.npy", y_pred.detach().cpu().numpy())
-                # np.save(os.path.join(self.hp.exp_path, f"val_encoded_z_ar_{i}.npy"), z.detach().cpu().numpy())
-                # np.save(os.path.join(self.hp.exp_path, f"val_pz_mu_ar_{i}.npy"), pz_mu.detach().cpu().numpy())
-                # np.save(os.path.join(self.hp.exp_path, f"val_pz_std_ar_{i}.npy"), pz_std.detach().cpu().numpy())
+                    with torch.no_grad():
+                        # then predict the next timestep
+                        y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+
+                    if self.plot_params.save_arrays:
+                        np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
+                        np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())
+                        np.save(self.save_path / f"val_y_pred_ar_{i}.npy", y_pred.detach().cpu().numpy())
+                    # np.save(os.path.join(self.hp.exp_path, f"val_encoded_z_ar_{i}.npy"), z.detach().cpu().numpy())
+                    # np.save(os.path.join(self.hp.exp_path, f"val_pz_mu_ar_{i}.npy"), pz_mu.detach().cpu().numpy())
+                    # np.save(os.path.join(self.hp.exp_path, f"val_pz_std_ar_{i}.npy"), pz_std.detach().cpu().numpy())
 
             # not finished, probably need to add some metrics here.
             # what are the shapes here?
@@ -1714,17 +1755,29 @@ class TrainingLatent:
             # print('Overall MSE:', mse1)
 
             # check
-            mse = torch.mean(torch.sum(0.5 * torch.square(y_original - y_original_pred), dim=2))
-            # print("MSE:", mse)
-            # print("MSE shape:", mse.shape)
+            if self.plot_params.save_arrays:
+                mse = torch.mean(torch.sum(0.5 * torch.square(y_original - y_original_pred), dim=2))
+                # print("MSE:", mse)
+                # print("MSE shape:", mse.shape)
 
-            smape = torch.mean(
-                torch.sum(2 * (y_original - y_original_pred).abs() / (y_original.abs() + y_original_pred.abs()), dim=2)
-            )
-            # print("SMAPE:", smape)
-            # print()
+                smape = torch.mean(
+                    torch.sum(
+                        2 * (y_original - y_original_pred).abs() / (y_original.abs() + y_original_pred.abs()), dim=2
+                    )
+                )
 
-        return mse.item(), smape.item(), y_original, y_original_pred, y_original_recons, x_original
+                return mse.item(), smape.item(), y_original, y_original_pred, y_original_recons, x_original
+
+            else:
+                mse = torch.mean(torch.sum(0.5 * torch.square(y - y_pred), dim=2))
+                print("MSE:", mse)
+                print("MSE shape:", mse.shape)
+
+                smape = torch.mean(torch.sum(2 * (y - y_pred).abs() / (y.abs() + y.abs()), dim=2))
+
+                return mse.item(), smape.item(), y, y_pred, y_pred_recons, x
+
+                print("SMAPE:", smape)
 
     def score_the_samples_for_spatial_spectra(self, y_true, y_pred_samples, num_samples=100):
         """

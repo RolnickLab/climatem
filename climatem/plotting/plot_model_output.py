@@ -266,7 +266,6 @@ class Plotter:
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
-                    one_plot=True,
                 )
 
                 self.plot_regions_map(
@@ -315,9 +314,12 @@ class Plotter:
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
                 {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
-                # {"name": "gamma ortho", "data": learner.gamma_ortho_list, "s": ":"},
                 # {"name": "gamma sparsity", "data": learner.gamma_sparsity_list, "s": ":"},
             ]
+            if learner.instantaneous:
+                losses.append({"name": "tr acyclic", "data": learner.train_acyclic_cons_list, "s": ":"})
+                losses.append({"name": "mu acyclic", "data": learner.mu_acyclicity_list, "s": ":"})
+
             # {"name": "tr acyclic", "data": learner.train_acyclic_cons_list, "s": "-"},
             # {"name": "tr connect", "data": learner.train_connect_reg_list, "s": "-"},
             self.plot_learning_curves2(
@@ -331,6 +333,9 @@ class Plotter:
             losses = [
                 {"name": "tr loss", "data": learner.train_loss_list, "s": "-."},
                 {"name": "tr recons", "data": learner.train_recons_list, "s": "-"},
+                {"name": "tr spat spectra", "data": learner.train_spectral_loss_list, "s": "-"},
+                {"name": "tr temp spectra", "data": learner.train_temporal_spectral_loss_list, "s": "-"},
+                {"name": "tr crps", "data": learner.train_crps_loss_list, "s": "-"},
                 {"name": "val recons", "data": learner.valid_recons_list, "s": "-"},
                 {"name": "KL", "data": learner.train_kl_list, "s": "-"},
                 {"name": "val loss", "data": learner.valid_loss_list, "s": "-."},
@@ -471,7 +476,6 @@ class Plotter:
                     learner.plot_params.plot_through_time,
                     path=learner.plots_path,
                     annotate=True,
-                    one_plot=True,
                 )
             else:
                 self.plot_regions_map(
@@ -801,7 +805,6 @@ class Plotter:
         path,
         idx_region: int = None,
         annotate: bool = False,
-        one_plot: bool = False,
     ):
         """Here we extend the plot_regions_map function to plot multiple variables."""
 
@@ -864,8 +867,6 @@ class Plotter:
             fname = f"spatial_aggregation{idx_region}.png"
         elif plot_through_time:
             fname = f"spatial_aggregation_{iteration}.png"
-        elif one_plot:
-            fname = "spatial_aggregation_all_clusters.png"
         else:
             fname = "spatial_aggregation.png"
 
@@ -1403,21 +1404,15 @@ class Plotter:
 
         One row per variable, four columns for [GT t-1, GT, Recons, Pred].
         """
-        print(
-            f"x_past.shape: {x_past.shape}, y_true.shape: {y_true.shape}, "
-            f"y_recons.shape: {y_recons.shape}, y_hat.shape: {y_hat.shape}"
-        )
-        print(f"sample: {sample}, coordinates.shape: {coordinates.shape}")
-
         T = x_past.shape[1]
         if T >= 2:
             timestep_sets = [-2, -1]
-            titles = ["Ground-truth t-2", "Ground-truth t-1", "Reconstruction", "Prediction"]
+            titles = ["Ground-truth t-1", "Ground-truth t", "Reconstruction", "Prediction"]
             data_sources = [x_past, x_past, y_recons, y_hat]
             n_cols = 4
         else:
             timestep_sets = [-1]
-            titles = ["Ground-truth t-1", "Reconstruction", "Prediction"]
+            titles = ["Ground-truth t", "Reconstruction", "Prediction"]
             data_sources = [x_past, y_recons, y_hat]
             n_cols = 3
             print("[plot] Only one timestep available, skipping t-2")
@@ -1439,8 +1434,8 @@ class Plotter:
             offset_start = input_var_offsets[var_idx]
             offset_end = input_var_offsets[var_idx + 1]
             coords = coordinates[offset_start:offset_end]
-            print("offset_start", offset_start, "offset_end", offset_end)
-            print("coords.shape", coords.shape)
+            # print("offset_start", offset_start, "offset_end", offset_end)
+            # print("coords.shape", coords.shape)
             lon = coords[:, 0]
             lat = coords[:, 1]
 
@@ -1451,7 +1446,7 @@ class Plotter:
                 if lon_unique.size * lat_unique.size == spatial_dim:
                     lon_grid, lat_grid = np.meshgrid(lon_unique, lat_unique)
                     use_pcolormesh = True
-                    print("lon_grid.shape", lon_grid.shape, "lat_grid.shape", lat_grid.shape)
+                    # print("lon_grid.shape", lon_grid.shape, "lat_grid.shape", lat_grid.shape)
             except Exception:
                 use_pcolormesh = False
 
@@ -1519,7 +1514,7 @@ class Plotter:
 
         timestep_label = 365  # you can change this if actual timestep indexing is tracked
         fname_prefix = "valid" if valid else "train"
-        fname = f"{fname_prefix}_compare_allvars_t{timestep_label}_sample_{sample}_it{iteration}.png"
+        fname = f"{fname_prefix}_prediction_it{iteration}_sample_{sample}.png"
 
         plt.suptitle(f"Comparison @ timestep {timestep_label}", fontsize=24)
         if show:
@@ -1540,13 +1535,12 @@ class Plotter:
         plot_through_time: bool,
         path,
         annotate: bool = False,
-        one_plot: bool = False,
     ):
         """Plot spatial regions (latent clusters) for each variable separately on the same figure."""
-        print(
-            f"input_var_shapes: {input_var_shapes}, input_var_offsets: {input_var_offsets}, w_adj.shape: {w_adj.shape}"
-        )
-        print(f"coordinates.shape: {coordinates.shape}")
+        # print(
+        #     f"input_var_shapes: {input_var_shapes}, input_var_offsets: {input_var_offsets}, w_adj.shape: {w_adj.shape}"
+        # )
+        # print(f"coordinates.shape: {coordinates.shape}")
 
         # Flip coordinates if necessary
         if np.max(coordinates[:, 0]) > 91:
@@ -1611,8 +1605,6 @@ class Plotter:
         fname = "spatial_aggregation"
         if plot_through_time:
             fname += f"_{iteration}"
-        if one_plot:
-            fname += "_all_clusters"
         fname += ".png"
 
         plt.savefig(path / fname, format="png")

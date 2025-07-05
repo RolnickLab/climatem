@@ -270,12 +270,18 @@ class optimParams:
 
 class plotParams:
     def __init__(
-        self, plot_freq: int = 500, plot_through_time: bool = True, print_freq: int = 500, savar: bool = False
+        self,
+        plot_freq: int = 500,
+        plot_through_time: bool = True,
+        print_freq: int = 500,
+        savar: bool = False,
+        save_arrays: bool = True,
     ):
         self.plot_freq = plot_freq
         self.plot_through_time = plot_through_time
         self.print_freq = print_freq
         self.savar = savar
+        self.save_arrays = save_arrays
 
 
 class savarParams:
