@@ -123,7 +123,7 @@
         "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
 
-        "sparsity_mu_init": 1e-4,
+        "sparsity_mu_init": 1e-6,
         "sparsity_mu_mult_factor": 1.5,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
@@ -141,9 +141,9 @@
         "h_acyclic_threshold": null
     },
     "plot_params": {
-        "plot_freq": 200,
+        "plot_freq": 5000,
         "plot_through_time": true,
-        "print_freq": 200,
+        "print_freq": 5000,
         "save_arrays": false
     },
     "savar_params": {
