@@ -212,7 +212,6 @@ class LatentTSDCD(nn.Module):
         num_hidden_mixing: int,
         position_embedding_dim: int,
         reduce_encoding_pos_dim: bool,
-        coeff_kl: float,
         distr_z0: str,
         distr_encoder: str,
         distr_transition: str,
@@ -248,7 +247,6 @@ class LatentTSDCD(nn.Module):
             num_output: number of inputs of each MLP
             num_layer_mixing: number of layer for the autoencoder
             num_hidden_mixing: number of hidden units for the autoencoder
-            coeff_kl: coefficient of the KL term
 
             distr_z0: distribution of the first z (gaussian)
             distr_encoder: distribution parametrized by the encoder (gaussian)
@@ -286,7 +284,6 @@ class LatentTSDCD(nn.Module):
         self.num_hidden_mixing = num_hidden_mixing
         self.position_embedding_dim = position_embedding_dim
         self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
-        self.coeff_kl = coeff_kl
 
         self.d = d
         self.d_x = d_x

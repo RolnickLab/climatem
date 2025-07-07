@@ -771,8 +771,7 @@ class TrainingLatent:
                     samples = np.random.randint(0, self.batch_size, 3)
                     for sample in samples:
                         self.plotter.plot_compare_predictions_by_variable(
-                            x_past=x_original[:, -2:, :, :].cpu().detach().numpy(),  # shape (B, 2, V, D)
-                            y_true=y_original.cpu().detach().numpy(),
+                            x_past=y_original.cpu().detach().numpy(),
                             y_recons=y_original_recons.cpu().detach().numpy(),
                             y_hat=y_original_pred.cpu().detach().numpy(),
                             sample=sample,
@@ -955,8 +954,7 @@ class TrainingLatent:
                     x_past = x_original[:, -2:, :, :].cpu().detach().numpy()
                     for sample in samples:
                         self.plotter.plot_compare_predictions_by_variable(
-                            x_past=x_past,  # shape (B, 2, V, D)
-                            y_true=y_true,
+                            x_past=y_true,  # shape (B, 2, V, D)
                             y_recons=y_recons,
                             y_hat=y_hat,
                             sample=sample,

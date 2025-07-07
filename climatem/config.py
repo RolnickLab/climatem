@@ -190,7 +190,6 @@ class optimParams:
         crps_coeff: float = 1,  # Loss penalty coefficient for CRPS
         spectral_coeff: float = 20,  # for spatial spectrum
         temporal_spectral_coeff: float = 2000,  # for temporal spectrum
-        coeff_kl: float = 1,  # for KL div
         loss_decay_future_timesteps: float = 1,  # if we predict more than 1 timestep, the loss ecay will reduce the weight of far away timesteps in the loss
         reg_coeff: float = 0.01,  # for sparsity penalty if penalty
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
@@ -231,7 +230,6 @@ class optimParams:
         self.spectral_coeff = spectral_coeff
         self.temporal_spectral_coeff = temporal_spectral_coeff
         self.loss_decay_future_timesteps = loss_decay_future_timesteps
-        self.coeff_kl = coeff_kl
         self.reg_coeff = reg_coeff
         self.reg_coeff_connect = reg_coeff_connect
 

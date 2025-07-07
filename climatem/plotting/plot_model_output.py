@@ -1387,7 +1387,6 @@ class Plotter:
     def plot_compare_predictions_by_variable(
         self,
         x_past: np.ndarray,  # (B, T, num_vars, spatial)
-        y_true: np.ndarray,  # (B, num_vars, spatial)
         y_recons: np.ndarray,  # (B, num_vars, spatial)
         y_hat: np.ndarray,  # (B, num_vars, spatial)
         sample: int,

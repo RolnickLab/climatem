@@ -90,7 +90,6 @@
         "crps_coeff": 1,
         "spectral_coeff": 20,
         "temporal_spectral_coeff": 2000,
-        "coeff_kl": 1,
         "reg_coeff": 0.01,
         "reg_coeff_connect": 0,
         "schedule_reg": 0,

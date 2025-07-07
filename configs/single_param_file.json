@@ -98,7 +98,6 @@
         "crps_coeff": 1,
         "spectral_coeff": 1000,
         "temporal_spectral_coeff": 2000,
-        "coeff_kl": 1,
         "loss_decay_future_timesteps": 1,
         "fraction_highest_wavenumbers": 0.5,
         "fraction_lowest_wavenumbers": null,

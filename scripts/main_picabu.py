@@ -153,7 +153,6 @@ def main(
         num_hidden_mixing=model_params.num_hidden_mixing,
         position_embedding_dim=model_params.position_embedding_dim,
         reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
-        coeff_kl=optim_params.coeff_kl,
         d=d,
         #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
         distr_z0="gaussian",

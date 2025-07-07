@@ -86,7 +86,6 @@
         "crps_coeff": 1,
         "spectral_coeff": 0,
         "temporal_spectral_coeff": 0,
-        "coeff_kl": 1,
 
         "loss_decay_future_timesteps": 1,
 
