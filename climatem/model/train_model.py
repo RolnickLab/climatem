@@ -484,7 +484,8 @@ class TrainingLatent:
             self.threshold()
 
         # final plotting and printing
-        self.plotter.plot_sparsity(self, self.input_var_shapes, self.input_var_offsets, save=True)
+        self.plotter.plot_sparsity(self, self.input_var_shapes, self.input_var_offsets, self.d_z, self.total_d_z)
+
         self.print_results()
 
         # wandb.finish()
