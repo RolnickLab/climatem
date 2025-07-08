@@ -347,6 +347,8 @@ class ClimateDataset(torch.utils.data.Dataset):
                     y_valid_list.extend(y_valid)
 
                 train_x, train_y = np.stack(x_train_list), np.stack(y_train_list)
+                print("train_x shape:", train_x.shape)
+                print("train_y shape:", train_y.shape)
                 if ratio_train == 1:
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:

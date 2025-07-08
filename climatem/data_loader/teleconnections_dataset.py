@@ -163,6 +163,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         channels_last: bool = True,
         seq_to_seq: bool = True,
         upscaling_factor: int = 2,
+        remove_summer: bool = True,
     ):
         """
         Load multiple variables from NetCDF/GRIB, align time, return:
@@ -231,6 +232,8 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
             elif var_name == "precipitation_amount":
                 arr = arr.reshape(years, self.seq_len, 1, h, w)
+                if remove_summer:
+                    arr = self.remove_summer_months(arr)
 
                 # Apply Morocco mask
                 mask_flat = morocco_mask.ravel()
@@ -319,6 +322,15 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         aggregated_data = np.nanmean(reshaped_data, axis=2)
         # print("Shape of the aggregated data?:", aggregated_data.shape)
         return aggregated_data
+
+    def remove_summer_months(data, summer_months=[5, 6, 7]):
+        """
+        Remove specified summer months (0-based index: 5 = June, 6 = July, 7 = August).
+
+        Expects data shape: (years, seq_len, ...).
+        """
+        keep_indices = [i for i in range(data.shape[1]) if i not in summer_months]
+        return data[:, keep_indices]
 
     def split_data_by_interval(self, data, tau, ratio_train, interval_length=100):
         """Given a dataset and interval length, divide the data into intervals, then splits each interval into training
