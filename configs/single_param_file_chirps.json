@@ -134,7 +134,7 @@
         "acyclic_mu_mult_factor": 1.2,
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
-        "acyclic_h_threshold": 1e-08,
+        "acyclic_h_threshold": 1e-1,
         "acyclic_min_iter_convergence": 1000,
         "mu_acyclic_init": null,
         "h_acyclic_threshold": null
