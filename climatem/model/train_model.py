@@ -278,12 +278,12 @@ class TrainingLatent:
 
         if self.instantaneous:
             # here we add the acyclicity constraint if the instantaneous connections are interesting
-            self.QPM_acyclic = ALM(
+            self.ALM_acyclic = ALM(
                 self.optim_params.acyclic_mu_init,
                 self.optim_params.acyclic_mu_mult_factor,
                 self.optim_params.acyclic_omega_gamma,
                 self.optim_params.acyclic_omega_mu,
-                self.optim_params.acyclic_h_threshold,
+                self.optim_params.acyclic_h_threshold / self.acyclic_constraint_normalization,
                 self.optim_params.acyclic_min_iter_convergence,
                 # dim_gamma=(1,),
             )
@@ -446,10 +446,10 @@ class TrainingLatent:
                             self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
 
                     if self.instantaneous:
-                        self.QPM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
-                        acyclic_converged = self.QPM_acyclic.has_converged
+                        self.ALM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
+                        acyclic_converged = self.ALM_acyclic.has_converged
                         # TODO: add optimizer reinit
-                        if self.QPM_acyclic.has_increased_mu:
+                        if self.ALM_acyclic.has_increased_mu:
                             if self.optim_params.optimizer == "sgd":
                                 self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
                             elif self.optim_params.optimizer == "rmsprop":
@@ -594,7 +594,7 @@ class TrainingLatent:
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
-            loss = loss + self.QPM_acyclic.gamma * h_acyclic + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
+            loss = loss + self.ALM_acyclic.gamma * h_acyclic + 0.5 * self.ALM_acyclic.mu * h_acyclic**2
 
         # Remove this component if instantaneous and tau = 0?
         # need to be superbly careful here that we are really using predictions, not the reconstruction
@@ -858,7 +858,7 @@ class TrainingLatent:
             #     0.5 * self.ALM_ortho.mu * h_ortho ** 2
 
             # if self.instantaneous:
-            #    loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic ** 2
+            #    loss = loss + 0.5 * self.ALM_acyclic.mu * h_acyclic ** 2
 
             self.valid_loss = loss.item()
             self.valid_nll = nll.item()
@@ -1044,8 +1044,8 @@ class TrainingLatent:
 
         if self.instantaneous:
             # here we add the acyclicity constraint if the instantaneous connections
-            self.mu_acyclicity_list.append(self.QPM_acyclic.mu)
-            self.gamma_acyclicity_list.append(self.QPM_acyclic.gamma)
+            self.mu_acyclicity_list.append(self.ALM_acyclic.mu)
+            self.gamma_acyclicity_list.append(self.ALM_acyclic.gamma)
 
         if not self.no_gt:
             w = self.model.autoencoder.get_w_decoder()
@@ -1107,7 +1107,10 @@ class TrainingLatent:
                 )  # TODO: self.d_z should be a list, update self.total_d_z and self.d_z to avoid if else throughout the code, correct for CMIP6 andf multi-var.
             else:
                 adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
-            h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
+
+            h = torch.trace(torch.linalg.expm(adj)) - adj.shape[0]
+            # h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
+            h /= self.acyclic_constraint_normalization
         else:
             h = torch.as_tensor([0.0])
 
