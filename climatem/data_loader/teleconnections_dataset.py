@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import torch
 import xarray as xr
 
@@ -196,14 +197,33 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             var_names.append(list(ds.data_vars.keys())[0])
 
         aligned_datasets = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude"])
+
+        if remove_summer:
+            total_timesteps = aligned_datasets[0][var_names[0]].shape[0]
+            years = total_timesteps // self.seq_len
+            winter_mask = self.get_month_mask(total_timesteps, self.seq_len)
+            print(f"[mask] keep {np.sum(winter_mask)} / {len(winter_mask)} timesteps")
+
+            total_timesteps_after_mask = np.sum(winter_mask)
+            days_per_year = total_timesteps_after_mask // years
+            print(f"[mask] inferred days_per_year: {days_per_year}")
+            self.seq_len = days_per_year
+        else:
+            days_per_year = self.seq_len
+
         for i, ds in enumerate(aligned_datasets):
             var_name = var_names[i]
             arr = ds[var_name].to_numpy()  # (time, lat, lon)
             lat = ds.latitude.values
             lon = ds.longitude.values
             t, h, w = arr.shape
-            years = t // self.seq_len
-            arr = arr[: years * self.seq_len]
+
+            if remove_summer and winter_mask is not None:
+                print(f"[{var_name}] original shape: {arr.shape}")
+                arr = arr[winter_mask]
+                print(f"[{var_name}] after removing summer: {arr.shape}")
+
+            arr = arr[: years * days_per_year]
 
             if var_name == "precipitation_amount" and upscaling_factor > 1:
                 morocco_mask = np.load(f"{self.output_save_dir}/morocco_mask.npy")  # shape: (lat, lon)
@@ -213,7 +233,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
                 # Downscale the batch
                 downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
                 new_h, new_w = downscaled.shape[1], downscaled.shape[2]
-                arr = downscaled.reshape(years, self.seq_len, 1, new_h, new_w)
+                arr = downscaled.reshape(years, days_per_year, 1, new_h, new_w)
 
                 # New lat/lon after downscaling
                 new_lat = np.linspace(lat.min(), lat.max(), new_h)
@@ -225,16 +245,13 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
                 # Flatten and mask
                 mask_flat = morocco_mask_resized.ravel()
-                arr = arr.reshape(years, self.seq_len, 1, -1)[:, :, :, mask_flat]
+                arr = arr.reshape(years, days_per_year, 1, -1)[:, :, :, mask_flat]
                 coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
 
                 input_var_shapes[var_name] = coords.shape[0]
 
             elif var_name == "precipitation_amount":
                 arr = arr.reshape(years, self.seq_len, 1, h, w)
-                if remove_summer:
-                    arr = self.remove_summer_months(arr)
-
                 # Apply Morocco mask
                 mask_flat = morocco_mask.ravel()
                 arr = arr.reshape(years, self.seq_len, 1, -1)[:, :, :, mask_flat]
@@ -323,14 +340,19 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         # print("Shape of the aggregated data?:", aggregated_data.shape)
         return aggregated_data
 
-    def remove_summer_months(data, summer_months=[5, 6, 7]):
+    def get_month_mask(self, total_timesteps, seq_len=365, months_to_remove=[6, 7, 8]):
         """
-        Remove specified summer months (0-based index: 5 = June, 6 = July, 7 = August).
+        Create a boolean mask for daily data to remove given months (1-based: Jan=1).
 
-        Expects data shape: (years, seq_len, ...).
+        Uses pandas to determine month for each day.
         """
-        keep_indices = [i for i in range(data.shape[1]) if i not in summer_months]
-        return data[:, keep_indices]
+        # Generate dummy daily dates for a non-leap reference year
+        start_date = pd.Timestamp("2001-01-01")  # non-leap year
+        dates = pd.date_range(start=start_date, periods=total_timesteps, freq="D")
+        months = dates.month  # array of shape (total_timesteps,)
+
+        keep_mask = ~np.isin(months, months_to_remove)
+        return keep_mask
 
     def split_data_by_interval(self, data, tau, ratio_train, interval_length=100):
         """Given a dataset and interval length, divide the data into intervals, then splits each interval into training

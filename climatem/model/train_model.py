@@ -1108,7 +1108,7 @@ class TrainingLatent:
             else:
                 adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
 
-            h = torch.trace(torch.linalg.expm(adj)) - adj.shape[0]
+            h = torch.trace(torch.linalg.matrix_exp(adj)) - adj.shape[0]
             # h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
             h /= self.acyclic_constraint_normalization
         else:
