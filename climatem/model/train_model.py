@@ -1100,7 +1100,7 @@ class TrainingLatent:
         d = self.d * self.total_d_z
         full_adj = torch.ones((d, d)) - torch.eye(d)
 
-        return torch.trace(torch.linalg.expm(full_adj)) - full_adj.shape[0]
+        return torch.trace(torch.linalg.matrix_exp(full_adj)) - full_adj.shape[0]
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
@@ -1111,7 +1111,7 @@ class TrainingLatent:
             else:
                 adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
 
-            h = torch.trace(torch.linalg.expm(adj)) - adj.shape[0]
+            h = torch.trace(torch.linalg.matrix_exp(adj)) - adj.shape[0]
             # h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
             h /= self.acyclic_constraint_normalization
         else:
