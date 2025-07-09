@@ -1345,9 +1345,9 @@ class TrainingLatent:
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
+            fft_true = torch.fft.rfft(y_true, dim=3)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=3)), dim=0)
+            fft_pred = torch.fft.rfft(y_pred, dim=3)
 
         elif y_true.size(-1) == self.d_x:
 
@@ -1356,9 +1356,9 @@ class TrainingLatent:
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=2)), dim=0)
+            fft_true = torch.fft.rfft(y_true, dim=2)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=2)), dim=0)
+            fft_pred = torch.fft.rfft(y_pred, dim=2)
         else:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
@@ -1366,8 +1366,9 @@ class TrainingLatent:
             fft_true = torch.log(fft_true)
             fft_pred = torch.log(fft_pred)
 
+        spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
+
         # Calculate the power spectrum
-        spectral_loss = torch.abs(fft_pred - fft_true)
         if self.optim_params.fraction_highest_wavenumbers is not None:
             spectral_loss = spectral_loss[
                 :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
@@ -1390,25 +1391,13 @@ class TrainingLatent:
             y_true: torch.Tensor, the true value of the timestep we predict
             y_pred: torch.Tensor, the predicted values of the timestep we predict
         """
-
         # concatenate x and y_true along the time axis
         obs = torch.cat((x, y_true), dim=1)
         pred = torch.cat((x, y_pred), dim=1)
-
-        # calculate the spectra of the true values along the time dimension, and then take the mean across the batch
-        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs, dim=1)), dim=0)
-        # calculate the spectra of the predicted values along the time dimension, and then take the mean across the batch
-        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred, dim=1)), dim=0)
-
         # Calculate the power spectrum
         # compute the distance between the losses...
-        temporal_spectral_loss = torch.abs(fft_pred - fft_true)
+        return torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1)))
         # the shape here is (time/2 + 1, num_vars, coords)
-
-        # average across all frequencies, variables and coordinates...
-        temporal_spectral_loss = torch.mean(temporal_spectral_loss)
-
-        return temporal_spectral_loss
 
     def connectivity_reg_complete(self):
         """
