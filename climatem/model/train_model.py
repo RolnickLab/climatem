@@ -9,7 +9,6 @@ from geopy import distance
 # from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import ProfilerActivity
 
-from climatem.model.dag_optim import compute_dag_constraint
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
@@ -216,10 +215,7 @@ class TrainingLatent:
 
         # compute constraint normalization
         with torch.no_grad():
-            d = model.d * model.total_d_z
-            full_adjacency = torch.ones((d, d)) - torch.eye(d)
-            self.acyclic_constraint_normalization = compute_dag_constraint(full_adjacency).item()
-
+            self.acyclic_constraint_normalization = self.get_acyclicity_normalization().item()
             if self.latent:
                 self.ortho_normalization = self.d_x * self.total_d_z
                 if self.instantaneous:
@@ -289,7 +285,6 @@ class TrainingLatent:
             )
 
         if self.profiler:
-
             # we should have this function elsewhere. It is rarely used.
             def trace_handler(p):
                 print("Printing profiler key averages from trace handler!")
@@ -432,14 +427,7 @@ class TrainingLatent:
                         sparsity_converged = False
 
                     # if has_increased_mu then reinitialize the optimizer?
-                    if self.ALM_ortho.has_increased_mu:
-                        if self.optim_params.optimizer == "sgd":
-                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
-                        elif self.optim_params.optimizer == "rmsprop":
-                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
-
-                    # Repeat for sparsity constraint?
-                    if self.ALM_sparsity.has_increased_mu:
+                    if self.ALM_ortho.has_increased_mu or self.ALM_sparsity.has_increased_mu:
                         if self.optim_params.optimizer == "sgd":
                             self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
                         elif self.optim_params.optimizer == "rmsprop":
@@ -447,14 +435,16 @@ class TrainingLatent:
 
                     if self.instantaneous:
                         self.ALM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
-                        acyclic_converged = self.ALM_acyclic.has_converged
-                        # TODO: add optimizer reinit
+                        if self.iteration > 1000:
+                            acyclic_converged = self.ALM_acyclic.has_converged
+                        else:
+                            acyclic_converged = False
                         if self.ALM_acyclic.has_increased_mu:
                             if self.optim_params.optimizer == "sgd":
                                 self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
                             elif self.optim_params.optimizer == "rmsprop":
                                 self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
-                        self.converged = ortho_converged & acyclic_converged
+                        self.converged = ortho_converged & acyclic_converged & sparsity_converged
                     else:
                         # self.converged = ortho_converged
                         self.converged = ortho_converged & sparsity_converged
@@ -1098,6 +1088,12 @@ class TrainingLatent:
             reg = torch.as_tensor([0.0])
 
         return reg
+
+    def get_acyclicity_normalization(self) -> torch.Tensor:
+        d = self.d * self.total_d_z
+        full_adj = torch.ones((d, d)) - torch.eye(d)
+
+        return torch.trace(torch.linalg.matrix_exp(full_adj)) - d
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
