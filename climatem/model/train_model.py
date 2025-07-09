@@ -9,7 +9,6 @@ from geopy import distance
 # from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import ProfilerActivity
 
-from climatem.model.dag_optim import compute_dag_constraint
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
@@ -216,9 +215,7 @@ class TrainingLatent:
 
         # compute constraint normalization
         with torch.no_grad():
-            d = model.d * model.total_d_z
-            full_adjacency = torch.ones((d, d)) - torch.eye(d)
-            self.acyclic_constraint_normalization = compute_dag_constraint(full_adjacency).item()
+            self.acyclic_constraint_normalization = self.get_acyclicity_normalization().item()
 
             if self.latent:
                 self.ortho_normalization = self.d_x * self.total_d_z
@@ -1098,6 +1095,12 @@ class TrainingLatent:
             reg = torch.as_tensor([0.0])
 
         return reg
+
+    def get_acyclicity_normalization(self) -> torch.Tensor:
+        d = self.d * self.total_d_z
+        full_adj = torch.ones((d, d)) - torch.eye(d)
+
+        return torch.trace(torch.linalg.expm(full_adj)) - full_adj.shape[0]
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
