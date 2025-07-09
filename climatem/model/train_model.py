@@ -216,7 +216,6 @@ class TrainingLatent:
         # compute constraint normalization
         with torch.no_grad():
             self.acyclic_constraint_normalization = self.get_acyclicity_normalization().item()
-
             if self.latent:
                 self.ortho_normalization = self.d_x * self.total_d_z
                 if self.instantaneous:
@@ -286,7 +285,6 @@ class TrainingLatent:
             )
 
         if self.profiler:
-
             # we should have this function elsewhere. It is rarely used.
             def trace_handler(p):
                 print("Printing profiler key averages from trace handler!")
@@ -1100,7 +1098,7 @@ class TrainingLatent:
         d = self.d * self.total_d_z
         full_adj = torch.ones((d, d)) - torch.eye(d)
 
-        return torch.trace(torch.linalg.matrix_exp(full_adj)) - full_adj.shape[0]
+        return torch.trace(torch.linalg.matrix_exp(full_adj)) - d
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
