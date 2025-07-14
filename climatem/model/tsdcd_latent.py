@@ -1173,18 +1173,8 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             base_mask = torch.tensor(obs_to_latent_mask, dtype=torch.float32)  # shape: (d_z, d_x)
             assert base_mask.ndim == 2, f"Expected obs_to_latent_mask to be 2D, got {base_mask.shape}"
             self.teleconnections_mask = base_mask.unsqueeze(0)  # shape: (1, d_z, d_x)
-            print(f"[init] Precomputed teleconnections_mask of shape {self.teleconnections_mask.shape}")
-
-            # Debug: how many latents have *no* observed points
-            latents_with_nothing = (base_mask.sum(dim=1) == 0).sum().item()
-            print(f"[init] Latents with no observed spatial points: {latents_with_nothing} / {base_mask.shape[0]}")
-
-            # Debug: how many spatial points have *no* latent assigned
-            spatial_unassigned = (base_mask.sum(dim=0) == 0).sum().item()
-            print(f"[init] Spatial locations with no latent coverage: {spatial_unassigned} / {base_mask.shape[1]}")
         else:
             self.teleconnections_mask = None
-            print("[init] No teleconnections_mask used.")
 
     def encode(self, x, i):
         """

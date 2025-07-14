@@ -189,8 +189,16 @@ def main(
     data_var_ids_str = "_".join(
         f"{source}_{'_'.join(vars)}" for source, vars in data_params.in_var_ids.items()
     )
+    if optim_params.scheduler_spectra is None:
+        schedstr = "_null"
+    elif optim_params.scheduler_spectra == [0, 50000]:
+        schedstr = "_050"
+    else:
+        schedstr = "_custom"
+
     # Change name here
-    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0][:6]}_tau_{experiment_params.tau}_z_{experiment_params.d_z[0]}_{experiment_params.d_z[1]}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_acmuin_{optim_params.acyclic_mu_init}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_laymix_{model_params.num_layers_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}_redped_{model_params.reduce_encoding_pos_dim}"
+    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0][:6]}_tau_{experiment_params.tau}_z_{experiment_params.d_z[0]}_{experiment_params.d_z[1]}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_acmuin_{optim_params.acyclic_mu_init}_inst_{model_params.instantaneous}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_laymix_{model_params.num_layers_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}_lay_{model_params.num_layers}_schedsp_{schedstr}_nlmix_{model_params.nonlinear_mixing}_nldyn_{model_params.nonlinear_dynamics}"
+
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 

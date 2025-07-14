@@ -164,7 +164,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         channels_last: bool = True,
         seq_to_seq: bool = True,
         upscaling_factor: int = 2,
-        remove_summer: bool = True,
+        remove_summer: bool = False,
     ):
         """
         Load multiple variables from NetCDF/GRIB, align time, return:
@@ -217,6 +217,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             lat = ds.latitude.values
             lon = ds.longitude.values
             t, h, w = arr.shape
+            years = t // self.seq_len
 
             if remove_summer and winter_mask is not None:
                 print(f"[{var_name}] original shape: {arr.shape}")
