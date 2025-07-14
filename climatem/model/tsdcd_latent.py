@@ -1221,7 +1221,7 @@ class TransitionModelParamSharing(nn.Module):
         masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
         z_ = torch.cat((masked_z, embedded_z), dim=2)
 
-        param_z = self.nn[i * self.d_z](z_)
+        param_z = self.nn[i](z_)
 
         del embedded_z
         del masked_z
