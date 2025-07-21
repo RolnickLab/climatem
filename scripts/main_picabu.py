@@ -138,7 +138,7 @@ def main(
         num_layers=model_params.num_layers,
         num_hidden=model_params.num_hidden,
         num_input=num_input,
-        num_output=2,  # This should be parameterized somewhere?
+        num_output=2,  # This should be parameterized somewhere? Why is this two? 
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
         position_embedding_dim=model_params.position_embedding_dim,

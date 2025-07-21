@@ -1202,6 +1202,7 @@ class TransitionModelParamSharing(nn.Module):
             self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
         if self.nonlinear_dynamics:
             print("NON LINEAR DYNAMICS")
+            # Check if below is correct - self.num_output should be the number of variables
             self.nn = nn.ModuleList(
                 MLP(num_layers, num_hidden, d * d_z * tau + embedding_dim, self.num_output) for i in range(d)
             )

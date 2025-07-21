@@ -221,8 +221,6 @@ class optimParams:
         acyclic_omega_mu: float = 0.9,
         acyclic_h_threshold: float = 1e-8,
         acyclic_min_iter_convergence: float = 1_000,
-        mu_acyclic_init: float = 0,
-        h_acyclic_threshold: float = 0,
     ):
         self.optimizer = optimizer
         self.use_sparsity_constraint = use_sparsity_constraint
@@ -264,8 +262,6 @@ class optimParams:
         self.acyclic_omega_mu = acyclic_omega_mu
         self.acyclic_h_threshold = acyclic_h_threshold
         self.acyclic_min_iter_convergence = acyclic_min_iter_convergence
-        self.mu_acyclic_init = mu_acyclic_init
-        self.h_acyclic_threshold = h_acyclic_threshold
 
 
 class plotParams:

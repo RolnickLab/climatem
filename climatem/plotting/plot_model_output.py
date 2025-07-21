@@ -1372,6 +1372,75 @@ class Plotter:
             fig.savefig(exp_path / "mcc.png")
             fig.clf()
 
+    def plot_sparsity_control(self, learner, save=False):
+        """
+        Main plotting function.
+
+        Plot the learning curves and if the ground-truth is known the adjacency and adjacency through time.
+        """
+
+        if save:
+            self.save(learner)
+
+        # plot learning curves
+        self.plot_learning_curves(
+            train_loss=learner.train_loss_list,
+            valid_loss=learner.valid_loss_list,
+            valid_recons=learner.valid_recons_list,
+            iteration=learner.iteration,
+            plot_through_time=False,
+            path=learner.plots_path,
+        )
+        # NOTE:(seb) adding here capacity to plot the new sparsity constraint!
+        losses = [  # {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
+            {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
+            {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
+            {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
+            {"name": "tr acyclicity", "data": learner.train_acyclic_cons_list, "s": ":"},
+            {"name": "mu acyclicity", "data": learner.mu_acyclic_list, "s": ":"},
+        ]
+        self.plot_learning_curves2(
+            losses=losses,
+            iteration=learner.iteration,
+            plot_through_time=False,
+            path=learner.plots_path,
+            fname="penalties",
+            yaxis_log=True,
+        )
+        losses = [
+            {"name": "tr loss", "data": learner.train_loss_list, "s": "-."},
+            {"name": "val recons", "data": learner.valid_recons_list, "s": "-"},
+            {"name": "val loss", "data": learner.valid_loss_list, "s": "-."},
+        ]
+        self.plot_learning_curves2(
+            losses=losses,
+            iteration=learner.iteration,
+            plot_through_time=False,
+            path=learner.plots_path,
+            fname="losses",
+        )
+        logvar = [
+            {"name": "logvar transition", "data": learner.logvar_transition_tt, "s": "-"},
+        ]
+        self.plot_learning_curves2(
+            losses=logvar,
+            iteration=learner.iteration,
+            plot_through_time=False,
+            path=learner.plots_path,
+            fname="logvar",
+        )
+
+        # this is where this was before, but I have now added the argument names for myself
+        self.plot_adjacency_matrix(
+            mat1=learner.model.get_adj().detach().cpu().numpy()[None],
+            mat2=None,
+            path=learner.plots_path,
+            name_suffix="transition",
+            no_gt=True,
+            iteration=learner.iteration,
+            plot_through_time=True,
+        )
+
     # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
 
     # def plot_original_savar(self, path, lon, lat, savar_path):
