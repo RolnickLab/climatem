@@ -7,8 +7,9 @@ generation process
 """
 
 import itertools as it
+import math
 from copy import deepcopy
-from math import pi, sin
+from math import pi
 from typing import List
 
 import numpy as np
@@ -235,27 +236,56 @@ class SAVAR:
 
     def _add_seasonality_forcing(self):
 
-        # A*sin((2pi/lambda)*x) A = amplitude, lambda = period
-        amplitude = self.season_dict["amplitude"]
-        period = self.season_dict["period"]
-        season_weight = self.season_dict.get("season_weight", None)
+        periods = self.season_dict["periods"]  # e.g. [12, 6, 3] for year, half-year, quarter-year
+        amplitudes = self.season_dict["amplitudes"]  # same length as periods
+        phases = self.season_dict.get("phases", [0.0] * len(periods))
 
-        seasonal_trend = np.asarray(
-            [amplitude * sin((2 * pi / period) * x) for x in range(self.time_length + self.transient)]
-        )
+        # year-to-year amplitude / phase jitter
+        jitter_cfg = self.season_dict.get("yearly_jitter")  # None or dict
+        base_P = periods[0]  # assume first is annual (12 months)
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float32
 
-        seasonal_data_field = np.ones_like(self.data_field)
-        seasonal_data_field *= seasonal_trend.reshape(1, -1)
+        T = self.time_length + self.transient
+        ncy = math.ceil(T / base_P)  # # of whole cycles
 
-        # Apply seasonal weights
-        if season_weight is not None:
-            season_weight = season_weight.sum(axis=0).reshape(self.spatial_resolution)  # vector dim L
-            seasonal_data_field *= season_weight[:, None]  # L times T
+        L = self.data_field.shape[0]
+        T = self.time_length + self.transient
+        t = torch.arange(T, device=dev, dtype=dtype)
+        seasonal = torch.zeros((L, T), device=dev, dtype=dtype)
 
-        self.seasonal_data_field = seasonal_data_field
+        σ_A = jitter_cfg["amplitude"] if jitter_cfg else 0.0
+        σ_φ = jitter_cfg["phase"] if jitter_cfg else 0.0
 
-        # Add it to the data field.
-        self.data_field += seasonal_data_field
+        # allow vector inputs, default to identical values otherwise
+        σ_Ak = torch.as_tensor(σ_A).expand(len(periods)).to(dtype=dtype, device=dev)
+        σ_φk = torch.as_tensor(σ_φ).expand(len(periods)).to(dtype=dtype, device=dev)
+
+        for k, (A, P, φ) in enumerate(zip(amplitudes, periods, phases)):
+            # one jitter draw *per year* for this harmonic
+            amp_noise_k = 1 + σ_Ak[k] * torch.randn(ncy, device=dev, dtype=dtype)
+            phase_noise_k = σ_φk[k] * torch.randn(ncy, device=dev, dtype=dtype)
+
+            amp_series_k = amp_noise_k.repeat_interleave(base_P)[:T]  # (T,)
+            phase_series_k = phase_noise_k.repeat_interleave(base_P)[:T]  # (T,)
+
+            seasonal += amp_series_k * A * torch.sin(2 * math.pi / P * (t + phase_series_k) + φ)
+
+        w = self.season_dict.get("season_weight")
+        if w is not None:
+            if not torch.is_tensor(w):
+                w = torch.as_tensor(w, dtype=dtype, device=dev)
+            else:
+                w = w.to(device=dev, dtype=dtype)
+            if w.ndim > 1:
+                w = w.reshape(-1)
+            if w.numel() != L:
+                raise ValueError(f"season_weight has length {w.numel()} but grid has {L} points")
+            seasonal *= w.reshape(L, 1)
+
+        seasonal_np = seasonal.cpu().numpy()
+        self.seasonal_data_field = seasonal_np
+        self.data_field += seasonal_np
 
     def _add_external_forcing(self):
         """

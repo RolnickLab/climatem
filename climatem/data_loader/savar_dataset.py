@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import numpy as np
 import torch
@@ -25,6 +25,11 @@ class SavarDataset(torch.utils.data.Dataset):
         n_per_col: int = 2,
         difficulty: str = "easy",
         seasonality: bool = False,
+        periods: List[float] = [365, 182.5, 60],
+        amplitudes: List[float] = [0.06, 0.02, 0.01],
+        phases: List[float] = [0.0, 0.7853981634, 1.5707963268],
+        yearly_jitter_amp: float = 0.05,
+        yearly_jitter_phase: float = 0.10,
         overlap: bool = False,
         is_forced: bool = False,
         f_1: int = 1,
@@ -56,6 +61,11 @@ class SavarDataset(torch.utils.data.Dataset):
         self.n_per_col = n_per_col
         self.difficulty = difficulty
         self.seasonality = seasonality
+        self.periods = periods
+        self.amplitudes = amplitudes
+        self.phases = phases
+        self.yearly_jitter_amp = yearly_jitter_amp
+        self.yearly_jitter_phase = yearly_jitter_phase
         self.overlap = overlap
         self.is_forced = is_forced
         self.f_1 = f_1
@@ -185,6 +195,11 @@ class SavarDataset(torch.utils.data.Dataset):
                 self.n_per_col,
                 self.difficulty,
                 self.seasonality,
+                self.periods,
+                self.amplitudes,
+                self.phases,
+                self.yearly_jitter_amp,
+                self.yearly_jitter_phase,
                 self.overlap,
                 self.is_forced,
                 self.f_1,
@@ -212,7 +227,14 @@ class SavarDataset(torch.utils.data.Dataset):
         if self.global_normalization:
             data = (data - data.mean()) / data.std()
         if self.seasonality_removal:
-            self.norm_data = self.remove_seasonality(self.norm_data)
+            data = self.remove_seasonality(
+                data,
+                periods=self.periods,  # already a constructor arg (e.g. 12)
+                demean=True,
+                normalise=False,
+                rolling=True,
+                w=10,  # 10 years ≈ 120 steps @ monthly
+            )
 
         print(f"data is {data.dtype}")
 
@@ -392,35 +414,60 @@ class SavarDataset(torch.utils.data.Dataset):
 
         return vars_min, vars_max
 
-    # important?
-    # NOTE:(seb) I need to check the axis is correct here?
-    def remove_seasonality(self, data):
+    def remove_seasonality(
+        self,
+        data: np.ndarray,
+        periods: int | Sequence[int] | Sequence[float] = (12, 6, 3),
+        demean: bool = True,
+        normalise: bool = False,
+        rolling: bool = True,  # ← default TRUE because of jitter
+        w: int = 10,  # (10 years ≈ 120 steps @ monthly)
+    ):
         """
-        Function to remove seasonality from the data There are various different options to do this These are just
-        different methods of removing seasonality.
+        Remove deterministic periodic seasonality from a [time, …] array.
 
-        e.g.
-        monthly - remove seasonality on a per month basis
-        rolling monthly - remove seasonality on a per month basis but using a rolling window,
-        removing only the average from the months that have preceded this month
-        linear - remove seasonality using a linear model to predict seasonality
-
-        or trend removal
-        emissions - remove the trend using the emissions data, such as cumulative CO2
+        Parameters
+        ----------
+        period      single cycle length **or** list/tuple of lengths
+                    (e.g. [12, 6] for annual + semi-annual)
+        …
         """
 
-        mean = np.nanmean(data, axis=0)
-        std = np.nanstd(data, axis=0)
+        def _remove_one(x: np.ndarray, p: int) -> np.ndarray:
+            """Inner helper that handles a single period length."""
+            t = x.shape[0]
+            rem = t % p
+            if rem:
+                x = x[:-rem]
+                t -= rem
+            folded = x.reshape((t // p, p) + x.shape[1:])
+            if rolling:
+                k = min(w, folded.shape[0])
+                mean = np.nanmean(folded[-k:], axis=0)
+                std = np.nanstd(folded[-k:], axis=0)
+            else:
+                mean = np.nanmean(folded, axis=0)
+                std = np.nanstd(folded, axis=0)
+            mean_full = np.tile(mean, (t // p, *[1] * (x.ndim - 1)))
+            std_full = np.tile(std, (t // p, *[1] * (x.ndim - 1)))
+            out = x.copy()
+            if demean:
+                out -= mean_full
+            if normalise:
+                out /= np.where(std_full == 0, 1, std_full)
+            return out.astype(np.float32)
 
-        # return data
+        # handle one or many cycle lengths
+        if isinstance(periods, (list, tuple, np.ndarray)):
+            # remove the longest cycle first to avoid leakage
+            _periods = sorted([int(round(p)) for p in periods], reverse=True)
+        else:  # single scalar
+            _periods = [int(round(periods))]
 
-        # NOTE: SH - do we not do this above?
-        # standardise - I hope this is doing by month, to check
-
-        return (data - mean[None]) / std[None]
-
-        # now just divide by std...
-        # return data / std[None]
+        out = data.astype(np.float32)
+        for p in _periods:
+            out = _remove_one(out, p)
+        return out
 
     def write_dataset_statistics(self, fname, stats):
         #            fname = fname.replace('.npz.npy', '.npy')

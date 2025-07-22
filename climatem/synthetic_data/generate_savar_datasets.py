@@ -1,3 +1,4 @@
+import copy
 import csv
 import json
 
@@ -102,7 +103,12 @@ def generate_save_savar_data(
     noise_val=0.2,
     n_per_col=2,  # Number of components N = n_per_col**2
     difficulty="easy",
-    seasonality=False,
+    seasonality=True,
+    periods=[12, 6, 3],
+    amplitudes=[0.1, 0.05, 0.02],
+    phases=[0.0, 0.7853981634, 1.5707963268],  # [0, π/4, π/2] radians
+    yearly_jitter_amp: float = 0.05,
+    yearly_jitter_phase: float = 0.10,
     overlap=0,
     is_forced=False,
     f_1=1,
@@ -183,10 +189,29 @@ def generate_save_savar_data(
             "time_len": time_len,
             "ramp_type": ramp_type,
         }
+
+    season_dict = None
     if seasonality:
-        raise ValueError("SAVAR data with seasonality not implemented yet")
-        # We could introduce seasonality if we would wish
-        # season_dict = {"amplitude": 0.08, "period": 12}
+        lat = np.linspace(-90, 90, nx)  # vary along rows
+        lat2d = np.repeat(lat[:, None], ny, axis=1)  # shape (nx, ny)
+        season_weight = np.abs(np.sin(np.deg2rad(lat2d))).ravel()
+
+        if phases is None:
+            phases = [0.0] * len(amplitudes)
+
+        if not (len(amplitudes) == len(periods) == len(phases)):
+            raise ValueError("season_amplitudes, season_periods, season_phases must have identical lengths.")
+
+        season_dict = {
+            "amplitudes": amplitudes,  # e.g. [0.06, 0.02, 0.01]
+            "periods": periods,  # e.g. [365, 182.5, 60]
+            "phases": phases,  # radian offsets
+            "season_weight": season_weight,
+            "yearly_jitter": {
+                "amplitude": yearly_jitter_amp,  # e.g. 0.05
+                "phase": yearly_jitter_phase,  # e.g. 0.10
+            },
+        }
 
     if plotting:
         # Plot the sum of mode weights
@@ -238,9 +263,12 @@ def generate_save_savar_data(
         "ramp_type": ramp_type,
         "linearity": linearity,
         "poly_degrees": poly_degrees,
-        # "season_dict": season_dict,
-        # "seasonality" : True,
+        "season_dict": season_dict,
+        "seasonality": True,
     }
+
+    parameters_copy = copy.deepcopy(parameters)
+    convert_ndarray_to_list(parameters_copy)  # safe to mutate
 
     # Specify the path to save the parameters
     param_names = f"{name}_parameters.npy"
@@ -250,7 +278,7 @@ def generate_save_savar_data(
 
     param_names = f"{name}_parameters.csv"
     params_path = save_dir_path / param_names
-    save_parameters_to_csv(params_path, parameters)
+    save_parameters_to_csv(params_path, parameters_copy)
     param_names = f"{name}_links_coeffs.csv"
     params_path = save_dir_path / param_names
     save_links_coeffs_to_csv(params_path, parameters["links_coeffs"])
@@ -259,7 +287,6 @@ def generate_save_savar_data(
     np.save(params_path, modes_weights)
 
     # Create a copy of the parameters to modify
-    parameters_copy = parameters.copy()
     convert_ndarray_to_list(parameters_copy)
 
     # Specify the path to save the parameters
@@ -277,7 +304,7 @@ def generate_save_savar_data(
             time_length=time_len,
             mode_weights=modes_weights,
             noise_strength=noise_val,  # How to play with this parameter?
-            # season_dict=season_dict, #turn off by commenting out
+            season_dict=season_dict,  # turn off by commenting out
             # forcing_dict=forcing_dict #turn off by commenting out
             linearity=linearity,
             poly_degrees=poly_degrees,
@@ -288,6 +315,7 @@ def generate_save_savar_data(
             time_length=time_len,
             mode_weights=modes_weights,
             noise_strength=noise_val,
+            season_dict=season_dict,  # turn off by commenting out
             forcing_dict=forcing_dict,  # turn off by commenting out
             linearity=linearity,
             poly_degrees=poly_degrees,
@@ -299,6 +327,26 @@ def generate_save_savar_data(
     print(f"{name} DONE!")
 
     plot_original_savar(savar_model.data_field, nx, ny, save_dir_path / f"{name}_original_savar_data2.gif")
+
+    plot_seasonality_only(savar_model.seasonal_data_field, nx, ny, save_dir_path / f"{name}_seasonality_only.gif")
+
+    # Check the seasonality
+    season_std = savar_model.seasonal_data_field.std()
+    total_std = savar_model.data_field.std()
+    ratio = season_std / total_std
+    print(f"[diag] σ_season / σ_total = {ratio:.3f}")
+
+    if ratio < 0.05:
+        print("[diag] Seasonality is tiny – raise amplitudes or lower noise_val.")
+    elif ratio < 0.15:
+        print("[diag] Seasonality is subtle – visible but easy to miss.")
+    else:
+        print("[diag] Seasonality should be visually obvious.")
+
+    hovmoller_seasonality(
+        savar_model.seasonal_data_field, nx, ny, n_steps=100, path=save_dir_path / f"{name}_seasonality_hovmoller.png"
+    )
+
     return savar_model.data_field
 
 
@@ -331,3 +379,90 @@ def plot_original_savar(data, lat, lon, path):
     ani.save(path, writer="pillow", fps=10)
 
     plt.close()
+
+
+# Save an animation of the pure seasonality component
+def plot_seasonality_only(seasonal_field, nx, ny, path, n_frames=100):
+    """
+    Save an animation (GIF) of the pure seasonal component.
+
+    Parameters
+    ----------
+    seasonal_field : (L, T) ndarray
+    nx, ny         : grid dims  (L must equal nx*ny)
+    path           : output filename (.gif)
+    n_frames       : how many timesteps to animate (default 100)
+    """
+    import matplotlib.animation as animation
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    T = seasonal_field.shape[1]
+    n_frames = min(n_frames, T)
+
+    vmax = np.abs(seasonal_field).max()
+    vmin = -vmax
+
+    field_2d = seasonal_field[:, :n_frames].T.reshape(n_frames, nx, ny)
+
+    fig, ax = plt.subplots(figsize=(ny / 6, nx / 10))
+    im = ax.imshow(field_2d[0], cmap="RdBu_r", vmin=vmin, vmax=vmax)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3%", pad=0.02)
+    cbar = fig.colorbar(im, cax=cax)
+    cbar.ax.tick_params(labelsize=8)
+    cbar.set_label("seasonal anomaly")
+
+    def animate(i):
+        im.set_data(field_2d[i])
+        ax.set_title(f"Seasonality – t={i+1}")
+        return (im,)
+
+    ani = animation.FuncAnimation(fig, animate, frames=n_frames, blit=False)
+
+    ani.save(path, writer="pillow", fps=10)
+    plt.close()
+
+
+def hovmoller_seasonality(seasonal_field, nx, ny, n_steps=100, path="seasonality_hovmoller.png"):
+    """
+    Hovmöller-style plot that compresses the whole seasonal signal into one figure.
+
+    Parameters
+    ----------
+    seasonal_field : ndarray  shape (L, T)
+    nx, ny         : grid dimensions  (L must equal nx × ny)
+    n_steps        : how many time-steps to include on the x-axis
+    path           : PNG filename to save
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    L, T = seasonal_field.shape
+    n_steps = min(n_steps, T)
+
+    # reshape to [time, lat, lon]
+    field_3d = seasonal_field.T.reshape(T, nx, ny)
+
+    # zonal mean (average over lon axis)
+    hov = field_3d[:n_steps].mean(axis=2)  # shape (n_steps, nx)
+
+    # transpose so y-axis is latitude, x-axis is time
+    hov = hov.T  # shape (nx, n_steps)
+
+    vmax = np.abs(hov).max()  # symmetric colour scale
+    vmin = -vmax
+
+    plt.figure(figsize=(8, 4))
+    im = plt.imshow(hov, aspect="auto", origin="lower", cmap="RdBu_r", vmin=vmin, vmax=vmax)  # south pole at bottom
+    plt.colorbar(im, label="seasonal anomaly")
+    plt.xlabel("time-step")
+    plt.ylabel("latitude index")
+    plt.title("Seasonality • zonal mean (first {:d} steps)".format(n_steps))
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print("saved:", path)
