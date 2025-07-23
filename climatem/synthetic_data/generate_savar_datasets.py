@@ -194,7 +194,7 @@ def generate_save_savar_data(
     if seasonality:
         lat = np.linspace(-90, 90, nx)  # vary along rows
         lat2d = np.repeat(lat[:, None], ny, axis=1)  # shape (nx, ny)
-        season_weight = np.abs(np.sin(np.deg2rad(lat2d))).ravel()
+        season_weight = np.abs(np.sin(2 * np.deg2rad(lat2d))).ravel()
 
         if phases is None:
             phases = [0.0] * len(amplitudes)
@@ -328,24 +328,29 @@ def generate_save_savar_data(
 
     plot_original_savar(savar_model.data_field, nx, ny, save_dir_path / f"{name}_original_savar_data2.gif")
 
-    plot_seasonality_only(savar_model.seasonal_data_field, nx, ny, save_dir_path / f"{name}_seasonality_only.gif")
+    if seasonality:
+        plot_seasonality_only(savar_model.seasonal_data_field, nx, ny, save_dir_path / f"{name}_seasonality_only.gif")
 
-    # Check the seasonality
-    season_std = savar_model.seasonal_data_field.std()
-    total_std = savar_model.data_field.std()
-    ratio = season_std / total_std
-    print(f"[diag] σ_season / σ_total = {ratio:.3f}")
+        # Check the seasonality
+        season_std = savar_model.seasonal_data_field.std()
+        total_std = savar_model.data_field.std()
+        ratio = season_std / total_std
+        print(f"[diag] σ_season / σ_total = {ratio:.3f}")
 
-    if ratio < 0.05:
-        print("[diag] Seasonality is tiny – raise amplitudes or lower noise_val.")
-    elif ratio < 0.15:
-        print("[diag] Seasonality is subtle – visible but easy to miss.")
-    else:
-        print("[diag] Seasonality should be visually obvious.")
+        if ratio < 0.05:
+            print("[diag] Seasonality is tiny – raise amplitudes or lower noise_val.")
+        elif ratio < 0.15:
+            print("[diag] Seasonality is subtle – visible but easy to miss.")
+        else:
+            print("[diag] Seasonality should be visually obvious.")
 
-    hovmoller_seasonality(
-        savar_model.seasonal_data_field, nx, ny, n_steps=100, path=save_dir_path / f"{name}_seasonality_hovmoller.png"
-    )
+        hovmoller_seasonality(
+            savar_model.seasonal_data_field,
+            nx,
+            ny,
+            n_steps=100,
+            path=save_dir_path / f"{name}_seasonality_hovmoller.png",
+        )
 
     return savar_model.data_field
 
