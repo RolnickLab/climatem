@@ -18,6 +18,43 @@ from climatem.plotting.plot_model_output import Plotter
 euler_mascheroni = 0.57721566490153286060
 
 
+def get_predictions(x, y, evaluated_model, evaluated_model_type):
+    """
+    Use trained model to get predictions for picabu and reshape values for model specification
+    If no evaluated model is provided, just return the input and target data with numpy.nan values replaced with 0.
+    :param x: input data
+    :param y: target data
+    :param evaluated_model: trained model
+    :param evaluated_model_type: type of evaluated model (mlp or lstm)
+    :return: reshaped input and target data
+    """
+    x_shape = x.shape
+    y_shape = y.shape
+
+    if evaluated_model is not None:
+        with torch.no_grad():
+            if evaluated_model_type == "mlp":
+                x = x.view(x.shape[0], x.shape[1] * x.shape[3])
+                y = evaluated_model(x)
+            elif evaluated_model_type == "lstm":
+                x = x.squeeze(2)
+                y, _, _ = evaluated_model(x)
+
+    x = x.view(*x_shape)
+    # check if has nan:
+    if torch.isnan(x).any():
+        print("Warning: input data contains NaN values, replacing with 0.")
+        x = torch.nan_to_num(x)
+
+    y = y.view(*y_shape)
+
+    # check if has nan:
+    if torch.isnan(y).any():
+        print("Warning: target data contains NaN values, replacing with 0.")
+        y = torch.nan_to_num(y)
+    return x, y
+
+
 class TrainingLatent:
     def __init__(
         self,
@@ -34,11 +71,15 @@ class TrainingLatent:
         best_metrics,
         d,
         accelerator,
+        evaluated_model=None,
+        evaluated_model_type=None,
         wandbname="unspecified",
         profiler=False,
         profiler_path="./log",
     ):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
+        self.evaluated_model = evaluated_model
+        self.evaluated_model_type = evaluated_model_type
         self.accelerator = accelerator
         self.model = model
         self.model.to(accelerator.device)
@@ -213,6 +254,8 @@ class TrainingLatent:
             if self.latent:
                 self.ortho_normalization = self.d_x * self.d_z
                 self.sparsity_normalization = self.tau * self.d_z * self.d_z
+        if self.evaluated_model_type is not None:
+            print(f"====== Training picabu on: {self.evaluated_model_type} =========")
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -509,13 +552,11 @@ class TrainingLatent:
 
         try:
             x, y = next(self.data_loader_train)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
+            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
         except StopIteration:
             self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(self.data_loader_train)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
+            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
 
         # y = y[:, 0]
         z = None
@@ -767,13 +808,11 @@ class TrainingLatent:
             # sample data
             try:
                 x, y = next(self.data_loader_val)
-                x = torch.nan_to_num(x)
-                y = torch.nan_to_num(y)
+                x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
             except StopIteration:
                 self.data_loader_val = iter(self.datamodule.val_dataloader())
                 x, y = next(self.data_loader_val)
-                x = torch.nan_to_num(x)
-                y = torch.nan_to_num(y)
+                x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
 
@@ -1457,9 +1496,8 @@ class TrainingLatent:
             # Make the iterator again, since otherwise we have iterated through it already...
             train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(train_dataloader)
+            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
 
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
             y = y[:, 0]
             z = None
 
@@ -1597,12 +1635,8 @@ class TrainingLatent:
             # Make the iterator again
             val_dataloader = iter(self.datamodule.val_dataloader())
             x, y = next(val_dataloader)
+            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
 
-            # old, using existing dataloader
-            # x, y = next(self.data_loader_val)
-
-            y = torch.nan_to_num(y)
-            x = torch.nan_to_num(x)
             y = y[:, 0]
             z = None
 

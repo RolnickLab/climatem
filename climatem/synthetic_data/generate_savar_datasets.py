@@ -96,7 +96,7 @@ def create_links_coeffs(n_modes, tau, prob_edge=0.2, a=4, b=8, difficulty="easy"
 def generate_save_savar_data(
     save_dir_path,
     name,
-    time_len=10_000,
+    time_len=10000,
     comp_size=10,
     noise_val=0.2,
     n_per_col=2,  # Number of components N = n_per_col**2
@@ -142,8 +142,6 @@ def generate_save_savar_data(
         prob = 2 / (N - 1)
     elif difficulty == "hard":
         prob = 1 / 2
-    else:
-        raise ValueError(f"Unknown difficulty level: {difficulty}. Must be one of: easy, med_easy, med_hard, hard")
 
     links_coeffs = create_links_coeffs(N, prob_edge=prob, difficulty=difficulty, tau=tau)
 

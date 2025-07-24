@@ -413,6 +413,9 @@ class LatentTSDCD(nn.Module):
             for t in range(self.tau):
                 # q_mu, q_logvar = self.encoder_decoder(x[:, t, i], i, encoder=True)  # torch.matmul(self.W, x)
                 q_mu, q_logvar = self.autoencoder(x[:, t, i], i, encode=True)
+
+                # TODO: quick fix - need to figure out why q_logvar has nans
+
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
                 z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
@@ -500,7 +503,16 @@ class LatentTSDCD(nn.Module):
 
         # sample Zs (based on X)
 
+        # print("========= DBG =========")
+        # print(f"Mean of x: {x.mean()}, Mean of y: {y.mean()}")
+        # print(f"Min of x: {x.min()}, Max of x: {x.max()}")
+        # print(f"Min of y: {y.min()}, Max of y: {y.max()}")
+
         z, q_mu_y, q_std_y = self.encode(x, y)
+        # if torch.isnan(z).any():
+        #     print("z has nan", torch.isnan(z).any())
+        #
+        # print(f"Shapes: x {x.shape}, y {y.shape}, z {z.shape}")
 
         if self.debug_gt_z:
             z = gt_z
@@ -516,6 +528,14 @@ class LatentTSDCD(nn.Module):
         # we pass only the last z to the decoder, to get xs.
 
         px_mu, px_std = self.decode(z[:, -1])
+
+        # TODO - quick fix, figure out why px_mu has nans
+        # if torch.isnan(px_mu).any():
+        #     print("px_mu has nan", torch.isnan(px_mu).any())
+
+        # print("========= DBG =========")
+        # print(f"Min of px_mu: {px_mu.min()}, Max of px_mu: {px_mu.max()}, Mean of px_mu: {px_mu.mean()}")
+        # print(f"Min of px_std: {px_std.min()}, Max of px_std: {px_std.max()}, Mean of px_std: {px_std.mean()}")
 
         # set distribution with obtained parameters
         if self.distr_decoder.__name__ == "GEVDistribution":

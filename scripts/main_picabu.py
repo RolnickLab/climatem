@@ -18,12 +18,23 @@ from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, sh
 from climatem.model.train_model import TrainingLatent
 from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.utils import parse_args, update_config_withparse
-from climatem import PROJECT_ROOT, CONFIGS_PATH
+from climatem import *
 
 torch.set_warn_always(False)
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
+
+BEST = False
+best_name = "best-" if BEST else ""
+MODEL_TYPE = None  # None, mlp, lstm, cnn
+
+diff_mapping = {
+    "easy": "e",
+    "med_easy": "me",
+    "med_hard": "mh",
+    "hard": "h",
+}
 
 
 class Bunch:
@@ -145,7 +156,7 @@ def main(
         reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
         coeff_kl=optim_params.coeff_kl,
         d=d,
-        #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
+        # Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
@@ -169,6 +180,9 @@ def main(
         fixed_output_fraction=model_params.fixed_output_fraction,
     )
 
+    wandb.init(project="climatem")
+    wandb.watch(model, log="all")
+
     # Make folder to save run results
     exp_path = Path(experiment_params.exp_path)
     exp_path.mkdir(exist_ok=True)
@@ -178,7 +192,8 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
+    eval_model_name = f"{MODEL_TYPE}-" if MODEL_TYPE is not None else ""
+    name = f"{eval_model_name}var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
     exp_path = exp_path / name
     exp_path.mkdir(exist_ok=True)
 
@@ -203,6 +218,23 @@ def main(
     #     best_metrics = json.load(f)
     best_metrics = {"recons": 0, "kl": 0, "mcc": 0, "elbo": 0}
 
+    # Load evaluated_model to learn causal graph on mlp, lstm, etc.
+    num_modes = experiment_params.d_z
+    dataset_type = data_params.in_var_ids[0]
+    difficulty = savar_params.difficulty
+    seed = experiment_params.random_seed
+
+    EVALUATED_MODEL = None
+    MODEL_NAME = None
+
+    if MODEL_TYPE is not None:
+        MODEL_NAME = (
+            f"{best_name}{MODEL_TYPE}-{dataset_type}-modes_{num_modes}-diff_{diff_mapping[difficulty]}-seed_{seed}"
+        )
+        EVALUATED_MODEL = torch.load(
+            f"{SCRATCH_DIR}/cgc/models/{MODEL_NAME}.pt", map_location=device, weights_only=False
+        )
+
     # train, always with the latent version
     trainer = TrainingLatent(
         model,
@@ -218,6 +250,8 @@ def main(
         best_metrics,
         d,
         accelerator,
+        evaluated_model=EVALUATED_MODEL,
+        evaluated_model_type=MODEL_TYPE,
         wandbname="picabu",
         profiler=False,
     )

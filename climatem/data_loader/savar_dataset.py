@@ -295,11 +295,26 @@ class SavarDataset(torch.utils.data.Dataset):
                     x_valid, y_valid = self.get_overlapping_sequences(scenario, idx_valid, tau, future_timesteps)
                     x_valid_list.extend(x_valid)
                     y_valid_list.extend(y_valid)
-                train_x, train_y = np.stack(x_train_list), np.stack(y_train_list)
+                future_timesteps = y_train_list[0].shape[0]
+
+                # because of sliding window, last y_train doesn't have right number of future time steps
+                # find last y_train that has the right number of future time steps
+                # use case if future time steps > 1
+
+                idx = len(y_train_list)
+                for i in range(len(y_train_list), 0):
+                    if y_train_list[i].shape[0] == future_timesteps:
+                        idx = i
+                        break
+
+                train_x, train_y = np.stack(x_train_list[:idx]), np.stack(y_train_list[:idx])
                 if ratio_train == 1:
                     valid_x, valid_y = np.array(x_valid_list), np.array(y_valid_list)
                 else:
-                    valid_x, valid_y = np.stack(x_valid_list), np.stack(y_valid_list)
+                    future_timesteps = y_valid_list[0].shape[0]
+                    valid_x, valid_y = np.stack(x_valid_list[:-future_timesteps]), np.stack(
+                        y_valid_list[:-future_timesteps]
+                    )
                 train_y = np.expand_dims(train_y, axis=1)
                 valid_y = np.expand_dims(valid_y, axis=1)
 
