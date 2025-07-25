@@ -511,57 +511,29 @@ class Plotter:
             plt.savefig(path / f"learned_mixing_x{i}.png")
 
     def plot_compare_prediction(self, x, x_past, x_hat, coordinates: np.ndarray, path):
-        """
-        Plot the predicted x_hat compared to the ground-truth x
-        Args:
-            x: ground-truth x (for a specific physical variable)
-            x_past: ground-truth x at (t-1)
-            x_hat: x predicted by the model
-            coordinates: array of shape (N, 2), with [lat, lon] or [lon, lat]
-            path: path where to save the plot
-        """
-        fig, axes = plt.subplots(nrows=3, ncols=1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 15))
-        fig.suptitle("Ground-truth vs prediction", fontsize=16)
+        """Plot the predicted x_hat compared to the ground-truth x using Cartopy."""
+        fig, axs = plt.subplots(3, 1, subplot_kw={"projection": ccrs.Robinson()}, figsize=(12, 12))
 
-        # Ensure coordinates are in the right order (lon, lat)
-        if np.max(coordinates[:, 0]) > 91:
-            coordinates = np.flip(coordinates, axis=1)
+        titles = ["Previous GT", "Ground-truth", "Prediction"]
+        data = [x_past, x, x_hat]
 
         lon = coordinates[:, 0]
         lat = coordinates[:, 1]
         X, Y = np.meshgrid(np.unique(lon), np.unique(lat))
 
-        for i, ax in enumerate(axes):
+        for ax, title, z in zip(axs, titles, data):
             ax.set_global()
             ax.coastlines()
             ax.add_feature(cfeature.BORDERS, linestyle=":")
-            ax.add_feature(cfeature.COASTLINE)
             ax.add_feature(cfeature.LAND, edgecolor="black")
             ax.gridlines(draw_labels=False)
 
-            if i == 0:
-                Z = x_past
-                ax.set_title("Previous GT")
-            elif i == 1:
-                Z = x
-                ax.set_title("Ground-truth")
-            elif i == 2:
-                Z = x_hat
-                ax.set_title("Prediction")
+            Z = z.reshape(Y.shape)
+            pcm = ax.pcolormesh(X, Y, Z, cmap="RdBu_r", vmin=-3.5, vmax=3.5, transform=ccrs.PlateCarree())
+            ax.set_title(title)
 
-            cs = ax.pcolormesh(
-                X,
-                Y,
-                Z.reshape(X.shape[0], X.shape[1]),
-                transform=ccrs.PlateCarree(),
-                cmap="RdBu_r",
-                vmin=-3.5,
-                vmax=3.5,
-            )
-
-        # Add colorbar
-        fig.colorbar(cs, ax=axes.ravel().tolist(), shrink=0.7, orientation="horizontal", label="Normalized value")
-
+        fig.colorbar(pcm, ax=axs, orientation="vertical", shrink=0.7, label="Normalized value")
+        plt.suptitle("Ground-truth vs prediction", fontsize=16)
         plt.savefig(path / "prediction.png", format="png")
         plt.close()
 
@@ -1195,11 +1167,18 @@ class Plotter:
                     )
                 elif row == 1:
                     sns.heatmap(
-                        mat2[0], ax=ax, cbar=False, vmin=-1, vmax=1, cmap="Blues", xticklabels=False, yticklabels=False
+                        mat2[0][::-1],
+                        ax=ax,
+                        cbar=False,
+                        vmin=-1,
+                        vmax=1,
+                        cmap="Blues",
+                        xticklabels=False,
+                        yticklabels=False,
                     )
                 elif row == 2:
                     sns.heatmap(
-                        mat1[0] - mat2[0],
+                        mat1[0] - mat2[0][::-1],
                         ax=ax,
                         cbar=False,
                         vmin=-1,
@@ -1241,7 +1220,7 @@ class Plotter:
 
                     elif row == 1:
                         sns.heatmap(
-                            mat2[i],
+                            mat2[i + 1 - tau],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
@@ -1252,7 +1231,7 @@ class Plotter:
                         )
                     elif row == 2:
                         sns.heatmap(
-                            mat1[tau - i - 1] - mat2[i],
+                            mat1[tau - i - 1] - mat2[i + 1 - tau],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,

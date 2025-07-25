@@ -1,0 +1,149 @@
+{
+    "exp_params": {
+        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST_debug",
+        "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
+        "latent": true,
+        "d_z": 60,
+        "d_x": 6250,
+        "lon": 144,
+        "lat": 96,
+        "tau": 8,
+        "random_seed": 1,
+        "gpu": true,
+        "num_workers": 0,
+        "pin_memory": false,
+        "verbose": true
+    },
+    "data_params": {
+        "data_dir": "$SCRATCH/data",
+        "climateset_data": "$SCRATCH/data",
+        "reload_climate_set_data": true,
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
+        "in_var_ids": [
+            "t2m"
+        ],
+        "out_var_ids": [
+            "t2m"
+        ],
+        "num_levels": 1,
+        "temp_res": "day",
+        "train_historical_years": "1941-2000",
+        "test_years": "2001-2024",
+        "train_years": "1941-2000",
+        "train_scenarios": [
+            "ERA5_DATA_TEST"
+        ],
+        "test_scenarios": [
+            "ERA5_DATA_TEST"
+        ],
+        "train_models": "ERA5",
+        "num_ensembles": 0,
+        "seq_to_seq": true,
+        "data_format": "numpy",
+        "ishdf5": false,
+        "global_normalization": true,
+        "seasonality_removal": true,
+        "batch_size": 32,
+        "eval_batch_size": 32,
+        "channels_last": false,
+        "load_train_into_mem": true,
+        "load_test_into_mem": true,
+        "num_months_aggregated": [
+            1
+        ],
+        "train_val_interval_length": 40
+    },
+    "gt_params": {
+        "no_gt": true,
+        "debug_gt_z": false,
+        "debug_gt_w": false,
+        "debug_gt_graph": false
+    },
+    "train_params": {
+        "ratio_train": 0.9,
+        "lr": 0.0005,
+        "lr_scheduler_epochs": [
+            10000,
+            20000
+        ],
+        "lr_scheduler_gamma": 1,
+        "max_iteration": 50000,
+        "patience": 5000,
+        "patience_post_thresh": 50,
+        "valid_freq": 5
+    },
+    "model_params": {
+        "instantaneous": false,
+        "no_w_constraint": false,
+        "tied_w": false,
+        "nonlinear_mixing": true,
+        "num_hidden": 8,
+        "num_layers": 2,
+        "num_output": 2,
+        "num_hidden_mixing": 16,
+        "num_layers_mixing": 2,
+        "fixed": false,
+        "fixed_output_fraction": null,
+        "tau_neigh": 0,
+        "hard_gumbel": false
+    },
+    "optim_params": {
+        "optimizer": "rmsprop",
+        "use_sparsity_constraint": true,
+        "crps_coeff": 1,
+        "spectral_coeff": 20,
+        "temporal_spectral_coeff": 2000,
+        "coeff_kl": 1,
+        "reg_coeff": 0.01,
+        "reg_coeff_connect": 0,
+        "schedule_reg": 0,
+        "schedule_ortho": 0,
+        "schedule_sparsity": 0,
+        "ortho_mu_init": 1e5,
+        "ortho_mu_mult_factor": 1.2,
+        "ortho_omega_gamma": 0.01,
+        "ortho_omega_mu": 0.9,
+        "ortho_h_threshold": 0.01,
+        "ortho_min_iter_convergence": 1000,
+        "sparsity_mu_init": 1,
+        "sparsity_mu_mult_factor": 1.5,
+        "sparsity_omega_gamma": 0.01,
+        "sparsity_omega_mu": 0.95,
+        "sparsity_h_threshold": 0.1,
+        "sparsity_min_iter_convergence": 1000,
+        "sparsity_upper_threshold": 0.5,
+        "acyclic_mu_init": 1,
+        "acyclic_mu_mult_factor": 2,
+        "acyclic_omega_gamma": 0.01,
+        "acyclic_omega_mu": 0.9,
+        "acyclic_h_threshold": 1e-08,
+        "acyclic_min_iter_convergence": 1000,
+        "mu_acyclic_init": null,
+        "h_acyclic_threshold": null
+    },
+    "plot_params": {
+        "plot_freq": 500,
+        "plot_through_time": true,
+        "print_freq": 500
+    },
+    "savar_params": {
+        "time_len": 10000,
+        "comp_size": 10,
+        "noise_val": 0.2,
+        "n_per_col": 2,
+        "difficulty": "easy",
+        "seasonality": false,
+        "overlap": false,
+        "is_forced": false,
+        "plot_original_data": true
+    },
+    "rollout_params": {
+        "final_30_years_of_ssps": false,
+        "batch_size": 8,
+        "num_particles": 50,
+        "num_particles_per_particle": 5,
+        "num_timesteps": 1200,
+        "score": "log_bayesian",
+        "tempering": true
+    }
+}

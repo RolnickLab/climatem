@@ -1,6 +1,4 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
-import gc
-
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -217,7 +215,10 @@ class TrainingLatent:
 
             if self.latent:
                 self.ortho_normalization = self.d_x * self.d_z
-                self.sparsity_normalization = self.tau * self.d_z * self.d_z
+                if self.instantaneous:
+                    self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
+                else:
+                    self.sparsity_normalization = self.tau * self.d_z * self.d_z
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -539,10 +540,15 @@ class TrainingLatent:
             nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
-            y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+            # Shall we do this if instantaneous??
+            if not self.instantaneous:
+                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+            else:
+                y_pred = y_pred_recons
             y_pred_all[:, k] = y_pred
             x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
-        del x_bis, y_pred, nll_bis, recons_bis, kl_bis
+
+        del x_bis, y_pred, nll_bis, recons_bis, kl_bis, y_pred_recons
 
         assert y.shape == y_pred_all.shape
 
@@ -576,18 +582,24 @@ class TrainingLatent:
         if self.instantaneous:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
+        # Remove this component if instantaneous and tau = 0?
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
         crps = 0
         spectral_loss = 0
         for k in range(self.future_timesteps):
+            # This step (predict) could be removed - need to rewrite predict function, to speed things up
             px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
                 y[:, k], y_pred_all[:, k], take_log=True
             )
 
-        temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
+        # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
+        if self.tau > 1:
+            temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
+        else:
+            temporal_spectral_loss = torch.as_tensor([0.0])
         # print(f"loss: {loss}, crps: {crps}, spectral: {spectral_loss}, temporal: {temporal_spectral_loss}")
         # add the spectral loss to the loss
         if self.optim_params.scheduler_spectra is None:
@@ -615,22 +627,15 @@ class TrainingLatent:
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
             )
-        loss = torch.mean((y - y_pred_all[:, 0]) ** 2)
-
         # backprop
         # mask_prev = self.model.mask.param.clone()
         # as recommended by https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html#use-parameter-grad-none-instead-of-model-zero-grad-or-optimizer-zero-grad
         # self.optimizer.zero_grad()
         self.optimizer.zero_grad(set_to_none=True)
         # loss.backward()
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-        with torch.autograd.set_detect_anomaly(True):
-            self.accelerator.backward(loss)
+        self.accelerator.backward(loss)
         # for name, param in self.model.named_parameters():
         #     if param.grad is not None and torch.isnan(param.grad).any():
-        #         print(f"[NaN GRAD] Gradient NaNs found in {name}")
         _, _ = (
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
@@ -661,7 +666,10 @@ class TrainingLatent:
         self.train_spectral_loss = spectral_loss.item()
 
         # adding the temporal spectral loss to the logs
-        self.train_temporal_spectral_loss = temporal_spectral_loss.item()
+        if self.tau > 1:
+            self.train_temporal_spectral_loss = temporal_spectral_loss.item()
+        else:
+            self.train_temporal_spectral_loss = torch.as_tensor([0.0])
 
         # # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # # This can be cut if we want faster training...
@@ -1129,7 +1137,6 @@ class TrainingLatent:
             adj = self.model.get_adj()
 
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization
-            # print('constraint value, before I subtract a threshold from it:', sum_of_connections)
 
             # If the sum_of_connections is greater than the upper threshold, then we have a violation
             if sum_of_connections > upper_threshold:
@@ -1160,6 +1167,23 @@ class TrainingLatent:
         return (1.0 / torch.sqrt(torch.as_tensor(2.0 * torch.pi))) * torch.exp(-torch.square(x) / 2.0)
 
     def get_crps_loss(self, y, mu, sigma):
+        """
+        Calculate the CRPS loss between the true values and the predicted values. We need to extract the parameters of
+        the Gaussian of the model. I am going to start by just taking the parameters of all the Gaussians for the
+        observations first...
+
+        I think better would actually be to produce an ensemble from the latent variable distributions, and then calculate the CRPS loss from this ensemble.
+
+        I would quite like to do this on future timesteps too.
+
+        Args:
+            y: torch.Tensor, the true values
+            mu: torch.Tensor, the mean of the Gaussians
+            sigma: torch.Tensor, the standard deviation of the Gaussians
+        """
+
+        # gaussian_dist = torch.distributions.Normal(mu, sigma)
+
         if self.model.distr_decoder.__name__ == "GEVDistribution":
             xi = self.model.xi
 
@@ -1274,20 +1298,24 @@ class TrainingLatent:
 
         # --- Gaussian fallback ---
         else:
+            y = y
+            mu = mu
+            sigma = sigma
+
             sy = (y - mu) / sigma
             forecast_dist = dist.Normal(0, 1)
             pdf = self._normpdf(sy)
             cdf = forecast_dist.cdf(sy)
 
-        pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
+            pi_inv = 1.0 / torch.sqrt(torch.as_tensor(torch.pi))
 
-        # calculate the CRPS
-        crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
+            # calculate the CRPS
+            crps = sigma * (sy * (2.0 * cdf - 1.0) + 2.0 * pdf - pi_inv)
 
-        # add together all the CRPS values and divide by the number of samples
-        crps = torch.sum(crps) / y.size(0)
+            # add together all the CRPS values and divide by the number of samples
+            crps = torch.sum(crps) / y.size(0)
 
-        return crps
+            return crps
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
         """
@@ -1321,9 +1349,9 @@ class TrainingLatent:
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
+            fft_true = torch.fft.rfft(y_true, dim=3)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=3)), dim=0)
+            fft_pred = torch.fft.rfft(y_pred, dim=3)
 
         elif y_true.size(-1) == self.d_x:
 
@@ -1332,9 +1360,9 @@ class TrainingLatent:
 
             # calculate the spectra of the true values
             # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=2)), dim=0)
+            fft_true = torch.fft.rfft(y_true, dim=2)
             # calculate the spectra of the predicted values
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred, dim=2)), dim=0)
+            fft_pred = torch.fft.rfft(y_pred, dim=2)
         else:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
@@ -1342,8 +1370,9 @@ class TrainingLatent:
             fft_true = torch.log(fft_true)
             fft_pred = torch.log(fft_pred)
 
+        spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
+
         # Calculate the power spectrum
-        spectral_loss = torch.abs(fft_pred - fft_true)
         if self.optim_params.fraction_highest_wavenumbers is not None:
             spectral_loss = spectral_loss[
                 :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
@@ -1366,25 +1395,13 @@ class TrainingLatent:
             y_true: torch.Tensor, the true value of the timestep we predict
             y_pred: torch.Tensor, the predicted values of the timestep we predict
         """
-
         # concatenate x and y_true along the time axis
         obs = torch.cat((x, y_true), dim=1)
         pred = torch.cat((x, y_pred), dim=1)
-
-        # calculate the spectra of the true values along the time dimension, and then take the mean across the batch
-        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs, dim=1)), dim=0)
-        # calculate the spectra of the predicted values along the time dimension, and then take the mean across the batch
-        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred, dim=1)), dim=0)
-
         # Calculate the power spectrum
         # compute the distance between the losses...
-        temporal_spectral_loss = torch.abs(fft_pred - fft_true)
+        return torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1)))
         # the shape here is (time/2 + 1, num_vars, coords)
-
-        # average across all frequencies, variables and coordinates...
-        temporal_spectral_loss = torch.mean(temporal_spectral_loss)
-
-        return temporal_spectral_loss
 
     def connectivity_reg_complete(self):
         """
@@ -1607,24 +1624,24 @@ class TrainingLatent:
                 # predict and take 100 samples too
                 samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
 
-            # make a copy of y_pred, which is a tensor
             x_original = x.clone().detach()
             y_original = y.clone().detach()
             y_original_pred = y_pred.clone().detach()
             y_original_recons = y_pred_recons.clone().detach()
 
-            # saving these
-            np.save(self.save_path / "val_x_ar_0.npy", x_original.detach().cpu().numpy())
-            np.save(self.save_path / "val_y_ar_0.npy", y_original.detach().cpu().numpy())
-            np.save(self.save_path / "val_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
-            np.save(self.save_path / "val_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
-            # np.save(os.path.join(self.hp.exp_path, "val_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
-            # np.save(os.path.join(self.hp.exp_path, "val_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
-            # np.save(os.path.join(self.hp.exp_path, "val_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
+            # # FOLLOWING LINES FOR DEBUGGING ONLY make a copy of y_pred, which is a tensor
+            # # saving these
+            # np.save(self.save_path / "val_x_ar_0.npy", x_original.detach().cpu().numpy())
+            # np.save(self.save_path / "val_y_ar_0.npy", y_original.detach().cpu().numpy())
+            # np.save(self.save_path / "val_y_pred_ar_0.npy", y_original_pred.detach().cpu().numpy())
+            # np.save(self.save_path / "val_y_recons_0.npy", y_original_recons.detach().cpu().numpy())
+            # # np.save(os.path.join(self.hp.exp_path, "val_encoded_z_ar_0.npy"), z.detach().cpu().numpy())
+            # # np.save(os.path.join(self.hp.exp_path, "val_pz_mu_ar_0.npy"), pz_mu.detach().cpu().numpy())
+            # # np.save(os.path.join(self.hp.exp_path, "val_pz_std_ar_0.npy"), pz_std.detach().cpu().numpy())
 
-            # saving the samples
-            np.save(self.save_path / "val_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
-            np.save(self.save_path / "val_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
+            # # saving the samples
+            # np.save(self.save_path / "val_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
+            # np.save(self.save_path / "val_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
 
             for i in range(1, timesteps):
 

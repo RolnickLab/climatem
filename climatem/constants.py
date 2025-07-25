@@ -13,7 +13,7 @@ INPUT4MIPS_TEMP_RES = "mon"
 CMIP6_TEMP_RES = "mon"
 INPUT4MIPS_NOM_RES = "map_250_km"
 CMIP6_NOM_RES = "250_km"  # TODO: not allow different resolutions
-SEQ_LEN_MAPPING = {"mon": 12}
+SEQ_LEN_MAPPING = {"mon": 12, "day": 365}
 
 # TODO JK commenting: this should be done via the __init__.py
 # JB: This should be input to the json or params file, and
