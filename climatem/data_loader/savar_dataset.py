@@ -28,10 +28,12 @@ class SavarDataset(torch.utils.data.Dataset):
         overlap: bool = False,
         is_forced: bool = False,
         plot_original_data: bool = True,
+        seed: int = 42,
     ):
         super().__init__()
         self.output_save_dir = Path(output_save_dir)
-        self.savar_name = f"modes_{n_per_col**2}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
+        # self.savar_name = f"modes_{n_per_col**2}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
+        self.savar_name = f"modes_{n_per_col**2}-difficulty_{difficulty}-seed_{seed}"
         self.savar_path = self.output_save_dir / f"{self.savar_name}.npy"
 
         self.global_normalization = global_normalization
@@ -179,6 +181,7 @@ class SavarDataset(torch.utils.data.Dataset):
             time_steps = data.shape[1]
             data = data.T.reshape((time_steps, self.lat, self.lon))
 
+            self.gt_modes_weights = np.load(self.output_save_dir / f"{self.savar_name}_mode_weights.npy")
             self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
             self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
             links_coeffs = np.load(

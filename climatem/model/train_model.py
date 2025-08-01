@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.distributions as dist
 from pathlib import Path
+from tqdm import tqdm
 
 # we use accelerate for distributed training
 from geopy import distance
@@ -18,41 +19,43 @@ from climatem.plotting.plot_model_output import Plotter
 euler_mascheroni = 0.57721566490153286060
 
 
-def get_predictions(x, y, evaluated_model, evaluated_model_type):
+def get_predictions(x, y, trained_model, accelerator):
     """
     Use trained model to get predictions for picabu and reshape values for model specification
     If no evaluated model is provided, just return the input and target data with numpy.nan values replaced with 0.
     :param x: input data
     :param y: target data
-    :param evaluated_model: trained model
-    :param evaluated_model_type: type of evaluated model (mlp or lstm)
+    :param trained_model: trained model
     :return: reshaped input and target data
     """
-    x_shape = x.shape
-    y_shape = y.shape
+    x = x.to(accelerator.device)
+    y = y.to(accelerator.device)
 
-    if evaluated_model is not None:
+    if trained_model is not None:
+        trained_model = trained_model.to(x.device)
         with torch.no_grad():
-            if evaluated_model_type == "mlp":
-                x = x.view(x.shape[0], x.shape[1] * x.shape[3])
-                y = evaluated_model(x)
-            elif evaluated_model_type == "lstm":
-                x = x.squeeze(2)
-                y, _, _ = evaluated_model(x)
+            if trained_model.name == "vae":
+                # remove one dimension of y from [batch_size, 1, 1, dim] to [batch_size, 1, dim]
+                y = y[:,0]
+                y_pred, _, _, _, _ = trained_model.predict(x, y)
+                y_pred = y_pred.unsqueeze(1)
+                
 
-    x = x.view(*x_shape)
-    # check if has nan:
+            else:
+                y_pred = trained_model(x)
+
+        # check if has nan:
     if torch.isnan(x).any():
         print("Warning: input data contains NaN values, replacing with 0.")
         x = torch.nan_to_num(x)
 
-    y = y.view(*y_shape)
-
     # check if has nan:
     if torch.isnan(y).any():
         print("Warning: target data contains NaN values, replacing with 0.")
-        y = torch.nan_to_num(y)
-    return x, y
+        y_pred = torch.nan_to_num(y_pred)
+    y_pred = y_pred.to(accelerator.device)
+
+    return x, y_pred
 
 
 class TrainingLatent:
@@ -71,15 +74,17 @@ class TrainingLatent:
         best_metrics,
         d,
         accelerator,
-        evaluated_model=None,
-        evaluated_model_type=None,
+        trained_model=None,
+        trained_model_type=None,
         wandbname="unspecified",
         profiler=False,
         profiler_path="./log",
     ):
         # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
-        self.evaluated_model = evaluated_model
-        self.evaluated_model_type = evaluated_model_type
+        # Params for learning causal graph on a trained model
+        self.trained_model = trained_model
+        self.trained_model_type = trained_model_type
+
         self.accelerator = accelerator
         self.model = model
         self.model.to(accelerator.device)
@@ -254,8 +259,8 @@ class TrainingLatent:
             if self.latent:
                 self.ortho_normalization = self.d_x * self.d_z
                 self.sparsity_normalization = self.tau * self.d_z * self.d_z
-        if self.evaluated_model_type is not None:
-            print(f"====== Training picabu on: {self.evaluated_model_type} =========")
+        if self.trained_model_type is not None:
+            print(f"====== Training picabu on: {self.trained_model_type} =========")
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -279,11 +284,11 @@ class TrainingLatent:
 
         # TODO: Why config here?
         # config = self.hp
-        self.accelerator.init_trackers(
-            "climatem",
-            # config=config,
-            init_kwargs={"wandb": {"config": {"model": self.wandbname}}},
-        )
+        # self.accelerator.init_trackers(
+        #     "climatem",
+        #     # config=config,
+        #     init_kwargs={"wandb": {"config": {"model": self.wandbname}}},
+        # )
 
         # initialize ALM/QPM for orthogonality and acyclicity constraints
         self.ALM_ortho = ALM(
@@ -343,170 +348,174 @@ class TrainingLatent:
             prof.start()
             # print out the output of the profiler
 
-        while self.iteration < self.train_params.max_iteration and not self.ended:
+        print ("Starting training...")
+        with tqdm(total=self.train_params.max_iteration) as pbar:
 
-            # train and valid step
-            # HERE MODIFY train_step()
-            self.train_step()
-            self.scheduler.step()
-            if self.profiler:
-                prof.step()
+            while self.iteration < self.train_params.max_iteration and not self.ended:
 
-            if self.iteration % self.train_params.valid_freq == 0:
-                self.logging_iter += 1
-                # HERE MODIFY valid_step()
-                self.valid_step()
-                self.log_losses()
+                # train and valid step
+                # HERE MODIFY train_step()
+                self.train_step()
+                self.scheduler.step()
+                if self.profiler:
+                    prof.step()
 
-                # log these metrics to wandb every print_freq...
-                #  multiple metrics here...
-                if self.iteration % (self.plot_params.print_freq) == 0:
-                    # altered to use the accelerator.log function
-                    self.accelerator.log(
-                        {
-                            "kl_train": self.train_kl,
-                            "loss_train": self.train_loss,
-                            "recons_train": self.train_recons,
-                            "kl_valid": self.valid_kl,
-                            "loss_valid": self.valid_loss,
-                            "recons_valid": self.valid_recons,
-                            "nll_train": self.train_nll,
-                            "nll_valid": self.valid_nll,
-                            "mae_recons_train": self.train_mae_recons,
-                            "mae_pred_train": self.train_mae_pred,
-                            "mae_persistence_train": self.train_mae_persistence,
-                            "mae_recons_valid": self.val_mae_recons,
-                            "mae_pred_valid": self.val_mae_pred,
-                            "mse_recons_train": self.train_mse_recons,
-                            "mse_pred_train": self.train_mse_pred,
-                            "mse_recons_valid": self.val_mse_recons,
-                            "mse_pred_valid": self.val_mse_pred,
-                            "var_original_train": self.train_var_original,
-                            "var_recons_train": self.train_var_recons,
-                            "var_pred_train": self.train_var_pred,
-                            "var_original_valid": self.val_var_original,
-                            "var_recons_val": self.val_var_recons,
-                            "var_pred_valid": self.val_var_pred,
-                            "mae_recons_valid_1": self.val_mae_recons_1,
-                            "mae_recons_valid_2": self.val_mae_recons_2,
-                            "mae_recons_valid_3": self.val_mae_recons_3,
-                            "mae_recons_valid_4": self.val_mae_recons_4,
-                            "mae_pred_valid_1": self.val_mae_pred_1,
-                            "mae_pred_valid_2": self.val_mae_pred_2,
-                            "mae_pred_valid_3": self.val_mae_pred_3,
-                            "mae_pred_valid_4": self.val_mae_pred_4,
-                            "mae_recons_train_1": self.train_mae_recons_1,
-                            "mae_recons_train_2": self.train_mae_recons_2,
-                            "mae_recons_train_3": self.train_mae_recons_3,
-                            "mae_recons_train_4": self.train_mae_recons_4,
-                            "mae_pred_train_1": self.train_mae_pred_1,
-                            "mae_pred_train_2": self.train_mae_pred_2,
-                            "mae_pred_train_3": self.train_mae_pred_3,
-                            "mae_pred_train_4": self.train_mae_pred_4,
-                            "spectral_loss_train": self.train_spectral_loss,
-                            "temporal_spectral_loss_train": self.train_temporal_spectral_loss,
-                            "crps_loss_train": self.train_crps_loss,
-                        }
-                    )
-
-                else:
-                    self.accelerator.log(
-                        {
-                            "kl_train": self.train_kl,
-                            "loss_train": self.train_loss,
-                            "recons_train": self.train_recons,
-                            "kl_valid": self.valid_kl,
-                            "loss_valid": self.valid_loss,
-                            "recons_valid": self.valid_recons,
-                        }
-                    )
-
-                # print and plot losses
-                # TODO : the plotting frrequency is hard to control and unintuitive... update the code here
-                if self.iteration % (self.plot_params.print_freq) == 0:
-                    self.print_results()
-
-            if self.logging_iter > 0 and self.iteration % (self.plot_params.plot_freq) == 0:
-                print(f"Plotting Iteration {self.iteration}")
-                self.plotter.plot_sparsity(self)
-                # trying to save coords and adjacency matrices
-                # Todo propagate the path!
-                if not self.plot_params.savar:
-                    self.plotter.save_coordinates_and_adjacency_matrices(self)
-                torch.save(self.model.state_dict(), self.save_path / "model.pth")
-
-                # try to use the accelerator.save function here
-                self.accelerator.save_state(output_dir=self.save_path)
-
-            if not self.converged:
-
-                # train with penalty method
-                # NOTE: here valid_freq is critical for updating the parameters of the ALM method!
-                # this is easy to miss - perhaps we should implement another parameter for this.
                 if self.iteration % self.train_params.valid_freq == 0:
-                    self.ALM_ortho.update(self.iteration, self.valid_ortho_vector_cons_list, self.valid_loss_list)
-                    # updating ALM_sparsity here
-                    self.ALM_sparsity.update(self.iteration, self.valid_sparsity_cons_list, self.valid_loss_list)
+                    self.logging_iter += 1
+                    # HERE MODIFY valid_step()
+                    self.valid_step()
+                    self.log_losses()
 
-                    # This iteration value should be explored.
-                    if self.iteration > 1000:
-                        if not self.no_w_constraint:
-                            ortho_converged = self.ALM_ortho.has_converged
-                            sparsity_converged = self.ALM_sparsity.has_converged
-                        else:
-                            self.converged = True
+                    # log these metrics to wandb every print_freq...
+                    #  multiple metrics here...
+                    if self.iteration % (self.plot_params.print_freq) == 0:
+                        # altered to use the accelerator.log function
+                        self.accelerator.log(
+                            {
+                                "kl_train": self.train_kl,
+                                "loss_train": self.train_loss,
+                                "recons_train": self.train_recons,
+                                "kl_valid": self.valid_kl,
+                                "loss_valid": self.valid_loss,
+                                "recons_valid": self.valid_recons,
+                                "nll_train": self.train_nll,
+                                "nll_valid": self.valid_nll,
+                                "mae_recons_train": self.train_mae_recons,
+                                "mae_pred_train": self.train_mae_pred,
+                                "mae_persistence_train": self.train_mae_persistence,
+                                "mae_recons_valid": self.val_mae_recons,
+                                "mae_pred_valid": self.val_mae_pred,
+                                "mse_recons_train": self.train_mse_recons,
+                                "mse_pred_train": self.train_mse_pred,
+                                "mse_recons_valid": self.val_mse_recons,
+                                "mse_pred_valid": self.val_mse_pred,
+                                "var_original_train": self.train_var_original,
+                                "var_recons_train": self.train_var_recons,
+                                "var_pred_train": self.train_var_pred,
+                                "var_original_valid": self.val_var_original,
+                                "var_recons_val": self.val_var_recons,
+                                "var_pred_valid": self.val_var_pred,
+                                "mae_recons_valid_1": self.val_mae_recons_1,
+                                "mae_recons_valid_2": self.val_mae_recons_2,
+                                "mae_recons_valid_3": self.val_mae_recons_3,
+                                "mae_recons_valid_4": self.val_mae_recons_4,
+                                "mae_pred_valid_1": self.val_mae_pred_1,
+                                "mae_pred_valid_2": self.val_mae_pred_2,
+                                "mae_pred_valid_3": self.val_mae_pred_3,
+                                "mae_pred_valid_4": self.val_mae_pred_4,
+                                "mae_recons_train_1": self.train_mae_recons_1,
+                                "mae_recons_train_2": self.train_mae_recons_2,
+                                "mae_recons_train_3": self.train_mae_recons_3,
+                                "mae_recons_train_4": self.train_mae_recons_4,
+                                "mae_pred_train_1": self.train_mae_pred_1,
+                                "mae_pred_train_2": self.train_mae_pred_2,
+                                "mae_pred_train_3": self.train_mae_pred_3,
+                                "mae_pred_train_4": self.train_mae_pred_4,
+                                "spectral_loss_train": self.train_spectral_loss,
+                                "temporal_spectral_loss_train": self.train_temporal_spectral_loss,
+                                "crps_loss_train": self.train_crps_loss,
+                            }
+                        )
+
                     else:
-                        ortho_converged = False
-                        sparsity_converged = False
+                        self.accelerator.log(
+                            {
+                                "kl_train": self.train_kl,
+                                "loss_train": self.train_loss,
+                                "recons_train": self.train_recons,
+                                "kl_valid": self.valid_kl,
+                                "loss_valid": self.valid_loss,
+                                "recons_valid": self.valid_recons,
+                            }
+                        )
 
-                    # if has_increased_mu then reinitialize the optimizer?
-                    if self.ALM_ortho.has_increased_mu:
-                        if self.optim_params.optimizer == "sgd":
-                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
-                        elif self.optim_params.optimizer == "rmsprop":
-                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
+                    # print and plot losses
+                    # TODO : the plotting frrequency is hard to control and unintuitive... update the code here
+                    if self.iteration % (self.plot_params.print_freq) == 0:
+                        self.print_results()
 
-                    # Repeat for sparsity constraint?
-                    if self.ALM_sparsity.has_increased_mu:
-                        if self.optim_params.optimizer == "sgd":
-                            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
-                        elif self.optim_params.optimizer == "rmsprop":
-                            self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
+                if self.logging_iter > 0 and self.iteration % (self.plot_params.plot_freq) == 0:
+                    print(f"Plotting Iteration {self.iteration}")
+                    self.plotter.plot_sparsity(self)
+                    # trying to save coords and adjacency matrices
+                    # Todo propagate the path!
+                    if not self.plot_params.savar:
+                        self.plotter.save_coordinates_and_adjacency_matrices(self)
+                    torch.save(self.model.state_dict(), self.save_path / "model.pth")
 
-                    if self.instantaneous:
-                        self.QPM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
-                        acyclic_converged = self.QPM_acyclic.has_converged
-                        # TODO: add optimizer reinit
-                        if self.QPM_acyclic.has_increased_mu:
+                    # try to use the accelerator.save function here
+                    self.accelerator.save_state(output_dir=self.save_path)
+
+                if not self.converged:
+
+                    # train with penalty method
+                    # NOTE: here valid_freq is critical for updating the parameters of the ALM method!
+                    # this is easy to miss - perhaps we should implement another parameter for this.
+                    if self.iteration % self.train_params.valid_freq == 0:
+                        self.ALM_ortho.update(self.iteration, self.valid_ortho_vector_cons_list, self.valid_loss_list)
+                        # updating ALM_sparsity here
+                        self.ALM_sparsity.update(self.iteration, self.valid_sparsity_cons_list, self.valid_loss_list)
+
+                        # This iteration value should be explored.
+                        if self.iteration > 1000:
+                            if not self.no_w_constraint:
+                                ortho_converged = self.ALM_ortho.has_converged
+                                sparsity_converged = self.ALM_sparsity.has_converged
+                            else:
+                                self.converged = True
+                        else:
+                            ortho_converged = False
+                            sparsity_converged = False
+
+                        # if has_increased_mu then reinitialize the optimizer?
+                        if self.ALM_ortho.has_increased_mu:
                             if self.optim_params.optimizer == "sgd":
                                 self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
                             elif self.optim_params.optimizer == "rmsprop":
                                 self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
-                        self.converged = ortho_converged & acyclic_converged
-                    else:
-                        # self.converged = ortho_converged
-                        self.converged = ortho_converged & sparsity_converged
-            else:
-                # continue training without penalty method
-                if not self.thresholded and self.iteration % self.patience_freq == 0:
-                    # self.plotter.plot(self, save=True)
-                    if not self.has_patience(self.train_params.patience, self.valid_loss):
-                        self.threshold()
-                        self.patience = self.train_params.patience_post_thresh
-                        self.best_valid_loss = np.inf
-                        # self.plotter.plot(self, save=True)
-                # continue training after thresholding
+
+                        # Repeat for sparsity constraint?
+                        if self.ALM_sparsity.has_increased_mu:
+                            if self.optim_params.optimizer == "sgd":
+                                self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
+                            elif self.optim_params.optimizer == "rmsprop":
+                                self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
+
+                        if self.instantaneous:
+                            self.QPM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
+                            acyclic_converged = self.QPM_acyclic.has_converged
+                            # TODO: add optimizer reinit
+                            if self.QPM_acyclic.has_increased_mu:
+                                if self.optim_params.optimizer == "sgd":
+                                    self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
+                                elif self.optim_params.optimizer == "rmsprop":
+                                    self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
+                            self.converged = ortho_converged & acyclic_converged
+                        else:
+                            # self.converged = ortho_converged
+                            self.converged = ortho_converged & sparsity_converged
                 else:
-                    if self.iteration % self.patience_freq == 0:
+                    # continue training without penalty method
+                    if not self.thresholded and self.iteration % self.patience_freq == 0:
                         # self.plotter.plot(self, save=True)
-                        if not self.has_patience(self.train_params.patience_post_thresh, self.valid_loss):
-                            self.ended = True
+                        if not self.has_patience(self.train_params.patience, self.valid_loss):
+                            self.threshold()
+                            self.patience = self.train_params.patience_post_thresh
+                            self.best_valid_loss = np.inf
+                            # self.plotter.plot(self, save=True)
+                    # continue training after thresholding
+                    else:
+                        if self.iteration % self.patience_freq == 0:
+                            # self.plotter.plot(self, save=True)
+                            if not self.has_patience(self.train_params.patience_post_thresh, self.valid_loss):
+                                self.ended = True
 
-            self.iteration += 1
+                self.iteration += 1
+                pbar.update(1)
 
-            # might want this for the profiler:
-            # if self.profiler:
-            #    prof.step()
+                # might want this for the profiler:
+                # if self.profiler:
+                #    prof.step()
 
         if self.iteration >= self.train_params.max_iteration:
             self.threshold()
@@ -516,7 +525,7 @@ class TrainingLatent:
         self.print_results()
 
         # wandb.finish()
-        self.accelerator.end_training()
+        # self.accelerator.end_training() # we do this manually
 
         valid_loss = {
             "valid_loss": self.valid_loss,
@@ -524,8 +533,8 @@ class TrainingLatent:
             "valid_loss1": -self.valid_loss_list[-1],
             "valid_loss2": -self.valid_loss_list[-2],
             "valid_loss3": -self.valid_loss_list[-3],
-            "valid_loss4": -self.valid_loss_list[-4],
-            "valid_loss5": -self.valid_loss_list[-5],
+            # "valid_loss4": -self.valid_loss_list[-4],
+            # "valid_loss5": -self.valid_loss_list[-5],
             "valid_neg_elbo": self.valid_nll,
             "valid_recons": self.valid_recons,
             "valid_kl": self.valid_kl,
@@ -544,7 +553,7 @@ class TrainingLatent:
     def train_step(self):  # noqa: C901
 
         self.model.train()
-
+        self.model = self.model.to(self.accelerator.device)
         # sample data
 
         # TODO: send data to gpu in the initialization and sample afterwards
@@ -552,11 +561,11 @@ class TrainingLatent:
 
         try:
             x, y = next(self.data_loader_train)
-            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
+            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
         except StopIteration:
             self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(self.data_loader_train)
-            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
+            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
         # y = y[:, 0]
         z = None
@@ -576,8 +585,11 @@ class TrainingLatent:
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
             y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+            
             y_pred_all[:, k] = y_pred
-            x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
+            
+            
+            x_bis = torch.cat((x_bis[:, 1:], y_pred.to(x_bis.device).unsqueeze(1)), dim=1)
         del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
         assert y.shape == y_pred_all.shape
@@ -587,6 +599,7 @@ class TrainingLatent:
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
+            self.ALM_sparsity.gamma = self.ALM_sparsity.gamma.to(h_sparsity.device)
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
                 h_variance = self.adj_transition_variance()
@@ -606,8 +619,9 @@ class TrainingLatent:
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
-        loss = nll + connect_reg + sparsity_reg
+        loss = nll.to(self.accelerator.device) + connect_reg.to(self.accelerator.device) + sparsity_reg.to(self.accelerator.device)
         if not self.no_w_constraint:
+            self.ALM_ortho.gamma = self.ALM_ortho.gamma.to(h_ortho.device)
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
@@ -711,14 +725,18 @@ class TrainingLatent:
 
             # also try the particle filtering approach
             # final_particles = self.particle_filter(x_original, y_original, num_particles=100, timesteps=120)
+            y_original_recons = y_original_recons.to(self.accelerator.device)
+            y_original_pred = y_original_pred.to(self.accelerator.device)
+            y_original = y_original.to(self.accelerator.device)
+            x_original = x_original.to(self.accelerator.device)
 
-            self.train_mae_recons = torch.mean(torch.abs(y_original_recons - y_original)).item()
-            self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original)).item()
-            self.train_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :])).item()
+            self.train_mae_recons = torch.mean(torch.abs(y_original_recons - y_original.to(y_original_recons.device))).item()
+            self.train_mae_pred = torch.mean(torch.abs(y_original_pred - y_original.to(y_original_pred.device))).item()
+            self.train_mae_persistence = torch.mean(torch.abs(y_original - x_original[:, -1, :, :].to(y_original.device))).item()
 
-            self.train_mse_recons = torch.mean(torch.square(y_original_recons - y_original)).item()
-            self.train_mse_pred = torch.mean(torch.square(y_original_pred - y_original)).item()
-            self.train_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :])).item()
+            self.train_mse_recons = torch.mean(torch.square(y_original_recons - y_original.to(y_original_recons.device))).item()
+            self.train_mse_pred = torch.mean(torch.square(y_original_pred - y_original.to(y_original_pred.device))).item()
+            self.train_mse_persistence = torch.mean(torch.square(y_original - x_original[:, -1, :, :].to(y_original.device))).item()
 
             # include the variance of the predictions
             self.train_var_original = torch.var(y_original).item()
@@ -803,16 +821,17 @@ class TrainingLatent:
     # Validation step here.
     def valid_step(self):
         self.model.eval()
+        self.model = self.model.to(self.accelerator.device)
 
         with torch.no_grad():
             # sample data
             try:
                 x, y = next(self.data_loader_val)
-                x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
+                x, y = get_predictions(x, y, self.trained_model, self.accelerator)
             except StopIteration:
                 self.data_loader_val = iter(self.datamodule.val_dataloader())
                 x, y = next(self.data_loader_val)
-                x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
+                x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
 
@@ -836,7 +855,7 @@ class TrainingLatent:
                 kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
                 y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
                 y_pred_all[:, k] = y_pred
-                x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
+                x_bis = torch.cat((x_bis[:, 1:], y_pred.to(x_bis.device).unsqueeze(1)), dim=1)
                 # print(f"y_pred_recons shape {y_pred_recons.shape}")
             del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
@@ -894,6 +913,11 @@ class TrainingLatent:
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
                 self.autoregress_prediction_original(valid=True, timesteps=10)
             )
+
+            y_original_recons = y_original_recons.to(self.accelerator.device)
+            y_original_pred = y_original_pred.to(self.accelerator.device)
+            y_original = y_original.to(self.accelerator.device)
+            x_original = x_original.to(self.accelerator.device)
 
             # print all the shapes of these
 
@@ -1123,7 +1147,7 @@ class TrainingLatent:
             #     constraint = constraint + torch.norm(w[i].T @ w[i] - torch.eye(k), p=2)
             i = 0
             # constraint = torch.norm(w[i].T @ w[i] - torch.eye(k), p=2, dim=1)
-            constraint = w[i].T @ w[i] - torch.eye(k)
+            constraint = w[i].T @ w[i] - torch.eye(k).to(w.device)
             # print('What is the ortho constraint shape:', constraint.shape)
             h = constraint / self.ortho_normalization
         else:
@@ -1172,7 +1196,7 @@ class TrainingLatent:
 
             # print('constraint value, after I subtract a threshold, or whatever:', constraint)
 
-            h = torch.max(constraint, torch.as_tensor([0.0]))
+            h = torch.max(constraint, torch.as_tensor([0.0], device=constraint.device))
 
         else:
             h = torch.as_tensor([0.0])
@@ -1318,9 +1342,9 @@ class TrainingLatent:
 
         # --- Gaussian fallback ---
         else:
-            y = y
-            mu = mu
-            sigma = sigma
+            y = y.to(self.accelerator.device)
+            mu = mu.to(self.accelerator.device)
+            sigma = sigma.to(self.accelerator.device)
 
             sy = (y - mu) / sigma
             forecast_dist = dist.Normal(0, 1)
@@ -1488,6 +1512,7 @@ class TrainingLatent:
 
         self.model.eval()
 
+        self.model = self.model.to(self.accelerator.device)
         if not valid:
 
             # make an empty list to store the predictions
@@ -1496,7 +1521,7 @@ class TrainingLatent:
             # Make the iterator again, since otherwise we have iterated through it already...
             train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
             x, y = next(train_dataloader)
-            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
+            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
             y = y[:, 0]
             z = None
@@ -1507,7 +1532,6 @@ class TrainingLatent:
             # ensure these are correct
             with torch.no_grad():
                 y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
-
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
                 samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 10)
@@ -1546,7 +1570,7 @@ class TrainingLatent:
                 # then append the prediction
                 x = x[:, 1:, :, :]
 
-                x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
+                x = torch.cat([x, y_pred.to(x.device).unsqueeze(1)], dim=1)
 
                 # then predict the next timestep
                 # y at this point is pointless!!!
@@ -1594,10 +1618,10 @@ class TrainingLatent:
             # This is a measure of how well the model is predicting the spatial spectra of the true values.
 
             # here I calculate the spatial spectra across the coordinates, then I average across the batch and across the timesteps
-            fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1))
+            fft_true = torch.mean(torch.abs(torch.fft.rfft(x_original[:, :, :, :], dim=3)), dim=(0, 1)).to(self.accelerator.device)
 
             # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
-            fft_pred = torch.mean(torch.abs(torch.fft.rfft(predictions[:, :, :, :], dim=3)), dim=(0, 1))
+            fft_pred = torch.mean(torch.abs(torch.fft.rfft(predictions[:, :, :, :], dim=3)), dim=(0, 1)).to(self.accelerator.device)
 
             # calculate the difference between the true and predicted spatial spectra
             spatial_spectra_score = torch.abs(fft_pred - fft_true)
@@ -1635,7 +1659,7 @@ class TrainingLatent:
             # Make the iterator again
             val_dataloader = iter(self.datamodule.val_dataloader())
             x, y = next(val_dataloader)
-            x, y = get_predictions(x, y, self.evaluated_model, self.evaluated_model_type)
+            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
             y = y[:, 0]
             z = None
@@ -1669,12 +1693,14 @@ class TrainingLatent:
             np.save(self.save_path / "val_samples_from_xs.npy", samples_from_xs.detach().cpu().numpy())
             np.save(self.save_path / "val_samples_from_zs.npy", samples_from_zs.detach().cpu().numpy())
 
+            # y_pred = y_pred.to(self.accelerator.device)
+
             for i in range(1, timesteps):
 
                 # remove the first timestep, so now we have (tau - 1) timesteps
 
                 x = x[:, 1:, :, :]
-                x = torch.cat([x, y_pred.unsqueeze(1)], dim=1)
+                x = torch.cat([x, y_pred.to(x.device).unsqueeze(1)], dim=1)
 
                 with torch.no_grad():
                     # then predict the next timestep
@@ -1703,6 +1729,7 @@ class TrainingLatent:
             # print('Overall MSE:', mse1)
 
             # check
+            y_original_pred = y_original_pred.to(y_original.device)
             mse = torch.mean(torch.sum(0.5 * torch.square(y_original - y_original_pred), dim=2))
             # print("MSE:", mse)
             # print("MSE shape:", mse.shape)

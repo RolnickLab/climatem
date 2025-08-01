@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.metrics import f1_score, precision_score, recall_score
+from climatem import *
 
 
 def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
@@ -326,7 +327,7 @@ if __name__ == "__main__":
     threshold = 0.5
 
     # load your existing JSON config
-    config_path = Path("configs/single_param_file_savar.json")
+    config_path = CONFIGS_PATH / "single_param_file_savar.json"
     with open(config_path, "r") as f:
         cfg = json.load(f)
 
@@ -347,9 +348,9 @@ if __name__ == "__main__":
     noise_val = savar["noise_val"]
 
     home_path = str(Path.home())
-    savar_path = "/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST"
+    savar_path = "/dev/mila/scratch/data/SAVAR_DATA_TEST"
     results_path = Path(
-        "my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True"
+        "dev/mila/results/SAVAR_DATA_TEST/STAR-var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True"
     )
 
     # Load ground truthh modes

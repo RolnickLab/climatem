@@ -100,6 +100,7 @@ class CausalClimateDataModule(ClimateDataModule):
                     overlap=self.hparams.overlap,
                     is_forced=self.hparams.is_forced,
                     plot_original_data=self.hparams.plot_original_data,
+                    seed=self.hparams.seed,
                 )
             elif (
                 "tas" in self.hparams.in_var_ids
@@ -185,6 +186,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 mode="train+val",
             )
             if "savar" in self.hparams.in_var_ids:
+                self.savar_gt_modes_weights = self.train_val_input4mips.gt_modes_weights
                 self.savar_gt_modes = self.train_val_input4mips.gt_modes
                 self.savar_gt_noise = self.train_val_input4mips.gt_noise
                 self.savar_gt_adj = self.train_val_input4mips.gt_adj

@@ -27,7 +27,7 @@ accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
 
 BEST = False
 best_name = "best-" if BEST else ""
-MODEL_TYPE = None  # None, mlp, lstm, cnn
+MODEL_TYPE = "cnn"  # None, mlp, lstm, cnn
 
 diff_mapping = {
     "easy": "e",
@@ -54,7 +54,7 @@ class Bunch:
 
 
 def main(
-    experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params
+    experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params, json_path
 ):
     """
     :param hp: object containing hyperparameter values
@@ -213,6 +213,10 @@ def main(
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
+    # save config file to data directory
+    savar_name = datamodule.train_val_input4mips.savar_name
+    shutil.copy2(json_path, os.path.join(data_params.data_dir, f"{savar_name}_config.json"))
+
     # # load the best metrics
     # with open(os.path.join(hp.data_path, "best_metrics.json"), 'r') as f:
     #     best_metrics = json.load(f)
@@ -312,11 +316,11 @@ def main(
     metrics["val_smape"] = val_smape
 
     # save the metrics
-    with open(Path(experiment_params.exp_path) / "results.json", "w") as file:
+    with open(exp_path / "results.json", "w") as file:
         json.dump(metrics, file, indent=4)
 
     # finally, save the model
-    torch.save(trainer.model.state_dict(), Path(experiment_params.exp_path) / "model.pth")
+    torch.save(trainer.model.state_dict(), exp_path / "model.pth")
 
 
 def assert_args(
@@ -397,7 +401,6 @@ if __name__ == "__main__":
     # Save configuration to folder where data is generated
     data_dir = params["data_params"]["data_dir"]
     os.makedirs(data_dir, exist_ok=True)
-    shutil.copy2(json_path, os.path.join(data_dir, "saved_params.json"))
 
     # Handle SAVAR-specific parameters
     if "savar" in data_params.in_var_ids:
@@ -410,4 +413,4 @@ if __name__ == "__main__":
 
     assert_args(experiment_params, data_params, gt_params, optim_params)
 
-    main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
+    main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params, json_path)

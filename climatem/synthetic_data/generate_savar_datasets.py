@@ -182,6 +182,7 @@ def generate_save_savar_data(
         modenpy_path = save_dir_path / modenpy_name
         plt.savefig(fig_path)
         np.save(modenpy_path, sum_modes)
+        print ("DBG: Saving modes to: ", modenpy_path)
         plt.close()
 
         # Plot the sum of noise weights
@@ -209,6 +210,8 @@ def generate_save_savar_data(
         "ny": ny,
         "T": time_len,
         "N": N,
+        "tau": tau,
+        "difficulty": difficulty,
         "links_coeffs": links_coeffs,
         # "f_1": f_1,
         # "f_2": f_2,

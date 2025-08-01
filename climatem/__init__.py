@@ -12,7 +12,7 @@ TUNING_CONFIGS = CONFIGS_PATH / "tuning"  # doesn't exist
 
 if sys.platform == "linux":
     SCRATCH_DIR = Path.home() / "scratch"
-    print("Detected Linux system, using scratch directory: ", SCRATCH_DIR)
+    print("Climatem:Detected Linux system, using scratch directory: ", SCRATCH_DIR)
 else:
-    SCRATCH_DIR = PROJECT_ROOT.parent / "scratch"  # hardcoded for local machine
-    print("Detected non-Linux system, using scratch directory: ", SCRATCH_DIR)
+    SCRATCH_DIR = PROJECT_ROOT.parent.parent / "scratch"  # hardcoded for local machine
+    print("Climatem:Detected non-Linux system, using scratch directory: ", SCRATCH_DIR)

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=run_savar_vae                                          # Set name of job
-#SBATCH --output=run_savar_output_vae.txt                                  # Set location of output file
-#SBATCH --error=run_savar_error_vae.txt                                    # Set location of error file
+#SBATCH --job-name=run_savar_cnn                                          # Set name of job
+#SBATCH --output=run_savar_output_cnn.txt                                  # Set location of output file
+#SBATCH --error=run_savar_error_cnn.txt                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
@@ -42,4 +42,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_savar_vae.json
+    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_savar.json

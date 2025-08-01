@@ -15,6 +15,8 @@ import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 from tqdm.auto import tqdm
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def dict_to_matrix(links_coeffs, default=0):
     """
@@ -203,8 +205,8 @@ class SAVAR:
 
         # Generate noise from cov
         print("Generate noise_data_field multivariate random")
-        mean_torch = torch.Tensor(np.zeros(self.spatial_resolution)).to(device="cuda")
-        cov = torch.Tensor(self.noise_cov).to(device="cuda")
+        mean_torch = torch.Tensor(np.zeros(self.spatial_resolution)).to(device=device)
+        cov = torch.Tensor(self.noise_cov).to(device=device)
         distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov)  # . to(device="cuda")
         noise_data_field = distrib.sample(sample_shape=torch.Size([self.time_length + self.transient]))
         self.noise_data_field = noise_data_field.detach().cpu().numpy().transpose()
@@ -279,16 +281,16 @@ class SAVAR:
         """Weights N \times L data_field L \times T."""
         weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
         # weights_inv = np.linalg.pinv(weights)
-        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
-        weights = torch.Tensor(weights).to(device="cuda")
+        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device=device)
+        weights = torch.Tensor(weights).to(device=device)
         time_len = deepcopy(self.time_length)
         time_len += self.transient
         tau_max = self.tau_max
 
         # phi = dict_to_matrix(self.links_coeffs)
-        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device=device)
         # data_field = deepcopy(self.data_field)
-        data_field = torch.Tensor(self.data_field).to(device="cuda")
+        data_field = torch.Tensor(self.data_field).to(device=device)
 
         print("create_linear")
         for t in tqdm(range(tau_max, time_len)):

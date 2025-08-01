@@ -65,6 +65,7 @@ class Mask(nn.Module):
                 # initialize mask as log(mask_ij) = 1
                 self.param = nn.Parameter(torch.ones((tau, d, d, d_x)) * 5)
                 self.fixed_mask = torch.ones_like(self.param)
+        
 
     def forward(self, b: int, tau: float = 1) -> torch.Tensor:
         """
@@ -73,8 +74,8 @@ class Mask(nn.Module):
         """
 
         if not self.fixed:
-            adj = gumbel_sigmoid(self.param, self.uniform, b, tau=tau, hard=self.drawhard)
-            adj = adj * self.fixed_mask
+            adj = gumbel_sigmoid(self.param, self.uniform, b, tau=tau, hard=self.drawhard).to(self.param.device)
+            adj = adj * self.fixed_mask.to(self.param.device)
             return adj
         else:
             # Here we declare we have a fixed output, and we can do something with it here.
@@ -107,6 +108,7 @@ class Mask(nn.Module):
                 return self.fixed_output.repeat(b, 1, 1, 1)
 
     def get_proba(self) -> torch.Tensor:
+        self.fixed_mask = self.fixed_mask.to(self.param.device)
         if not self.fixed:
             return torch.sigmoid(self.param) * self.fixed_mask
         elif self.fixed_output is None:
@@ -142,7 +144,7 @@ def sample_logistic(shape, uniform):
 
 def gumbel_sigmoid(log_alpha, uniform, bs, tau=1, hard=False):
     shape = tuple([bs] + list(log_alpha.size()))
-    logistic_noise = sample_logistic(shape, uniform)
+    logistic_noise = sample_logistic(shape, uniform).to(log_alpha.device)
 
     y_soft = torch.sigmoid((log_alpha + logistic_noise) / tau)
 
@@ -229,13 +231,14 @@ class LatentTSDCD(nn.Module):
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
         gev_learn_xi: bool = False,
+        vae_mode: bool = False,
     ):
         """
         Args:
             num_layers: number of layers of each MLP
             num_hidden: number of hidden units of each MLP
             num_input: number of inputs of each MLP
-            num_output: number of inputs of each MLP
+            num_output: number of outputs of each MLP
             num_layer_mixing: number of layer for the autoencoder
             num_hidden_mixing: number of hidden units for the autoencoder
             coeff_kl: coefficient of the KL term
@@ -293,6 +296,9 @@ class LatentTSDCD(nn.Module):
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.gev_learn_xi = gev_learn_xi
+
+        if vae_mode:
+            self.name = "vae"
 
         if self.instantaneous:
             self.total_tau = tau + 1
@@ -418,11 +424,17 @@ class LatentTSDCD(nn.Module):
 
                 # reparam trick - here we sample from a Gaussian...every time
                 q_std = torch.exp(0.5 * q_logvar)
-                z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+                
+                z[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size()).to(q_mu.device)
 
             # q_mu, q_logvar = self.encoder_decoder(y[:, i], i, encoder=True)  # torch.matmul(self.W, x)
 
-            q_mu, q_logvar = self.autoencoder(y[:, i], i, encode=True)
+            ae_input = y[:, i]
+            if ae_input.ndim == 1:
+                # ae_input = ae_input.unsqueeze(1)
+                ae_input = y
+
+            q_mu, q_logvar = self.autoencoder(ae_input, i, encode=True)
             q_std = torch.exp(0.5 * q_logvar)
 
             # # e.g. z[:, -2, i]
@@ -432,7 +444,7 @@ class LatentTSDCD(nn.Module):
             # assert torch.mean(z[:, -1, i]) == 0.0
 
             # carry on
-            z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+            z[:, -1, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size()).to(q_mu.device)
             # assert torch.all(penultimate_z == z[:, -2, i])
             # assert torch.all(all_z_except_last == z[:, :-1, i])
 
@@ -551,7 +563,7 @@ class LatentTSDCD(nn.Module):
             )
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
-        recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
+        recons = torch.mean(torch.sum(px_distr.log_prob(y.to(px_mu.device)), dim=[1, 2]))
         # compute the KL, the reconstruction and the ELBO
         # kl = distr.kl_divergence(q, p).mean()
         kl_raw = (
@@ -1009,6 +1021,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
 
     def encode(self, x, i):
+        self.embedding_encoder = self.embedding_encoder.to(x.device)
+        self.encoder = self.encoder.to(x.device)
+ 
 
         mask = super().get_encode_mask(x.shape[0])
         mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
@@ -1026,7 +1041,10 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         # Could I reduce the memory usage of this?
         # each location create a lask in latents b * d_z * d_x
         # Then concatenate in the last axis (d_x) with the embedding of the latents?
+        
+        # print (f"mask_: {mask_.device}, x: {x.device}, embedded_x: {embedded_x.device}")
         # x_ = mask_ * x.unsqueeze(1)
+        
         x_ = torch.cat(
             (mask_ * x.unsqueeze(1), embedded_x), dim=2
         )  # expand dimensions of x for broadcasting - looks good.
@@ -1040,6 +1058,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
     def decode(self, z, i):
 
+        self.embedding_decoder = self.embedding_decoder.to(z.device)
+        self.decoder = self.decoder.to(z.device)
+
         mask = super().get_decode_mask(z.shape[0])
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 
@@ -1050,7 +1071,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         embedded_z = self.embedding_decoder(j_values)
 
         # Select all decoder masks at once
-        mask_ = super().select_decoder_mask(mask, i, j_values)
+        mask_ = super().select_decoder_mask(mask, i, j_values).to(z.device)
 
         if z.ndim < mask_.ndim:
             z_expanded = z.unsqueeze(1).expand(-1, self.d_x, -1)
@@ -1144,6 +1165,9 @@ class TransitionModel(nn.Module):
 
         # print the first few elements of z
 
+        for n in self.nn:
+            n = n.to(z.device)
+
         z = z.view(mask.size())
 
         # print("The z is now, after z.view() of size: ", z.size())
@@ -1236,11 +1260,15 @@ class TransitionModelParamSharing(nn.Module):
         """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
         ..., G_{tau-k} * z_{t-k})"""
 
+        for n in self.nn:
+            n = n.to(z.device)
+
         j_values = torch.arange(self.d_z, device=z.device).expand(
             z.shape[0], -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z)
+        self.embedding_transition = self.embedding_transition.to(z.device)
         embedded_z = self.embedding_transition(j_values)
-        masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
+        masked_z = (mask.to(z.device) * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
         z_ = torch.cat((masked_z, embedded_z), dim=2)
 
         param_z = self.nn[i * self.d_z](z_)

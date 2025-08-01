@@ -1066,8 +1066,8 @@ class Plotter:
     # simply follow the lead of the function above, and try to plot through time.
     def plot_adjacency_matrix(
         self,
-        mat1: np.ndarray,
-        mat2: np.ndarray,
+        mat1: np.ndarray,  # pred
+        mat2: np.ndarray,  # GT
         path,
         name_suffix: str,
         no_gt: bool = False,
@@ -1084,6 +1084,7 @@ class Plotter:
           no_gt: if True, does not use the ground-truth graph
         """
         tau = mat1.shape[0]
+        print(f"tau: {tau}, mat1 shape: {mat1.shape}, mat2 shape: {mat2.shape}")
 
         subfig_names = [
             f"Learned, latent dimensions = {mat1.shape[1], mat1.shape[2]}",
@@ -1160,6 +1161,7 @@ class Plotter:
                     elif row == 1:
                         sns.heatmap(
                             mat2[tau - i - 1],
+                            # mat2[i],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
@@ -1171,6 +1173,7 @@ class Plotter:
                     elif row == 2:
                         sns.heatmap(
                             mat1[tau - i - 1] - mat2[tau - i - 1],
+                            # mat1[tau - i - 1] - mat2[i],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,

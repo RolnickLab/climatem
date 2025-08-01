@@ -186,3 +186,6 @@ notebooks/plots/
 notebooks/rollouts/
 
 scripts/run_single_*.txt
+
+.DS_Store
+scripts/.DS_Store

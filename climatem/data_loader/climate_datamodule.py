@@ -220,7 +220,7 @@ class ClimateDataModule(LightningDataModule):
         #     train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
 
         # Set generator seed for reproducibility
-        generator = torch.Generator(device=accelerator.device)
+        generator = torch.Generator(device="cpu")
         generator.manual_seed(self.hparams.seed)
         
         return DataLoader(
