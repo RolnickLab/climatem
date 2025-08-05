@@ -190,6 +190,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 self.savar_gt_modes = self.train_val_input4mips.gt_modes
                 self.savar_gt_noise = self.train_val_input4mips.gt_noise
                 self.savar_gt_adj = self.train_val_input4mips.gt_adj
+                self.savar_links_coeffs = self.train_val_input4mips.links_coeffs
 
             train_x, train_y = train
             train_x = train_x.reshape((train_x.shape[0], train_x.shape[1], train_x.shape[2], -1))

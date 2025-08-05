@@ -58,14 +58,14 @@ class SavarDataset(torch.utils.data.Dataset):
         if self.reload_climate_set_data:
             self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
             self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
-            links_coeffs = np.load(
+            self.links_coeffs = np.load(
                 self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True
             ).item()["links_coeffs"]
-            self.gt_adj = np.array(extract_adjacency_matrix(links_coeffs, n_per_col**2, tau))[::-1]
+            self.gt_adj = np.array(extract_adjacency_matrix(self.links_coeffs, self.n_per_col**2, self.tau))[::-1]
         else:
             self.gt_modes = None
             self.gt_noise = None
-            links_coeffs = None
+            self.links_coeffs = None
             self.gt_adj = None
 
     @staticmethod
