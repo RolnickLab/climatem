@@ -133,15 +133,20 @@ def generate_save_savar_data(
                 k * n_per_col + j, k * comp_size : (k + 1) * comp_size, j * comp_size : (j + 1) * comp_size
             ] = create_random_mode((comp_size, comp_size), random=True)
 
+    if N <= 4:
+        denom = 1 # set prob = 1 if N <= 4, meaning every node is connected to every other node at one time step
+    else:
+        denom = 2
+
     # This is the probabiliity of having a link between latent k and j, with k different from j. latents always have one link with themselves at a previous time.
     if difficulty == "easy":
-        prob = 0
+        prob = 0 #N / N^2*tau
     elif difficulty == "med_easy":
-        prob = 1 / (N - 1)
+        prob = 1 / (N - 1) #2N / N^2*tau
     elif difficulty == "med_hard":
-        prob = 2 / (N - 1)
+        prob = 2 / (N - 1) #3N / N^2*tau
     elif difficulty == "hard":
-        prob = 1 / 2
+        prob = 1 / denom #N + N*(N-1)/2 / N^2*tau
 
     links_coeffs = create_links_coeffs(N, prob_edge=prob, difficulty=difficulty, tau=tau)
 

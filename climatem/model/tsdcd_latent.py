@@ -628,6 +628,9 @@ class LatentTSDCD(nn.Module):
         We want to take past time steps and predict the next time step, not to reconstruct the past time steps.
         """
 
+        # print("DBG: x shape: ", x.shape)
+        # print("DBG: y shape: ", y.shape)
+
         b = x.size(0)
 
         # NOTE: we are not using y here. We encode using both x and y,
@@ -1048,6 +1051,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         x_ = torch.cat(
             (mask_ * x.unsqueeze(1), embedded_x), dim=2
         )  # expand dimensions of x for broadcasting - looks good.
+        
 
         del embedded_x
         del mask_

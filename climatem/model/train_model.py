@@ -43,6 +43,7 @@ def get_predictions(x, y, trained_model, accelerator):
 
             else:
                 y_pred = trained_model(x)
+        y = y_pred
 
         # check if has nan:
     if torch.isnan(x).any():
@@ -52,10 +53,11 @@ def get_predictions(x, y, trained_model, accelerator):
     # check if has nan:
     if torch.isnan(y).any():
         print("Warning: target data contains NaN values, replacing with 0.")
-        y_pred = torch.nan_to_num(y_pred)
-    y_pred = y_pred.to(accelerator.device)
+        y = torch.nan_to_num(y)
+    
+    y = y.to(accelerator.device)
 
-    return x, y_pred
+    return x, y
 
 
 class TrainingLatent:
@@ -602,7 +604,7 @@ class TrainingLatent:
             self.ALM_sparsity.gamma = self.ALM_sparsity.gamma.to(h_sparsity.device)
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
-                h_variance = self.adj_transition_variance()
+                h_variance = self.adj_transition_variance().to(h_sparsity.device)
                 sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
 
         else:

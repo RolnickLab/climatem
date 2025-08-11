@@ -33,7 +33,7 @@ class SavarDataset(torch.utils.data.Dataset):
         super().__init__()
         self.output_save_dir = Path(output_save_dir)
         # self.savar_name = f"modes_{n_per_col**2}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
-        self.savar_name = f"modes_{n_per_col**2}-difficulty_{difficulty}-seed_{seed}"
+        self.savar_name = f"modes_{n_per_col**2}-diff_{difficulty}-seed_{seed}"
         self.savar_path = self.output_save_dir / f"{self.savar_name}.npy"
 
         self.global_normalization = global_normalization
@@ -43,6 +43,7 @@ class SavarDataset(torch.utils.data.Dataset):
         # TODO: for now this is ok, we create a square grid. Later we might want to look at icosahedral grid :)
         self.lat = lat
         self.lon = lon
+        self.tau = tau
         self.coordinates = np.array(np.meshgrid(np.arange(self.lat), np.arange(self.lon))).reshape((2, -1)).T
 
         self.time_len = time_len
@@ -62,11 +63,13 @@ class SavarDataset(torch.utils.data.Dataset):
                 self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True
             ).item()["links_coeffs"]
             self.gt_adj = np.array(extract_adjacency_matrix(self.links_coeffs, self.n_per_col**2, self.tau))[::-1]
+            self.gt_modes_weights = np.load(self.output_save_dir / f"{self.savar_name}_mode_weights.npy")
         else:
             self.gt_modes = None
             self.gt_noise = None
             self.links_coeffs = None
             self.gt_adj = None
+            self.gt_modes_weights = None
 
     @staticmethod
     def aggregate_months(data, num_months_aggregated):
@@ -184,10 +187,10 @@ class SavarDataset(torch.utils.data.Dataset):
             self.gt_modes_weights = np.load(self.output_save_dir / f"{self.savar_name}_mode_weights.npy")
             self.gt_modes = np.load(self.output_save_dir / f"{self.savar_name}_modes.npy")
             self.gt_noise = np.load(self.output_save_dir / f"{self.savar_name}_noise_modes.npy")
-            links_coeffs = np.load(
+            self.links_coeffs = np.load(
                 self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True
             ).item()["links_coeffs"]
-            self.gt_adj = np.array(extract_adjacency_matrix(links_coeffs, self.n_per_col**2, tau))
+            self.gt_adj = np.array(extract_adjacency_matrix(self.links_coeffs, self.n_per_col**2, tau))
 
         data = data.astype("float32")
         # TODO: normalize by saveing std/mean from train data and then normalize test by reloading

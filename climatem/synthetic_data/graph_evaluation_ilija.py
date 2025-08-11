@@ -355,7 +355,7 @@ if __name__ == "__main__":
 
     # Load ground truthh modes
     savar_folder = home_path + savar_path
-    savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
+    savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_diff_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
     # modes_gt_path = savar_folder / Path(f"/{savar_fname}_mode_weights.npy")
     modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
 

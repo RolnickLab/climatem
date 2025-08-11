@@ -102,7 +102,7 @@ if __name__ == "__main__":
     # Load parameters from npy file <-- get ground truth graph
     # TODO need to get correct params graph with correct
     params_file = glob.glob(
-        f"{data_path}/modes_{n_modes}_tl_{tl}_isforced_{isforced}_difficulty_{difficulty}_noisestrength_{noisestrength}_seasonality_{seasonality}_overlap_{overlap}_parameters.npy"
+        f"{data_path}/modes_{n_modes}_tl_{tl}_isforced_{isforced}_diff_{difficulty}_noisestrength_{noisestrength}_seasonality_{seasonality}_overlap_{overlap}_parameters.npy"
     )[0]
 
     params = np.load(params_file, allow_pickle=True).item()
