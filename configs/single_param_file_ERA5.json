@@ -1,13 +1,16 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST_debug",
+        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
-        "d_z": 60,
+        "d_z": [
+            25,
+            25
+        ],
         "d_x": 6250,
         "lon": 144,
         "lat": 96,
-        "tau": 8,
+        "tau": 0,
         "random_seed": 1,
         "gpu": true,
         "num_workers": 0,
@@ -15,18 +18,22 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data",
-        "climateset_data": "$SCRATCH/data",
-        "reload_climate_set_data": true,
-        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
-        "in_var_ids": [
-            "t2m"
-        ],
+        "data_dir": "$SCRATCH/data/ERA5_DATA_TEST",
+        "climateset_data": "SCRATCH/data/ERA5_DATA_TEST",
+        "reload_climate_set_data": false,
+        "icosahedral_coordinates_path": "",
+        "in_var_ids": {
+            "chirps": [
+                "t2m",
+                "z"
+            ]
+        },
+        "isteleconnections": true,
         "num_levels": 1,
         "temp_res": "day",
-        "train_historical_years": "1941-2000",
+        "train_historical_years": "1950-2000",
         "test_years": "2001-2024",
-        "train_years": "1941-2000",
+        "train_years": "1950-2000",
         "train_scenarios": [
             "ERA5_DATA_TEST"
         ],
@@ -46,7 +53,7 @@
         "load_train_into_mem": true,
         "load_test_into_mem": true,
         "num_months_aggregated": [
-            1
+            5
         ],
         "train_val_interval_length": 40
     },
@@ -64,13 +71,13 @@
             20000
         ],
         "lr_scheduler_gamma": 1,
-        "max_iteration": 50000,
+        "max_iteration": 500000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 5
     },
     "model_params": {
-        "instantaneous": false,
+        "instantaneous": true,
         "no_w_constraint": false,
         "tied_w": false,
         "nonlinear_mixing": true,
@@ -118,9 +125,9 @@
         "h_acyclic_threshold": null
     },
     "plot_params": {
-        "plot_freq": 500,
+        "plot_freq": 10000,
         "plot_through_time": true,
-        "print_freq": 500
+        "print_freq": 10000
     },
     "savar_params": {
         "time_len": 10000,
