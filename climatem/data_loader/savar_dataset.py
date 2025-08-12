@@ -62,7 +62,7 @@ class SavarDataset(torch.utils.data.Dataset):
             self.links_coeffs = np.load(
                 self.output_save_dir / f"{self.savar_name}_parameters.npy", allow_pickle=True
             ).item()["links_coeffs"]
-            self.gt_adj = np.array(extract_adjacency_matrix(self.links_coeffs, self.n_per_col**2, self.tau))[::-1]
+            self.gt_adj = np.array(extract_adjacency_matrix(self.links_coeffs, self.n_per_col**2, self.tau))
             self.gt_modes_weights = np.load(self.output_save_dir / f"{self.savar_name}_mode_weights.npy")
         else:
             self.gt_modes = None
