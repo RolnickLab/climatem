@@ -1252,7 +1252,7 @@ class NonLinearAutoEncoderUniqueMLP_teleconnections(NonLinearAutoEncoder):
             return mask_
 
         tele_mask_T = self.teleconnections_mask.transpose(1, 2).to(mask_.device).requires_grad_(False)
-        masked = mask_ * tele_mask_T
+        masked = mask_.mul(tele_mask_T)
         return masked
 
 
