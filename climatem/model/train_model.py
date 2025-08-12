@@ -538,7 +538,6 @@ class TrainingLatent:
         # We add to the loss the sum multiplied by the decay in future timesteps
         # we have to take care here to make sure that we have the right tensors with requires_grad
         for k in range(self.future_timesteps):
-            print(f"[DEBUG] x_bis.shape before prediction: {x_bis.shape}")
             nll_bis, recons_bis, kl_bis, y_pred_recons = self.get_nll(x_bis, y[:, k], z)
             nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
