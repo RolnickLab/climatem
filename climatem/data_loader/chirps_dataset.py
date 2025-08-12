@@ -95,9 +95,25 @@ class CHIRPSDataset(TeleconnectionsDataset):
         else:
             files_per_var = []
             for var in variables:
-                pattern_grib = f"{self.output_save_dir}/*{var}*.nc"
-                grib_files = glob.glob(pattern_grib, recursive=True)
-                files_per_var.append(grib_files)
+                subdir_nc = f"{self.output_save_dir}/{var}/**/*.nc"
+                subdir_grib = f"{self.output_save_dir}/{var}/**/*.grib*"
+                matched_nc = sorted(glob.glob(subdir_nc, recursive=True))
+                matched_grib = sorted(glob.glob(subdir_grib, recursive=True))
+
+                if not matched_nc and not matched_grib:
+                    flat_nc = f"{self.output_save_dir}/*{var}*.nc"
+                    flat_grib = f"{self.output_save_dir}/*{var}*.grib*"
+                    matched_nc = sorted(glob.glob(flat_nc))
+                    matched_grib = sorted(glob.glob(flat_grib))
+
+                matched_grib = [f for f in matched_grib if "000366" not in f]
+
+                all_matched = matched_nc if matched_nc else matched_grib
+
+                if not all_matched:
+                    raise FileNotFoundError(f"No .nc or .grib files found for variable '{var}'")
+
+                files_per_var.append(all_matched)
             (
                 self.raw_data,
                 self.input_var_shapes,
