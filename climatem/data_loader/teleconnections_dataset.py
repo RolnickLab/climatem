@@ -166,111 +166,72 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         upscaling_factor: int = 2,
         remove_summer: bool = False,
     ):
-        """
-        Load multiple variables from NetCDF/GRIB, align time, return:
+        raw_datasets = [self._dedupe_time(self._open_dataset(vlist)) for vlist in paths]
 
-        - temp_data: shape (years, 365, 1, total_space) or (years, 365, num_vars, spatial_per_var)
-        - input_var_shapes: dict of spatial dim per variable
-        - input_var_offsets: list of cumulative indices
-        - coordinates: (sum of spatial dims, 2)
-        """
+        # Align on time
+        aligned = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude", "lat", "lon"])
+        common_time = aligned[0].coords["time"]
+        aligned = [ds.sel(time=common_time) for ds in aligned]
 
-        raw_datasets = []
-        var_names = []
         coordinates_list = []
-        input_var_shapes = {}
+        input_var_shapes: dict = {}
         input_var_offsets = [0]
         array_list = []
         new_lat = None
         new_lon = None
 
-        for vlist in paths:
-            if vlist[0].endswith(".nc"):
-                ds = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
-                ds = ds.drop_dims("bnds", errors="ignore")
-            elif vlist[0].endswith(".grib") or vlist[0].endswith(".grib2"):
-                filtered = [f for f in vlist if "000366.grib2" not in f]
-                ds = xr.open_mfdataset(filtered, engine="cfgrib", concat_dim="time", combine="nested").compute()
-            else:
-                raise ValueError("Unsupported file type.")
-            raw_datasets.append(ds)
-            var_names.append(list(ds.data_vars.keys())[0])
+        for i, ds in enumerate(aligned):
+            var_name = variables[i]
+            arr = ds[var_name].to_numpy()
+            if arr.ndim == 4 and arr.shape[1] == 1:
+                arr = arr.squeeze(axis=1)
+            elif arr.ndim != 3:
+                raise ValueError(f"[ERROR] Unexpected shape for {var_name}: {arr.shape}")
 
-        aligned_datasets = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude"])
+            lat, lon = self._get_lat_lon(ds, var_name)
+            arr, max_full_years = self._trim_to_full_years(arr, self.seq_len, remove_summer)
 
-        if remove_summer:
-            total_timesteps = aligned_datasets[0][var_names[0]].shape[0]
-            years = total_timesteps // self.seq_len
-            winter_mask = self.get_month_mask(total_timesteps, self.seq_len)
-            print(f"[mask] keep {np.sum(winter_mask)} / {len(winter_mask)} timesteps")
+            if var_name == "t2m":
+                cascadia_mask = np.load(f"{self.output_save_dir}/cascadia_mask.npy")
+                assert cascadia_mask.shape == (
+                    lat.shape[0],
+                    lon.shape[0],
+                ), f"Cascadia mask {cascadia_mask.shape} != data shape {(lat.shape[0], lon.shape[0])}"
 
-            total_timesteps_after_mask = np.sum(winter_mask)
-            days_per_year = total_timesteps_after_mask // years
-            print(f"[mask] inferred days_per_year: {days_per_year}")
-            self.seq_len = days_per_year
-        else:
-            days_per_year = self.seq_len
+                arr4d, lon_grid, lat_grid, new_lat_, new_lon_ = self._downscale(
+                    arr, lat, lon, max_full_years, upscaling_factor
+                )
+                if upscaling_factor > 1:
+                    cascadia_mask = resize_mask_to_shape(cascadia_mask, arr4d.shape[3], arr4d.shape[4])
 
-        for i, ds in enumerate(aligned_datasets):
-            var_name = var_names[i]
-            arr = ds[var_name].to_numpy()  # (time, lat, lon)
-            lat = ds.latitude.values
-            lon = ds.longitude.values
-            t, h, w = arr.shape
-            years = t // self.seq_len
-
-            if remove_summer and winter_mask is not None:
-                print(f"[{var_name}] original shape: {arr.shape}")
-                arr = arr[winter_mask]
-                print(f"[{var_name}] after removing summer: {arr.shape}")
-
-            arr = arr[: years * days_per_year]
-
-            if var_name == "precipitation_amount" and upscaling_factor > 1:
-                morocco_mask = np.load(f"{self.output_save_dir}/morocco_mask.npy")  # shape: (lat, lon)
-
-                reshaped = arr.reshape(-1, h, w)
-
-                # Downscale the batch
-                downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
-                new_h, new_w = downscaled.shape[1], downscaled.shape[2]
-                arr = downscaled.reshape(years, days_per_year, 1, new_h, new_w)
-
-                # New lat/lon after downscaling
-                new_lat = np.linspace(lat.min(), lat.max(), new_h)
-                new_lon = np.linspace(lon.min(), lon.max(), new_w)
-                lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
-
-                # Resize the Morocco mask to match new shape
-                morocco_mask_resized = resize_mask_to_shape(morocco_mask, new_h, new_w)
-
-                # Flatten and mask
-                mask_flat = morocco_mask_resized.ravel()
-                arr = arr.reshape(years, days_per_year, 1, -1)[:, :, :, mask_flat]
-                coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
-
-                input_var_shapes[var_name] = coords.shape[0]
+                arr_out, coords, spatial_dim = self._mask_and_coords(arr4d, cascadia_mask, lon_grid, lat_grid)
+                if new_lat_ is not None:
+                    new_lat, new_lon = new_lat_, new_lon_
 
             elif var_name == "precipitation_amount":
-                arr = arr.reshape(years, self.seq_len, 1, h, w)
-                # Apply Morocco mask
-                mask_flat = morocco_mask.ravel()
-                arr = arr.reshape(years, self.seq_len, 1, -1)[:, :, :, mask_flat]
-                lon_grid, lat_grid = np.meshgrid(lon, lat)
-                coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
+                morocco_mask = np.load(f"{self.output_save_dir}/morocco_mask.npy")
+                assert morocco_mask.shape == (
+                    lat.shape[0],
+                    lon.shape[0],
+                ), f"Morocco mask {morocco_mask.shape} != data shape {(lat.shape[0], lon.shape[0])}"
 
-                input_var_shapes[var_name] = coords.shape[0]
+                arr4d, lon_grid, lat_grid, new_lat_, new_lon_ = self._downscale(
+                    arr, lat, lon, max_full_years, upscaling_factor
+                )
+                if upscaling_factor > 1:
+                    morocco_mask = resize_mask_to_shape(morocco_mask, arr4d.shape[3], arr4d.shape[4])
+
+                arr_out, coords, spatial_dim = self._mask_and_coords(arr4d, morocco_mask, lon_grid, lat_grid)
+                if new_lat_ is not None:
+                    new_lat, new_lon = new_lat_, new_lon_
 
             else:
-                arr = arr.reshape(years, self.seq_len, 1, h * w)
-                lon_grid, lat_grid = np.meshgrid(lon, lat)
-                coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
+                arr_out, coords, spatial_dim = self._no_mask_coords(arr, lat, lon, max_full_years)
 
-                input_var_shapes[var_name] = h * w
-
-            input_var_offsets.append(input_var_offsets[-1] + input_var_shapes[var_name])
-            array_list.append(arr)
+            array_list.append(arr_out)
             coordinates_list.append(coords)
+            input_var_shapes[var_name] = spatial_dim
+            input_var_offsets.append(input_var_offsets[-1] + spatial_dim)
 
         temp_data = np.concatenate(array_list, axis=3)
 
@@ -715,3 +676,75 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
     def get_mask_metadata(self) -> Tuple[List[Tuple[int, ...]], List[str]]:
         return list(self.input_var_shapes.values()), list(self.input_var_shapes.keys())
+
+    def _open_dataset(self, vlist: list):
+        if not vlist:
+            raise FileNotFoundError("Empty file list passed for one of the variables.")
+        file_path = vlist[0]
+        if file_path.endswith(".nc"):
+            ds = xr.open_dataset(file_path).compute()
+            ds = ds.drop_dims("bnds", errors="ignore")
+        elif file_path.endswith(".grib") or file_path.endswith(".grib2"):
+            filtered = [f for f in vlist if "000366.grib2" not in f]
+            ds = xr.open_mfdataset(filtered, engine="cfgrib", concat_dim="time", combine="nested").compute()
+        else:
+            raise ValueError(f"Unsupported file type: {file_path}")
+        if "var167" in ds:
+            ds = ds.rename({"var167": "t2m"})
+        return ds
+
+    def _dedupe_time(self, ds: xr.Dataset) -> xr.Dataset:
+        if "time" in ds.coords:
+            _, index = np.unique(ds["time"], return_index=True)
+            ds = ds.isel(time=index)
+        return ds
+
+    def _get_lat_lon(self, ds: xr.Dataset, var_name: str):
+        if "latitude" in ds.coords and "longitude" in ds.coords:
+            return ds.latitude.values, ds.longitude.values
+        if "lat" in ds.coords and "lon" in ds.coords:
+            return ds.lat.values, ds.lon.values
+        raise ValueError(f"No lat/lon found for variable {var_name}")
+
+    def _trim_to_full_years(self, arr: np.ndarray, seq_len: int, remove_summer: bool):
+        t, _, _ = arr.shape
+        if remove_summer:
+            winter_mask = self.get_month_mask(t, seq_len)
+            arr = arr[winter_mask]
+            t = arr.shape[0]
+        max_full_years = t // seq_len
+        total_expected = max_full_years * seq_len
+        if arr.shape[0] > total_expected:
+            arr = arr[:total_expected]
+        elif arr.shape[0] < total_expected:
+            raise ValueError(f"Not enough timesteps: {arr.shape[0]} < {total_expected}")
+        return arr, max_full_years
+
+    def _downscale(self, arr: np.ndarray, lat: np.ndarray, lon: np.ndarray, max_full_years: int, upscaling_factor: int):
+        if upscaling_factor > 1:
+            reshaped = arr.reshape(-1, lat.shape[0], lon.shape[0])
+            downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
+            new_h, new_w = downscaled.shape[1], downscaled.shape[2]
+            arr4d = downscaled.reshape(max_full_years, self.seq_len, 1, new_h, new_w)
+            new_lat = np.linspace(lat.min(), lat.max(), new_h)
+            new_lon = np.linspace(lon.min(), lon.max(), new_w)
+            lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
+            return arr4d, lon_grid, lat_grid, new_lat, new_lon
+        # no downscale
+        arr4d = arr.reshape(max_full_years, self.seq_len, 1, lat.shape[0], lon.shape[0])
+        lon_grid, lat_grid = np.meshgrid(lon, lat)
+        return arr4d, lon_grid, lat_grid, None, None
+
+    def _mask_and_coords(self, arr4d: np.ndarray, mask2d: np.ndarray, lon_grid: np.ndarray, lat_grid: np.ndarray):
+        mask_flat = mask2d.ravel()
+        arr_masked = arr4d.reshape(arr4d.shape[0], arr4d.shape[1], 1, -1)[:, :, :, mask_flat]
+        coords_full = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
+        coords_masked = coords_full[mask_flat]
+        return arr_masked, coords_masked, coords_masked.shape[0]
+
+    def _no_mask_coords(self, arr: np.ndarray, lat: np.ndarray, lon: np.ndarray, max_full_years: int):
+        t, h, w = arr.shape
+        arr_flat = arr.reshape(max_full_years, self.seq_len, 1, h * w)
+        lon_grid, lat_grid = np.meshgrid(lon, lat)
+        coords_full = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
+        return arr_flat, coords_full, coords_full.shape[0]
