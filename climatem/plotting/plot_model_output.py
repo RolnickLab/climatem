@@ -1432,12 +1432,28 @@ class Plotter:
         for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
             offset_start = input_var_offsets[var_idx]
             offset_end = input_var_offsets[var_idx + 1]
-            coords = coordinates[offset_start:offset_end]
-            # print("offset_start", offset_start, "offset_end", offset_end)
-            # print("coords.shape", coords.shape)
+
+            # Copy so we don't mutate the shared coordinates array
+            coords = coordinates[offset_start:offset_end].copy()
+
+            if var == "t2m":
+                coords[:, 1] = -coords[:, 1]
+                print(f"[fix] For sample {sample}, flipped latitude for {var} (N/S swap).")
+
             lon = coords[:, 0]
             lat = coords[:, 1]
 
+            lon_min, lon_max = float(np.nanmin(lon)), float(np.nanmax(lon))
+            lat_min, lat_max = float(np.nanmin(lat)), float(np.nanmax(lat))
+            if not np.isfinite([lon_min, lon_max, lat_min, lat_max]).all():
+                print(f"[WARN] Skipping {var}: non-finite extent values.")
+                continue
+            if lat_min > lat_max:
+                lat_min, lat_max = lat_max, lat_min
+            if lon_min > lon_max:
+                lon_min, lon_max = lon_max, lon_min
+
+            # Try to use a rectilinear grid when possible
             use_pcolormesh = False
             try:
                 lon_unique = np.sort(np.unique(lon))
@@ -1445,13 +1461,12 @@ class Plotter:
                 if lon_unique.size * lat_unique.size == spatial_dim:
                     lon_grid, lat_grid = np.meshgrid(lon_unique, lat_unique)
                     use_pcolormesh = True
-                    # print("lon_grid.shape", lon_grid.shape, "lat_grid.shape", lat_grid.shape)
             except Exception:
                 use_pcolormesh = False
 
             for j in range(n_cols):
                 ax = axs[var_idx][j]
-                ax.set_extent([lon.min(), lon.max(), lat.min(), lat.max()], crs=ccrs.PlateCarree())
+                ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
                 ax.coastlines(resolution="50m")
                 ax.add_feature(cfeature.COASTLINE.with_scale("50m"))
                 ax.add_feature(cfeature.LAND.with_scale("50m"), edgecolor="black")
@@ -1511,7 +1526,7 @@ class Plotter:
 
             fig.colorbar(s, ax=axs[var_idx][-1], orientation="vertical", shrink=0.8, label=f"Normalised {var}")
 
-        timestep_label = 365  # you can change this if actual timestep indexing is tracked
+        timestep_label = 365
         fname_prefix = "valid" if valid else "train"
         fname = f"{fname_prefix}_prediction_it{iteration}_sample_{sample}.png"
 
@@ -1536,19 +1551,18 @@ class Plotter:
         annotate: bool = False,
     ):
         """Plot spatial regions (latent clusters) for each variable separately on the same figure."""
-        # print(
-        #     f"input_var_shapes: {input_var_shapes}, input_var_offsets: {input_var_offsets}, w_adj.shape: {w_adj.shape}"
-        # )
-        # print(f"coordinates.shape: {coordinates.shape}")
 
-        # Flip coordinates if necessary
-        if np.max(coordinates[:, 0]) > 91:
-            coordinates = coordinates[:, [1, 0]]  # ensure (lon, lat)
+        # 1) Ensure (lon, lat) ordering only if obviously swapped.
+        #    (Column 0 looks like lat range while column 1 looks like lon range)
+        col0, col1 = coordinates[:, 0], coordinates[:, 1]
+        if np.all((-90 <= col0) & (col0 <= 90)) and np.any((col1 < -90) | (col1 > 90)):
+            coordinates = coordinates[:, [1, 0]]  # swap -> (lon, lat)
 
         assert isinstance(d_z, list), f"Expected d_z to be a list, got {type(d_z)}"
         assert w_adj.shape[2] == total_d_z, f"Mismatch: w_adj has {w_adj.shape[2]} latents, but total_d_z={total_d_z}"
 
-        idx = np.argmax(w_adj[0], axis=1)  # shape: (total spatial,)
+        # Global winning latent indices (use batch 0 if provided)
+        idx = np.argmax(w_adj[0], axis=1)  # (total_spatial,)
 
         d_vars = len(input_var_shapes)
         fig, axs = plt.subplots(
@@ -1561,14 +1575,43 @@ class Plotter:
         for var_idx, (var, spatial_dim) in enumerate(input_var_shapes.items()):
             offset_start = input_var_offsets[var_idx]
             offset_end = input_var_offsets[var_idx + 1]
-            coords = coordinates[offset_start:offset_end]
-            idx_subset = idx[offset_start:offset_end]
 
+            coords = coordinates[offset_start:offset_end].copy()
+            if coords.shape[0] == 0:
+                latent_offset += d_z[var_idx]
+                continue
+
+            if var == "t2m":
+                coords[:, 1] = -coords[:, 1]
+
+            lon = coords[:, 0]
+            lat = coords[:, 1]
+            if np.nanmax(lon) > 180 and np.nanmin(lon) >= 0:
+                lon = np.where(lon > 180, lon - 360, lon)
+                coords[:, 0] = lon
+            if np.any((lat < -90) | (lat > 90)) and np.all((-90 <= lon) & (lon <= 90)):
+                coords = coords[:, [1, 0]]
+                lon, lat = coords[:, 0], coords[:, 1]
+
+            if np.isnan(lon).any() or np.isnan(lat).any():
+                latent_offset += d_z[var_idx]
+                continue
+
+            lon_min, lon_max = float(np.nanmin(lon)), float(np.nanmax(lon))
+            lat_min, lat_max = float(np.nanmin(lat)), float(np.nanmax(lat))
+            if lon_min > lon_max:
+                lon_min, lon_max = lon_max, lon_min
+            if lat_min > lat_max:
+                lat_min, lat_max = lat_max, lat_min
+            if not np.isfinite([lon_min, lon_max, lat_min, lat_max]).all():
+                latent_offset += d_z[var_idx]
+                continue
+            if lon_min == lon_max or lat_min == lat_max:
+                latent_offset += d_z[var_idx]
+                continue
+            idx_subset = idx[offset_start:offset_end]
             num_latents = d_z[var_idx]
             colors = plt.cm.rainbow(np.linspace(0, 1, num_latents))
-
-            lon_min, lon_max = coords[:, 0].min(), coords[:, 0].max()
-            lat_min, lat_max = coords[:, 1].min(), coords[:, 1].max()
 
             ax = axs[var_idx]
             ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
