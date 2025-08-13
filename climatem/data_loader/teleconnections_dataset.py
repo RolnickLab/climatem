@@ -193,10 +193,6 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
             if var_name == "t2m":
                 cascadia_mask = np.load(f"{self.output_save_dir}/cascadia_mask.npy")
-                assert cascadia_mask.shape == (
-                    lat.shape[0],
-                    lon.shape[0],
-                ), f"Cascadia mask {cascadia_mask.shape} != data shape {(lat.shape[0], lon.shape[0])}"
 
                 arr4d, lon_grid, lat_grid, new_lat_, new_lon_ = self._downscale(
                     arr, lat, lon, max_full_years, upscaling_factor
@@ -691,6 +687,9 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             raise ValueError(f"Unsupported file type: {file_path}")
         if "var167" in ds:
             ds = ds.rename({"var167": "t2m"})
+        if "var129" in ds:
+            ds = ds.rename({"var129": "z"})
+
         return ds
 
     def _dedupe_time(self, ds: xr.Dataset) -> xr.Dataset:

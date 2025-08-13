@@ -840,6 +840,7 @@ class TrainingLatent:
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
+                h_sparsity = None
                 if (
                     self.optim_params.update_sparsity_after_acyclicity
                     and h_acyclic < self.optim_params.acyclic_h_threshold
