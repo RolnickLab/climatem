@@ -35,14 +35,17 @@ class CausalClimateDataModule(ClimateDataModule):
     The setup method is overwritten and performs data preprocessing for causal discovery models.
     """
 
-    def __init__(self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
+    def __init__(self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, spatial_resolution=10, num_modes=4, dimensions=1600, **kwargs):
         super().__init__(self)
 
         # kwargs are initialized as self.hparams by the Lightning module
         # WHat is this line? We cannot have different test vs train models
         # self.hparams.test_models = None if self.hparams.test_models else self.hparams.train_models
+        self.spatial_resolution = spatial_resolution
+        self.dimensions = dimensions
         self.hparams.test_models = self.hparams.train_models
         self.tau = tau
+        self.num_modes = num_modes
         self.future_timesteps = future_timesteps
         self.num_months_aggregated = num_months_aggregated
         self.train_val_interval_length = train_val_interval_length

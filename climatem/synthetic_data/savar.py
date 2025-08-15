@@ -18,16 +18,20 @@ from tqdm.auto import tqdm
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def dict_to_matrix(links_coeffs, default=0):
+def dict_to_matrix(links_coeffs, tau_max=5, default=0):
     """
     Maps to the coefficient matrix.
 
     Without time :param links_coeffs: :param default: :return: a matrix coefficient of [j, i, \tau-1] where a link is i
     -> j at \tau
     """
-    tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(links_coeffs.values()))
+    # print(" ======== IN DICT TO MATRIX ======== ")
+    # print(f"DBG links_coeffs: {links_coeffs}")
+    # tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(links_coeffs.values()))
+    # print(f"DBG tau_max: {tau_max}")
 
     n_vars = len(links_coeffs)
+    # print(f"DBG n_vars: {n_vars}")
 
     graph = np.ones((n_vars, n_vars, tau_max), dtype=float)
     graph *= default
@@ -36,6 +40,8 @@ def dict_to_matrix(links_coeffs, default=0):
         for (i, tau), coeff in values:
             graph[j, i, abs(tau) - 1] = coeff
 
+    # print("DBG graph shape: ", graph.shape)
+    # print(f"DBG graph: {graph}")
     return graph
 
 
