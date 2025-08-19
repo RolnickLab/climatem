@@ -836,7 +836,7 @@ class TrainingLatent:
                 connect_reg = self.connectivity_reg()
 
             # compute constraints (acyclicity and orthogonality)
-            h_acyclic = torch.as_tensor([0.0])
+            h_acyclic = torch.tensor(0.0, device=self.device if hasattr(self, "device") else None)
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
@@ -849,9 +849,21 @@ class TrainingLatent:
                         lower_threshold=0.33,
                         upper_threshold=self.optim_params.sparsity_upper_threshold,
                     )
-                if self.optim_params.binarize_transition and h_sparsity == 0:
-                    h_sparsity = self.adj_transition_variance()
-                h_acyclic = h_sparsity
+
+                # 3) if binarize_transition is on and sparsity is zero (or not computed), use transition variance
+                if self.optim_params.binarize_transition:
+                    # safely interpret "zero"
+                    sparsity_is_zero = (h_sparsity is not None) and (
+                        (isinstance(h_sparsity, torch.Tensor) and h_sparsity.item() == 0.0)
+                        or (not isinstance(h_sparsity, torch.Tensor) and float(h_sparsity) == 0.0)
+                    )
+                    if h_sparsity is None or sparsity_is_zero:
+                        h_sparsity = self.adj_transition_variance()
+
+                # 4) only overwrite acyclicity if we actually computed a sparsity proxy
+                if h_sparsity is not None:
+                    h_acyclic = h_sparsity
+
             h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
             h_sparsity = self.get_sparsity_violation(
@@ -1393,15 +1405,29 @@ class TrainingLatent:
                 fft_true = torch.fft.rfft2(y_true, dim=(-2, -1))
                 fft_pred = torch.fft.rfft2(y_pred, dim=(-2, -1))
 
-                # Compute power spectrum and average across batch and time
-                power_true = torch.mean(torch.abs(fft_true), dim=(1))  # shape: (lat, rfft_lon)
-                power_pred = torch.mean(torch.abs(fft_pred), dim=(1))
+                # Case 2: flattened or masked data (use fallback 1D FFT)
+                power_true = torch.mean(torch.abs(fft_true), dim=1)
+                power_pred = torch.mean(torch.abs(fft_pred), dim=1)
 
-            # Case 2: flattened or masked data (use fallback 1D FFT)
+                # Drop top 25% of frequency bins along the last (rfft) axis
+                n_freq = power_true.shape[-1]
+                cut = max(1, int(0.75 * n_freq))
+                power_true = power_true[..., :cut]
+                power_pred = power_pred[..., :cut]
+
             elif y_true.size(-1) == self.d_x:
                 # Here will make a change -- this is computed
-                power_true = torch.fft.rfft(y_true, dim=2)
-                power_pred = torch.fft.rfft(y_pred, dim=2)
+                fft_true = torch.fft.rfft(y_true, dim=2)
+                fft_pred = torch.fft.rfft(y_pred, dim=2)
+                # Amplitude
+                power_true = torch.abs(fft_true)
+                power_pred = torch.abs(fft_pred)
+
+                # Drop top 25% of frequency bins
+                n_freq = power_true.shape[-1]
+                cut = max(1, int(0.75 * n_freq))
+                power_true = power_true[..., :cut]
+                power_pred = power_pred[..., :cut]
             else:
                 raise ValueError("Unexpected input shape for spectral loss.")
 
@@ -1435,8 +1461,17 @@ class TrainingLatent:
                 y_pred_single_var = y_pred[:, :, self.input_var_offsets[k] : self.input_var_offsets[k + 1]]
 
                 # Here will make a change -- this is computed
-                power_true = torch.abs(torch.fft.rfft(y_true_single_var, dim=2))
-                power_pred = torch.abs(torch.fft.rfft(y_pred_single_var, dim=2))
+                fft_true = torch.fft.rfft(y_true_single_var, dim=2)
+                fft_pred = torch.fft.rfft(y_pred_single_var, dim=2)
+
+                power_true = torch.abs(fft_true)
+                power_pred = torch.abs(fft_pred)
+
+                # Drop top 25% frequency bins
+                n_freq = power_true.shape[-1]
+                cut = max(1, int(0.75 * n_freq))
+                power_true = power_true[..., :cut]
+                power_pred = power_pred[..., :cut]
 
                 if take_log:
                     power_true = torch.log(power_true + 1e-8)  # avoid log(0)
@@ -1462,6 +1497,8 @@ class TrainingLatent:
         """
         Calculate the temporal spectra (frequency domain) of the true values compared to the predicted values. This
         needs to look at the power spectra through time per grid cell of predicted and true values.
+        Current implementation: Build low-pass (period >= 7 days) from the batch-mean time series,
+        subtract from obs/pred (i.e., remove slow components), then compare spectra.
 
         Args:
             x: torch.Tensor, the input values, past timesteps
@@ -1473,10 +1510,37 @@ class TrainingLatent:
         obs = torch.cat((x, y_true), dim=1)
         pred = torch.cat((x, y_pred), dim=1)
 
+        B, T, V, S = obs.shape
+
+        # Mean over batch -> (T, V, S)
+        m_obs = obs.mean(dim=0)
+
+        # RFFT along time (dim=0 for (T, V, S))
+        M = torch.fft.rfft(m_obs, dim=0)
+
+        # Zero out frequencies with period < 7 days (i.e., f > 1/7 cycles/day)
+        # rfft bin k corresponds to frequency f_k = k / T (cycles/day), since dt = 1 day
+        k_cut = int(T // 7)  # floor(T * (1/7))
+        # keep bins k <= k_cut
+        if k_cut < M.shape[0]:
+            M_hp_removed = M.clone()
+            M_hp_removed[k_cut + 1 :] = 0  # zero high-freq bins
+        else:
+            # if T < 7, nothing to remove
+            M_hp_removed = M
+
+        # Inverse to get low-pass (period >= 7 days)
+        lowpass = torch.fft.irfft(M_hp_removed, n=T, dim=0)  # (T, V, S)
+
+        # Subtract low-pass from each sample to high-pass both obs and pred
+        lowpass_broadcast = lowpass.unsqueeze(0)  # (1, T, V, S)
+        obs_hp = obs - lowpass_broadcast
+        pred_hp = pred - lowpass_broadcast
+
         # calculate the spectra of the true values along the time dimension, and then take the mean across the batch
-        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs, dim=1)), dim=0)
+        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs_hp, dim=1)), dim=0)
         # calculate the spectra of the predicted values along the time dimension, and then take the mean across the batch
-        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred, dim=1)), dim=0)
+        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred_hp, dim=1)), dim=0)
 
         # Calculate the power spectrum
         # compute the distance between the losses...

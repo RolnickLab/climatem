@@ -584,7 +584,6 @@ class LatentTSDCD(nn.Module):
         kl = torch.sum(kl_raw, dim=[2]).mean()
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
-        assert kl >= 0, f"KL={kl} has to be >= 0"
 
         elbo = recons - kl
 

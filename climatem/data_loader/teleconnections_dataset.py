@@ -157,6 +157,161 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
     # NOTE:() changing this so it can deal with with grib files and netcdf files
     # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
+    def _prepare_aligned_datasets(self, paths, variables):
+        """
+        Open all requested variables, standardize names, deduplicate time, and align on the common time axis.
+
+        Returns a list of aligned xarray datasets.
+        """
+        raw_datasets = []
+        for i, ds_list in enumerate(paths):
+            if len(ds_list) == 0:
+                raise FileNotFoundError("Empty file list passed for one of the variables.")
+            file_path = ds_list[0]
+            if file_path.endswith(".nc"):
+                ds = xr.open_dataset(file_path).compute()
+                ds = ds.drop_dims("bnds", errors="ignore")
+            elif file_path.endswith(".grib") or file_path.endswith(".grib2"):
+                filtered = [f for f in ds_list if "000366.grib2" not in f]
+                ds = xr.open_mfdataset(filtered, engine="cfgrib", concat_dim="time", combine="nested").compute()
+            else:
+                raise ValueError("Unsupported file type.")
+
+            if "var167" in ds:
+                ds = ds.rename({"var167": "t2m"})
+
+            var_name = variables[i]
+            if "time" in ds.coords:
+                _, index = np.unique(ds["time"], return_index=True)
+                ds = ds.isel(time=index)
+
+            raw_datasets.append(ds[[var_name]])
+
+        aligned = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude", "lat", "lon"])
+        common_time = aligned[0].coords["time"]
+        aligned = [ds.sel(time=common_time) for ds in aligned]
+        return aligned
+
+    def _process_one_variable(self, ds, var_name: str, season: str, upscaling_factor: int):
+        """
+        Process a single aligned dataset:
+        - to_numpy
+        - seasonal masking
+        - reshape
+        - apply spatial mask per variable
+        Returns: arr (B,T,1,Sflat), coords (Sflat,2), spatial_dim (int), new_lat (or None), new_lon (or None)
+        """
+        new_lat = None
+        new_lon = None
+
+        arr = ds[var_name].to_numpy()
+        if arr.ndim == 4 and arr.shape[1] == 1:
+            arr = arr.squeeze(axis=1)
+        elif arr.ndim != 3:
+            raise ValueError(f"[ERROR] Unexpected shape for {var_name}: {arr.shape}")
+
+        if "latitude" in ds.coords and "longitude" in ds.coords:
+            lat = ds.latitude.values
+            lon = ds.longitude.values
+        elif "lat" in ds.coords and "lon" in ds.coords:
+            lat = ds.lat.values
+            lon = ds.lon.values
+        else:
+            raise ValueError(f"No lat/lon found for variable {var_name}")
+
+        t, h, w = arr.shape
+        dates = pd.to_datetime(ds["time"].values)
+        assert len(dates) == t, f"[load_into_mem] time/array length mismatch: {len(dates)} vs {t}"
+
+        if season == "summer":
+            mask = self.get_month_mask(t, self.seq_len, months=[6, 7, 8], mode="keep")
+            arr = arr[mask]
+            kept = arr.shape[0]
+            batch_years = 1
+            seq_len_eff = kept
+            self.seq_len = seq_len_eff
+        elif season == "winter":
+            mask = self.get_month_mask(t, self.seq_len, months=[12, 1, 2], mode="keep")
+            arr = arr[mask]
+            kept = arr.shape[0]
+            batch_years = 1
+            seq_len_eff = kept
+            self.seq_len = seq_len_eff
+        elif season == "all":
+            kept = t
+            batch_years = t // self.seq_len
+            total_expected = batch_years * self.seq_len
+            if arr.shape[0] > total_expected:
+                arr = arr[:total_expected]
+            elif arr.shape[0] < total_expected:
+                raise ValueError(f"[load_into_mem] Not enough timesteps: {arr.shape[0]} < {total_expected}")
+            seq_len_eff = self.seq_len
+        else:
+            raise ValueError(f"[season-mask] Unknown season option '{season}'. Use 'all' | 'summer' | 'winter'.")
+
+        if kept == 0:
+            raise ValueError(
+                f"[season-mask] var={var_name}: kept_days=0 after season='{season}'. Check your inputs/date range."
+            )
+
+        if var_name == "t2m":
+            cascadia_mask = np.load(f"{self.output_save_dir}/cascadia_mask.npy")
+            assert cascadia_mask.shape == (h, w), f"Cascadia mask shape {cascadia_mask.shape} != data shape {(h, w)}"
+
+            if upscaling_factor > 1:
+                reshaped = arr.reshape(-1, h, w)
+                downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
+                new_h, new_w = downscaled.shape[1], downscaled.shape[2]
+                arr = downscaled.reshape(batch_years, seq_len_eff, 1, new_h, new_w)
+
+                new_lat = np.linspace(lat.min(), lat.max(), new_h)
+                new_lon = np.linspace(lon.min(), lon.max(), new_w)
+                lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
+
+                cascadia_mask_resized = resize_mask_to_shape(cascadia_mask, new_h, new_w)
+                mask_flat = cascadia_mask_resized.ravel()
+            else:
+                arr = arr.reshape(batch_years, seq_len_eff, 1, h, w)
+                lon_grid, lat_grid = np.meshgrid(lon, lat)
+                mask_flat = cascadia_mask.ravel()
+
+            arr = arr.reshape(batch_years, seq_len_eff, 1, -1)[:, :, :, mask_flat]
+            coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
+            spatial_dim = coords.shape[0]
+
+        elif var_name == "lsp":
+            morocco_mask = np.load(f"{self.output_save_dir}/morocco_mask.npy")
+            assert morocco_mask.shape == (h, w), f"Morocco mask shape {morocco_mask.shape} != data shape {(h, w)}"
+
+            if upscaling_factor > 1:
+                reshaped = arr.reshape(-1, h, w)
+                downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
+                new_h, new_w = downscaled.shape[1], downscaled.shape[2]
+                arr = downscaled.reshape(batch_years, seq_len_eff, 1, new_h, new_w)
+
+                new_lat = np.linspace(lat.min(), lat.max(), new_h)
+                new_lon = np.linspace(lon.min(), lon.max(), new_w)
+                lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
+
+                morocco_mask_resized = resize_mask_to_shape(morocco_mask, new_h, new_w)
+                mask_flat = morocco_mask_resized.ravel()
+            else:
+                arr = arr.reshape(batch_years, seq_len_eff, 1, h, w)
+                lon_grid, lat_grid = np.meshgrid(lon, lat)
+                mask_flat = morocco_mask.ravel()
+
+            arr = arr.reshape(batch_years, seq_len_eff, 1, -1)[:, :, :, mask_flat]
+            coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)[mask_flat]
+            spatial_dim = coords.shape[0]
+
+        else:
+            arr = arr.reshape(batch_years, seq_len_eff, 1, -1)
+            lon_grid, lat_grid = np.meshgrid(lon, lat)
+            coords = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
+            spatial_dim = coords.shape[0]
+
+        return arr, coords, spatial_dim, new_lat, new_lon
+
     def load_into_mem(
         self,
         paths: List[List[str]],
@@ -164,15 +319,16 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         channels_last: bool = True,
         seq_to_seq: bool = True,
         upscaling_factor: int = 2,
-        remove_summer: bool = False,
+        season: str = "summer",
     ):
-        raw_datasets = [self._dedupe_time(self._open_dataset(vlist)) for vlist in paths]
+        """
+        Load multiple variables from NetCDF/GRIB, align time, return:
 
-        # Align on time
-        aligned = xr.align(*raw_datasets, join="inner", exclude=["latitude", "longitude", "lat", "lon"])
-        common_time = aligned[0].coords["time"]
-        aligned = [ds.sel(time=common_time) for ds in aligned]
-
+        - temp_data: shape (years, days_per_year, 1, total_space)
+        - input_var_shapes: dict of spatial dim per variable
+        - input_var_offsets: list of cumulative indices
+        - coordinates: (sum of spatial dims, 2)
+        """
         coordinates_list = []
         input_var_shapes: dict = {}
         input_var_offsets = [0]
@@ -180,54 +336,25 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         new_lat = None
         new_lon = None
 
-        for i, ds in enumerate(aligned):
+        aligned_datasets = self._prepare_aligned_datasets(paths, variables)
+
+        for i, ds in enumerate(aligned_datasets):
             var_name = variables[i]
-            arr = ds[var_name].to_numpy()
-            if arr.ndim == 4 and arr.shape[1] == 1:
-                arr = arr.squeeze(axis=1)
-            elif arr.ndim != 3:
-                raise ValueError(f"[ERROR] Unexpected shape for {var_name}: {arr.shape}")
+            arr, coords, spatial_dim, new_lat_i, new_lon_i = self._process_one_variable(
+                ds, var_name=var_name, season=season, upscaling_factor=upscaling_factor
+            )
 
-            lat, lon = self._get_lat_lon(ds, var_name)
-            arr, max_full_years = self._trim_to_full_years(arr, self.seq_len, remove_summer)
+            if new_lat_i is not None:
+                new_lat = new_lat_i
+            if new_lon_i is not None:
+                new_lon = new_lon_i
 
-            if var_name == "t2m":
-                cascadia_mask = np.load(f"{self.output_save_dir}/cascadia_mask.npy")
-
-                arr4d, lon_grid, lat_grid, new_lat_, new_lon_ = self._downscale(
-                    arr, lat, lon, max_full_years, upscaling_factor
-                )
-                if upscaling_factor > 1:
-                    cascadia_mask = resize_mask_to_shape(cascadia_mask, arr4d.shape[3], arr4d.shape[4])
-
-                arr_out, coords, spatial_dim = self._mask_and_coords(arr4d, cascadia_mask, lon_grid, lat_grid)
-                if new_lat_ is not None:
-                    new_lat, new_lon = new_lat_, new_lon_
-
-            elif var_name == "precipitation_amount":
-                morocco_mask = np.load(f"{self.output_save_dir}/morocco_mask.npy")
-                assert morocco_mask.shape == (
-                    lat.shape[0],
-                    lon.shape[0],
-                ), f"Morocco mask {morocco_mask.shape} != data shape {(lat.shape[0], lon.shape[0])}"
-
-                arr4d, lon_grid, lat_grid, new_lat_, new_lon_ = self._downscale(
-                    arr, lat, lon, max_full_years, upscaling_factor
-                )
-                if upscaling_factor > 1:
-                    morocco_mask = resize_mask_to_shape(morocco_mask, arr4d.shape[3], arr4d.shape[4])
-
-                arr_out, coords, spatial_dim = self._mask_and_coords(arr4d, morocco_mask, lon_grid, lat_grid)
-                if new_lat_ is not None:
-                    new_lat, new_lon = new_lat_, new_lon_
-
-            else:
-                arr_out, coords, spatial_dim = self._no_mask_coords(arr, lat, lon, max_full_years)
-
-            array_list.append(arr_out)
-            coordinates_list.append(coords)
             input_var_shapes[var_name] = spatial_dim
             input_var_offsets.append(input_var_offsets[-1] + spatial_dim)
+            array_list.append(arr)
+            coordinates_list.append(coords)
+        if not array_list:
+            raise ValueError("[load_into_mem] No arrays were appended. Check seasonal filtering and branches.")
 
         temp_data = np.concatenate(array_list, axis=3)
 
@@ -298,18 +425,38 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         # print("Shape of the aggregated data?:", aggregated_data.shape)
         return aggregated_data
 
-    def get_month_mask(self, total_timesteps, seq_len=365, months_to_remove=[6, 7, 8]):
+    def get_month_mask(self, total_timesteps, seq_len=365, months=None, mode="remove"):
         """
-        Create a boolean mask for daily data to remove given months (1-based: Jan=1).
+        Create a boolean mask for daily data to remove or keep given months (1-based: Jan=1).
 
-        Uses pandas to determine month for each day.
+        Args:
+            total_timesteps (int): length of the daily series
+            seq_len (int): nominal days/year (used only for info prints here)
+            months (list[int] | None): months to act on; defaults:
+                - if mode == "remove": [6, 7, 8]  (remove summer)
+                - if mode == "keep":   [12, 1, 2] (keep winter: Dec, Jan, Feb)
+            mode ("remove" | "keep"): whether to remove or keep the listed months
         """
-        # Generate dummy daily dates for a non-leap reference year
-        start_date = pd.Timestamp("2001-01-01")  # non-leap year
+        if months is None:
+            months = [6, 7, 8] if mode == "remove" else [12, 1, 2]
+
+        start_date = pd.Timestamp("2001-01-01")  # non-leap reference year
         dates = pd.date_range(start=start_date, periods=total_timesteps, freq="D")
-        months = dates.month  # array of shape (total_timesteps,)
+        mm = dates.month.values  # shape (total_timesteps,)
 
-        keep_mask = ~np.isin(months, months_to_remove)
+        if mode == "remove":
+            keep_mask = ~np.isin(mm, months)
+        elif mode == "keep":
+            keep_mask = np.isin(mm, months)
+        else:
+            raise ValueError(f"[season-mask] Invalid mode '{mode}'. Use 'remove' or 'keep'.")
+
+        # Debug
+        kept = int(keep_mask.sum())
+        print(
+            f"[season-mask] mode={mode}, months={months}, "
+            f"total={total_timesteps}, kept={kept}, dropped={total_timesteps - kept}, seq_len={seq_len}"
+        )
         return keep_mask
 
     def split_data_by_interval(self, data, tau, ratio_train, interval_length=100):
@@ -610,31 +757,70 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
     def remove_seasonality(self, data):
         """
-        Function to remove seasonality from the data There are various different options to do this These are just
-        different methods of removing seasonality.
+        Robust seasonality removal.
 
-        e.g.
-        monthly - remove seasonality on a per month basis
-        rolling monthly - remove seasonality on a per month basis but using a rolling window,
-        removing only the average from the months that have preceded this month
-        linear - remove seasonality using a linear model to predict seasonality
-
-        or trend removal
-        emissions - remove the trend using the emissions data, such as cumulative CO2
+        - If B>1 (multiple years stacked on axis 0): keep original behavior (median/MAD across axis=0).
+        - If B==1 (seasonal run as one long sequence): use median/MAD across time (axis=1),
+        broadcast back, so we don't subtract the sample from itself.
         """
+        print("[seasonality] data.shape:", data.shape)
+        B, T, S, C = data.shape  # you currently pass (B,T,S,1) per your logs
 
-        # print("Removing seasonality from the data.")
+        if B > 1:
+            axis = 0
+            keepdims = False
+            print("[seasonality] using median/MAD across B (years) [axis=0]")
+            median = np.nanmedian(data, axis=axis)  # (T,S,C)
+            abs_dev = np.abs(data - median[None, ...])  # (B,T,S,C)
+            mad = np.nanmedian(abs_dev, axis=axis)  # (T,S,C)
+            mad_scaled = mad * 1.4826
+            mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
+            deseasonalized = (data - median[None, ...]) / mad_safe[None, ...]
+        else:
+            axis = 1  # time
+            keepdims = True
+            print("[seasonality] B==1 → using median/MAD across time [axis=1]")
+            median = np.nanmedian(data, axis=axis, keepdims=keepdims)  # (B,1,S,C)
+            abs_dev = np.abs(data - median)  # (B,T,S,C)
+            mad = np.nanmedian(abs_dev, axis=axis, keepdims=keepdims)  # (B,1,S,C)
+            mad_scaled = mad * 1.4826
+            mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
+            deseasonalized = (data - median) / mad_safe  # broadcasts over T
 
-        mean = np.nanmean(data, axis=0)
-        std = np.nanstd(data, axis=0)
-        # make a numpy array containing the mean and std for each month:
-        remove_season_stats = np.array([mean, std])
+        # Debug stats
+        print("[seasonality] median.shape:", median.shape, "mad.shape:", mad.shape)
+        print(
+            "[seasonality] median stats:",
+            "min",
+            float(np.nanmin(median)),
+            "max",
+            float(np.nanmax(median)),
+            "std",
+            float(np.nanstd(median)),
+        )
+        print(
+            "[seasonality] mad_scaled stats:",
+            "min",
+            float(np.nanmin(mad_scaled)),
+            "max",
+            float(np.nanmax(mad_scaled)),
+            "mean",
+            float(np.nanmean(mad_scaled)),
+            "zeros",
+            int(np.sum(mad_scaled == 0)),
+        )
+        print(
+            "[seasonality] deseasonalized stats:",
+            "min",
+            float(np.nanmin(deseasonalized)),
+            "max",
+            float(np.nanmax(deseasonalized)),
+            "mean",
+            float(np.nanmean(deseasonalized)),
+            "std",
+            float(np.nanstd(deseasonalized)),
+        )
 
-        np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
-
-        print("Just about to return the data after removing seasonality.")
-        std_safe = np.where(std == 0, 1, std)
-        deseasonalized = (data - mean[None]) / std_safe[None]
         return deseasonalized
 
     def write_dataset_statistics(self, fname, stats):
@@ -672,78 +858,3 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
     def get_mask_metadata(self) -> Tuple[List[Tuple[int, ...]], List[str]]:
         return list(self.input_var_shapes.values()), list(self.input_var_shapes.keys())
-
-    def _open_dataset(self, vlist: list):
-        if not vlist:
-            raise FileNotFoundError("Empty file list passed for one of the variables.")
-        file_path = vlist[0]
-        if file_path.endswith(".nc"):
-            ds = xr.open_dataset(file_path).compute()
-            ds = ds.drop_dims("bnds", errors="ignore")
-        elif file_path.endswith(".grib") or file_path.endswith(".grib2"):
-            filtered = [f for f in vlist if "000366.grib2" not in f]
-            ds = xr.open_mfdataset(filtered, engine="cfgrib", concat_dim="time", combine="nested").compute()
-        else:
-            raise ValueError(f"Unsupported file type: {file_path}")
-        if "var167" in ds:
-            ds = ds.rename({"var167": "t2m"})
-        if "var129" in ds:
-            ds = ds.rename({"var129": "z"})
-
-        return ds
-
-    def _dedupe_time(self, ds: xr.Dataset) -> xr.Dataset:
-        if "time" in ds.coords:
-            _, index = np.unique(ds["time"], return_index=True)
-            ds = ds.isel(time=index)
-        return ds
-
-    def _get_lat_lon(self, ds: xr.Dataset, var_name: str):
-        if "latitude" in ds.coords and "longitude" in ds.coords:
-            return ds.latitude.values, ds.longitude.values
-        if "lat" in ds.coords and "lon" in ds.coords:
-            return ds.lat.values, ds.lon.values
-        raise ValueError(f"No lat/lon found for variable {var_name}")
-
-    def _trim_to_full_years(self, arr: np.ndarray, seq_len: int, remove_summer: bool):
-        t, _, _ = arr.shape
-        if remove_summer:
-            winter_mask = self.get_month_mask(t, seq_len)
-            arr = arr[winter_mask]
-            t = arr.shape[0]
-        max_full_years = t // seq_len
-        total_expected = max_full_years * seq_len
-        if arr.shape[0] > total_expected:
-            arr = arr[:total_expected]
-        elif arr.shape[0] < total_expected:
-            raise ValueError(f"Not enough timesteps: {arr.shape[0]} < {total_expected}")
-        return arr, max_full_years
-
-    def _downscale(self, arr: np.ndarray, lat: np.ndarray, lon: np.ndarray, max_full_years: int, upscaling_factor: int):
-        if upscaling_factor > 1:
-            reshaped = arr.reshape(-1, lat.shape[0], lon.shape[0])
-            downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
-            new_h, new_w = downscaled.shape[1], downscaled.shape[2]
-            arr4d = downscaled.reshape(max_full_years, self.seq_len, 1, new_h, new_w)
-            new_lat = np.linspace(lat.min(), lat.max(), new_h)
-            new_lon = np.linspace(lon.min(), lon.max(), new_w)
-            lon_grid, lat_grid = np.meshgrid(new_lon, new_lat)
-            return arr4d, lon_grid, lat_grid, new_lat, new_lon
-        # no downscale
-        arr4d = arr.reshape(max_full_years, self.seq_len, 1, lat.shape[0], lon.shape[0])
-        lon_grid, lat_grid = np.meshgrid(lon, lat)
-        return arr4d, lon_grid, lat_grid, None, None
-
-    def _mask_and_coords(self, arr4d: np.ndarray, mask2d: np.ndarray, lon_grid: np.ndarray, lat_grid: np.ndarray):
-        mask_flat = mask2d.ravel()
-        arr_masked = arr4d.reshape(arr4d.shape[0], arr4d.shape[1], 1, -1)[:, :, :, mask_flat]
-        coords_full = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
-        coords_masked = coords_full[mask_flat]
-        return arr_masked, coords_masked, coords_masked.shape[0]
-
-    def _no_mask_coords(self, arr: np.ndarray, lat: np.ndarray, lon: np.ndarray, max_full_years: int):
-        t, h, w = arr.shape
-        arr_flat = arr.reshape(max_full_years, self.seq_len, 1, h * w)
-        lon_grid, lat_grid = np.meshgrid(lon, lat)
-        coords_full = np.stack([lon_grid.ravel(), lat_grid.ravel()], axis=-1)
-        return arr_flat, coords_full, coords_full.shape[0]

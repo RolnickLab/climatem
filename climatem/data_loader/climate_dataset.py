@@ -606,17 +606,20 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
 
         # print("Removing seasonality from the data.")
+        median = np.nanmedian(data, axis=0)
+        abs_dev = np.abs(data - median[None])
+        mad = np.nanmedian(abs_dev, axis=0)
 
-        mean = np.nanmean(data, axis=0)
-        std = np.nanstd(data, axis=0)
+        # Consistency factor so that MAD ~= std for Gaussian data
+        mad_scaled = mad * 1.4826
+
         # make a numpy array containing the mean and std for each month:
-        remove_season_stats = np.array([mean, std])
-
+        remove_season_stats = np.array([median, mad_scaled], dtype=data.dtype)
         np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
 
-        print("Just about to return the data after removing seasonality.")
-        std_safe = np.where(std == 0, 1, std)
-        deseasonalized = (data - mean[None]) / std_safe[None]
+        print("Just about to return the data after removing seasonality (robust median/MAD).")
+        mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
+        deseasonalized = (data - median[None]) / mad_safe[None]
         return deseasonalized
 
     def write_dataset_statistics(self, fname, stats):
