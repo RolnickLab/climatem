@@ -5,7 +5,7 @@
         "latent": true,
         "d_z": [
             25,
-            25
+            5
         ],
         "d_x": 6250,
         "lon": 144,
@@ -23,6 +23,7 @@
         "climateset_data": "/network/scratch/l/lastc/data/CHIRPS_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
+        "season": "winter",
         "in_var_ids": {
             "chirps": [
                 "lsp",
@@ -72,7 +73,7 @@
             20000
         ],
         "lr_scheduler_gamma": 1,
-        "max_iteration": 500000,
+        "max_iteration": 1000000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 5
@@ -83,7 +84,7 @@
         "tied_w": true,
         "nonlinear_mixing": true,
         "num_hidden_mixing": 16,
-        "num_layers_mixing": 2,    
+        "num_layers_mixing": 2,
         "nonlinear_dynamics": true,
         "num_hidden": 8,
         "num_layers": 2,
@@ -102,40 +103,34 @@
         "crps_coeff": 1,
         "spectral_coeff": 100,
         "temporal_spectral_coeff": 0,
-
         "loss_decay_future_timesteps": 1,
         "fraction_highest_wavenumbers": 0.2,
         "fraction_lowest_wavenumbers": null,
-
         "scheduler_spectra": null,
-
         "reg_coeff": 0.01,
         "reg_coeff_connect": 0,
         "schedule_reg": 0,
         "schedule_ortho": 0,
         "schedule_sparsity": 0,
-
         "ortho_mu_init": 1e5,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
-        "ortho_h_threshold": 0.01,
+        "ortho_h_threshold": 1e-8,
         "ortho_min_iter_convergence": 1000,
-
-        "sparsity_mu_init": 1e-8,
+        "sparsity_mu_init": 1e-5,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 0.1,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 1,
-
-        "acyclic_mu_init": 1e-4,
+        "sparsity_upper_threshold": 0.2,
+        "acyclic_mu_init": 0.0001,
         "acyclic_mu_mult_factor": 1.2,
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
-        "acyclic_h_threshold": 1e-1,
-        "acyclic_min_iter_convergence": 1000,
+        "acyclic_h_threshold": 1e-8,
+        "acyclic_min_iter_convergence": 5000,
         "mu_acyclic_init": null,
         "h_acyclic_threshold": null
     },

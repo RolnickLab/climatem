@@ -22,6 +22,7 @@
         "climateset_data": "$SCRATCH/data/ERA5_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
+        "season": "summer",
         "in_var_ids": {
             "chirps": [
                 "t2m",
