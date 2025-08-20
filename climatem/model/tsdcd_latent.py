@@ -572,7 +572,45 @@ class LatentTSDCD(nn.Module):
             )
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
-            recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
+            logp = px_distr.log_prob(y)  # (B, 1, S)
+
+            # ---- Cross-weighting by "other variable" spatial dimension ----
+            assert (
+                hasattr(self, "input_var_offsets") and len(self.input_var_offsets) >= 2
+            ), "input_var_offsets missing on model"
+            total_S = self.input_var_offsets[-1]
+            assert total_S == logp.size(-1), f"total_S {total_S} != S {logp.size(-1)}"
+
+            per_var_terms = []
+            weights_debug = []
+            dims_debug = []
+
+            for i in range(len(self.input_var_offsets) - 1):
+                s0 = self.input_var_offsets[i]
+                s1 = self.input_var_offsets[i + 1]
+                S_v = s1 - s0
+                S_other = total_S - S_v  # <-- multiply by OTHER variable spatial dim
+                w_v = S_other / float(total_S)  # optional normalization by total_S
+
+                # mean log-likelihood for this var (sum over its cells / S_v)
+                mean_ll_v = torch.sum(logp[:, :, s0:s1], dim=[1, 2]) / max(S_v, 1)
+
+                # contribution = mean_ll_v * (S_other / total)
+                per_var_terms.append(mean_ll_v * w_v)
+
+                dims_debug.append(int(S_v))
+                weights_debug.append(float(w_v))
+
+            # Sum across variables, then average over batch
+            recons = torch.mean(torch.stack(per_var_terms, dim=0).sum(dim=0))
+
+            # One-time debug print
+            if getattr(self, "print_cross_weight_once", True):
+                print(
+                    f"[recons-cross-weight] dims={dims_debug} total={total_S} weights(other/total)={weights_debug} "
+                    f"sum_weights={sum(weights_debug):.3f}"
+                )
+                self.print_cross_weight_once = False
             # compute the KL, the reconstruction and the ELBO
             # kl = distr.kl_divergence(q, p).mean()
             kl_raw = (
@@ -585,7 +623,50 @@ class LatentTSDCD(nn.Module):
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
 
-        elbo = recons - kl
+        # --- weighted recons/ELBO by variable spatial dims (own-dim / total) ---
+        # Expect attributes from your datamodule:
+        #   self.input_var_shapes: dict like {"lsp": 3881, "z": 1064}
+        #   self.input_var_offsets: list like [0, 3881, 4945]
+        try:
+            if (
+                hasattr(self, "input_var_shapes")
+                and hasattr(self, "input_var_offsets")
+                and isinstance(self.input_var_shapes, dict)
+                and isinstance(self.input_var_offsets, (list, tuple))
+                and len(self.input_var_offsets) == len(self.input_var_shapes) + 1
+            ):
+                var_names = list(self.input_var_shapes.keys())
+                dims = [int(self.input_var_shapes[n]) for n in var_names]
+                total_S = float(sum(dims))
+                offsets = [int(o) for o in self.input_var_offsets]
+
+                # Per-var reconstruction terms
+                logprob_map = px_distr.log_prob(y)  # (B, T, S)
+                recons_weighted = 0.0
+                for i, (s0, s1) in enumerate(zip(offsets[:-1], offsets[1:])):
+                    # sum over (T,S_slice), then mean over batch
+                    recons_i = logprob_map[:, :, s0:s1].sum(dim=[1, 2]).mean()
+                    weight_i = dims[i] / total_S
+                    recons_weighted = recons_weighted + weight_i * recons_i
+
+                # Replace outputs with weighted versions
+                recons = recons_weighted
+                elbo = recons - kl
+
+                # (Optional) one-time debug
+                if getattr(self, "print_weighted_once", True):
+                    print(
+                        f"[loss-weight] vars={var_names} dims={dims} total={int(total_S)} "
+                        f"weights={[(d/total_S) for d in dims]}"
+                    )
+                    self.print_weighted_once = False
+            else:
+                # Fallback: original behavior
+                elbo = recons - kl
+        except Exception as e:
+            # Safety fallback on any unexpected shape/attr issue
+            print(f"[loss-weight] fallback due to: {e}")
+            elbo = recons - kl
 
         return elbo, recons, kl, px_mu
 
