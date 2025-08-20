@@ -18,8 +18,8 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/results/ERA5_DATA_TEST",
-        "climateset_data": "$SCRATCH/data/ERA5_DATA_TEST",
+        "data_dir": "$SCRATCH/results/ERA5_DATA_PROCESSED/combined",
+        "climateset_data": "$SCRATCH/data/ERA5_DATA_PROCESSED/combined",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
         "season": "summer",
