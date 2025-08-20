@@ -34,6 +34,7 @@ class CHIRPSDataset(TeleconnectionsDataset):
         lat: int = 96,
         lon: int = 144,
         icosahedral_coordinates_path: str = "",
+        season: str = "all",
         *args,
         **kwargs,
     ):
@@ -48,6 +49,7 @@ class CHIRPSDataset(TeleconnectionsDataset):
         self.lon = lon
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        self.season = season
         self.input_var_shapes = {}
         self.input_var_offsets = [0]
 
@@ -127,6 +129,7 @@ class CHIRPSDataset(TeleconnectionsDataset):
                 channels_last,
                 seq_to_seq,
                 upscaling_factor=2,
+                season=self.season,
             )
 
             if self.mode in ["train", "train+val"]:

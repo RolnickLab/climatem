@@ -111,6 +111,7 @@ def main(
             seasonality_removal=data_params.seasonality_removal,
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
+            season=data_params.season,
             # Below SAVAR data arguments
             time_len=savar_params.time_len,
             comp_size=savar_params.comp_size,

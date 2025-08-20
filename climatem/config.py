@@ -70,6 +70,7 @@ class dataParams:
         num_months_aggregated: List[int] = [
             1
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
+        season: str = "all",
     ):
         self.data_dir = data_dir
         self.climateset_data = climateset_data
@@ -81,7 +82,6 @@ class dataParams:
         self.train_scenarios = train_scenarios
         self.test_scenarios = test_scenarios
         self.train_models = train_models
-        # self.test_models = test_models
         self.in_var_ids = in_var_ids
         self.num_ensembles = num_ensembles
         self.num_levels = num_levels
@@ -102,6 +102,7 @@ class dataParams:
         self.load_train_into_mem = load_train_into_mem
         self.load_test_into_mem = load_test_into_mem
         self.num_months_aggregated = num_months_aggregated
+        self.season = season
 
 
 # This class is only for debugging and for setting some params to the true aprams when training picabu
