@@ -231,7 +231,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             seq_len_eff = kept
             self.seq_len = seq_len_eff
         elif season == "winter":
-            mask = self.get_month_mask(t, self.seq_len, months=[12, 1, 2], mode="keep")
+            mask = self.get_month_mask(t, self.seq_len, months=[11, 12, 1, 2, 3], mode="keep")
             arr = arr[mask]
             kept = arr.shape[0]
             batch_years = 1
@@ -438,7 +438,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             mode ("remove" | "keep"): whether to remove or keep the listed months
         """
         if months is None:
-            months = [6, 7, 8] if mode == "remove" else [12, 1, 2]
+            months = [6, 7, 8] if mode == "remove" else [11, 12, 1, 2, 3]
 
         start_date = pd.Timestamp("2001-01-01")  # non-leap reference year
         dates = pd.date_range(start=start_date, periods=total_timesteps, freq="D")
@@ -755,71 +755,132 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         # print("Really, I completed the normalisation of the data, just about to return.")
         return norm_data
 
+    def _rolling_mean_time(self, data, window=31):
+        """
+        Vectorized, NaN-safe, centered moving average along time axis (axis=1).
+
+        Pads with edge values so output has same length T.
+        data: (B, T, S, C) -> returns (B, T, S, C)
+        """
+        assert data.ndim == 4, "Expected data shape (B, T, S, C)"
+        B, T, S, C = data.shape
+
+        # ensure odd window and clamp to [1, T]
+        win = int(window)
+        if win < 1:
+            win = 1
+        if win > T:
+            win = T
+        if win % 2 == 0:
+            win -= 1
+            if win < 1:
+                win = 1
+        pad = win // 2  # since win = 2*pad + 1
+
+        # move time to last: (B, S, C, T)
+        x = np.moveaxis(data, 1, -1)
+
+        # NaN-safe: replace NaNs with 0 for sum; track finite counts
+        x_finite = np.isfinite(x)
+        x_zeros = np.where(x_finite, x, 0)
+
+        # pad along time with edge values so centered window is valid at edges
+        xpad = np.pad(x_zeros, ((0, 0), (0, 0), (0, 0), (pad, pad)), mode="edge")  # (..., T+2*pad)
+        cpad = np.pad(x_finite.astype(np.int32), ((0, 0), (0, 0), (0, 0), (pad, pad)), mode="edge")
+
+        # cumulative sums along time
+        csum = np.cumsum(xpad, axis=-1, dtype=np.float64)
+        cnum = np.cumsum(cpad, axis=-1, dtype=np.int64)
+
+        # PREPEND a leading zero so windowed differences have length (L+1 - win) = T
+        csum = np.concatenate([np.zeros_like(csum[..., :1]), csum], axis=-1)
+        cnum = np.concatenate([np.zeros_like(cnum[..., :1]), cnum], axis=-1)
+
+        # centered window sums/counts -> shape (..., T)
+        sum_win = csum[..., win:] - csum[..., :-win]
+        num_win = cnum[..., win:] - cnum[..., :-win]
+
+        # avoid divide-by-zero (should be rare with edge padding)
+        num_safe = np.maximum(num_win, 1)
+
+        roll = sum_win / num_safe
+        # back to (B, T, S, C)
+        roll = np.moveaxis(roll, -1, 1).astype(data.dtype, copy=False)
+        return roll
+
     def remove_seasonality(self, data):
         """
-        Robust seasonality removal.
+        Rolling climatology (±30 days = 61-day centered mean) removal + global scaling.
 
-        - If B>1 (multiple years stacked on axis 0): keep original behavior (median/MAD across axis=0).
-        - If B==1 (seasonal run as one long sequence): use median/MAD across time (axis=1),
-        broadcast back, so we don't subtract the sample from itself.
+        - Anomaly = data - centered 61-day moving average (NaN-safe), SAME T.
+        - Scale = single global STD or MAD over all finite anomalies.
+        Set self.seasonality_scale to 'std' or 'mad' (default 'mad').
         """
-        print("[seasonality] data.shape:", data.shape)
-        B, T, S, C = data.shape  # you currently pass (B,T,S,1) per your logs
+        print("[seasonality] (rolling) data.shape:", data.shape)
+        assert data.ndim == 4, "Expected data shape (B, T, S, C)"
 
-        if B > 1:
-            axis = 0
-            keepdims = False
-            print("[seasonality] using median/MAD across B (years) [axis=0]")
-            median = np.nanmedian(data, axis=axis)  # (T,S,C)
-            abs_dev = np.abs(data - median[None, ...])  # (B,T,S,C)
-            mad = np.nanmedian(abs_dev, axis=axis)  # (T,S,C)
-            mad_scaled = mad * 1.4826
-            mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
-            deseasonalized = (data - median[None, ...]) / mad_safe[None, ...]
+        # SAME-LENGTH climatology
+        clim = self._rolling_mean_time(data, window=61)  # keep 61 if you want ±30
+        if clim.shape != data.shape:
+            raise ValueError(f"[seasonality] clim.shape {clim.shape} != data.shape {data.shape}")
+
+        anomalies = data - clim
+        print("[seasonality] anomalies.shape:", anomalies.shape)
+
+        # global scaling (single scalar)
+        method = getattr(self, "seasonality_scale", "mad")  # 'std' or 'mad'
+        flat = anomalies.reshape(-1)
+        finite = np.isfinite(flat)
+
+        if not np.any(finite):
+            print("[seasonality] WARNING: no finite values found; using scale=1.0")
+            scale = 1.0
+            method_used = "fallback"
         else:
-            axis = 1  # time
-            keepdims = True
-            print("[seasonality] B==1 → using median/MAD across time [axis=1]")
-            median = np.nanmedian(data, axis=axis, keepdims=keepdims)  # (B,1,S,C)
-            abs_dev = np.abs(data - median)  # (B,T,S,C)
-            mad = np.nanmedian(abs_dev, axis=axis, keepdims=keepdims)  # (B,1,S,C)
-            mad_scaled = mad * 1.4826
-            mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
-            deseasonalized = (data - median) / mad_safe  # broadcasts over T
+            vals = flat[finite]
+            if method.lower() == "std":
+                scale = float(np.nanstd(vals))
+                method_used = "global STD"
+            else:
+                med = float(np.nanmedian(vals))
+                mad = float(np.nanmedian(np.abs(vals - med)))
+                scale = 1.4826 * mad
+                method_used = "global MAD (scaled)"
 
-        # Debug stats
-        print("[seasonality] median.shape:", median.shape, "mad.shape:", mad.shape)
-        print(
-            "[seasonality] median stats:",
-            "min",
-            float(np.nanmin(median)),
-            "max",
-            float(np.nanmax(median)),
-            "std",
-            float(np.nanstd(median)),
-        )
-        print(
-            "[seasonality] mad_scaled stats:",
-            "min",
-            float(np.nanmin(mad_scaled)),
-            "max",
-            float(np.nanmax(mad_scaled)),
-            "mean",
-            float(np.nanmean(mad_scaled)),
-            "zeros",
-            int(np.sum(mad_scaled == 0)),
-        )
-        print(
-            "[seasonality] deseasonalized stats:",
-            "min",
-            float(np.nanmin(deseasonalized)),
-            "max",
-            float(np.nanmax(deseasonalized)),
-            "mean",
-            float(np.nanmean(deseasonalized)),
-            "std",
-            float(np.nanstd(deseasonalized)),
-        )
+        if not np.isfinite(scale) or scale == 0.0:
+            print(f"[seasonality] WARNING: {method_used}={scale} → using 1.0 fallback.")
+            scale = 1.0
+
+        deseasonalized = anomalies / scale
+
+        # Debug (finite-only to avoid NaNs in stats)
+        an_f = anomalies[np.isfinite(anomalies)]
+        dz_f = deseasonalized[np.isfinite(deseasonalized)]
+        print(f"[seasonality] method={method_used}, scale={scale:.6g}")
+        if an_f.size:
+            print(
+                "[seasonality] anomalies stats:",
+                "min",
+                float(np.min(an_f)),
+                "max",
+                float(np.max(an_f)),
+                "mean",
+                float(np.mean(an_f)),
+                "std",
+                float(np.std(an_f)),
+            )
+        if dz_f.size:
+            print(
+                "[seasonality] deseasonalized stats:",
+                "min",
+                float(np.min(dz_f)),
+                "max",
+                float(np.max(dz_f)),
+                "mean",
+                float(np.mean(dz_f)),
+                "std",
+                float(np.std(dz_f)),
+            )
 
         return deseasonalized
 
