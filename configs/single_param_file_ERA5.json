@@ -18,7 +18,7 @@
         "verbose": true
     },
     "data_params": {
-        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST",
+        "data_dir": "$SCRATCH/results/ERA5_DATA_TEST",
         "climateset_data": "$SCRATCH/data/ERA5_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
