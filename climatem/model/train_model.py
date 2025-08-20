@@ -1409,12 +1409,6 @@ class TrainingLatent:
                 power_true = torch.mean(torch.abs(fft_true), dim=1)
                 power_pred = torch.mean(torch.abs(fft_pred), dim=1)
 
-                # Drop top 25% of frequency bins along the last (rfft) axis
-                n_freq = power_true.shape[-1]
-                cut = max(1, int(0.75 * n_freq))
-                power_true = power_true[..., :cut]
-                power_pred = power_pred[..., :cut]
-
             elif y_true.size(-1) == self.d_x:
                 # Here will make a change -- this is computed
                 fft_true = torch.fft.rfft(y_true, dim=2)
@@ -1423,11 +1417,6 @@ class TrainingLatent:
                 power_true = torch.abs(fft_true)
                 power_pred = torch.abs(fft_pred)
 
-                # Drop top 25% of frequency bins
-                n_freq = power_true.shape[-1]
-                cut = max(1, int(0.75 * n_freq))
-                power_true = power_true[..., :cut]
-                power_pred = power_pred[..., :cut]
             else:
                 raise ValueError("Unexpected input shape for spectral loss.")
 
@@ -1467,12 +1456,6 @@ class TrainingLatent:
                 power_true = torch.abs(fft_true)
                 power_pred = torch.abs(fft_pred)
 
-                # Drop top 25% frequency bins
-                n_freq = power_true.shape[-1]
-                cut = max(1, int(0.75 * n_freq))
-                power_true = power_true[..., :cut]
-                power_pred = power_pred[..., :cut]
-
                 if take_log:
                     power_true = torch.log(power_true + 1e-8)  # avoid log(0)
                     power_pred = torch.log(power_pred + 1e-8)
@@ -1492,65 +1475,71 @@ class TrainingLatent:
                 spectral_loss_mean += torch.mean(spectral_loss)
 
             return spectral_loss_mean
+        return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """
-        Calculate the temporal spectra (frequency domain) of the true values compared to the predicted values. This
-        needs to look at the power spectra through time per grid cell of predicted and true values.
-        Current implementation: Build low-pass (period >= 7 days) from the batch-mean time series,
-        subtract from obs/pred (i.e., remove slow components), then compare spectra.
+        Low-pass (>=7d) removed first.
 
-        Args:
-            x: torch.Tensor, the input values, past timesteps
-            y_true: torch.Tensor, the true value of the timestep we predict
-            y_pred: torch.Tensor, the predicted values of the timestep we predict
+        If exactly 2 vars: cross-weight each var by the other var's spatial dim from
+        input_var_shapes. Else: original behavior.
         """
-
-        # concatenate x and y_true along the time axis
         obs = torch.cat((x, y_true), dim=1)
         pred = torch.cat((x, y_pred), dim=1)
-
         B, T, V, S = obs.shape
 
-        # Mean over batch -> (T, V, S)
-        m_obs = obs.mean(dim=0)
-
-        # RFFT along time (dim=0 for (T, V, S))
-        M = torch.fft.rfft(m_obs, dim=0)
-
-        # Zero out frequencies with period < 7 days (i.e., f > 1/7 cycles/day)
-        # rfft bin k corresponds to frequency f_k = k / T (cycles/day), since dt = 1 day
-        k_cut = int(T // 7)  # floor(T * (1/7))
-        # keep bins k <= k_cut
+        # Build low-pass (period >= 7 days) from batch-mean time series
+        m_obs = obs.mean(dim=0)  # (T, V, S)
+        M = torch.fft.rfft(m_obs, dim=0)  # (F, V, S)
+        k_cut = int(T // 7)
         if k_cut < M.shape[0]:
-            M_hp_removed = M.clone()
-            M_hp_removed[k_cut + 1 :] = 0  # zero high-freq bins
+            M_lp = M.clone()
+            M_lp[k_cut + 1 :] = 0
         else:
-            # if T < 7, nothing to remove
-            M_hp_removed = M
+            M_lp = M
+        lowpass = torch.fft.irfft(M_lp, n=T, dim=0)  # (T, V, S)
 
-        # Inverse to get low-pass (period >= 7 days)
-        lowpass = torch.fft.irfft(M_hp_removed, n=T, dim=0)  # (T, V, S)
+        # High-pass
+        obs_hp = obs - lowpass.unsqueeze(0)
+        pred_hp = pred - lowpass.unsqueeze(0)
 
-        # Subtract low-pass from each sample to high-pass both obs and pred
-        lowpass_broadcast = lowpass.unsqueeze(0)  # (1, T, V, S)
-        obs_hp = obs - lowpass_broadcast
-        pred_hp = pred - lowpass_broadcast
+        # Spectra along time; average over batch
+        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs_hp, dim=1)), dim=0)  # (F, V, S)
+        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred_hp, dim=1)), dim=0)  # (F, V, S)
+        spec_diff = torch.abs(fft_pred - fft_true)  # (F, V, S)
 
-        # calculate the spectra of the true values along the time dimension, and then take the mean across the batch
-        fft_true = torch.mean(torch.abs(torch.fft.rfft(obs_hp, dim=1)), dim=0)
-        # calculate the spectra of the predicted values along the time dimension, and then take the mean across the batch
-        fft_pred = torch.mean(torch.abs(torch.fft.rfft(pred_hp, dim=1)), dim=0)
+        two_vars = (
+            hasattr(self, "input_var_shapes")
+            and len(self.input_var_shapes) == 2
+            and hasattr(self, "input_var_offsets")
+            and len(self.input_var_offsets) == 3
+        )
 
-        # Calculate the power spectrum
-        # compute the distance between the losses...
-        temporal_spectral_loss = torch.abs(fft_pred - fft_true)
-        # the shape here is (time/2 + 1, num_vars, coords)
+        if two_vars:
+            var_names = list(self.input_var_shapes.keys())
+            S1 = int(self.input_var_shapes[var_names[0]])
+            S2 = int(self.input_var_shapes[var_names[1]])
+            total_S = S1 + S2
+            w1 = S2 / float(total_S)
+            w2 = S1 / float(total_S)
 
-        # average across all frequencies, variables and coordinates...
-        temporal_spectral_loss = torch.mean(temporal_spectral_loss)
+            s0 = int(self.input_var_offsets[0])
+            s1 = int(self.input_var_offsets[1])
+            s2 = int(self.input_var_offsets[2])
 
-        return temporal_spectral_loss
+            loss = w1 * spec_diff[:, :, s0:s1].mean() + w2 * spec_diff[:, :, s1:s2].mean()
+
+            if getattr(self, "print_temporal_xw_once", True):
+                print(
+                    f"[temporal-xw] vars={var_names} dims=[{S1},{S2}] total={total_S} "
+                    f"weights(other/total)={[w1, w2]} sum={w1 + w2:.3f}"
+                )
+                self.print_temporal_xw_once = False
+
+            return loss
+
+        # ---------- original behavior (1 var or >2 vars) ----------
+        return torch.mean(spec_diff)
 
     def connectivity_reg_complete(self):
         """
