@@ -736,26 +736,46 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
         return vars_min, vars_max
 
-    def normalize_data(self, data, stats, type="z-norm"):
-
+    def normalize_data(self, data, stats=None, type="z-norm", eps=1e-9):
         # Only implementing z-norm for now
         # z-norm: (data-mean)/(std + eps); eps=1e-9
         # min-max = (v - v.min()) / (v.max() - v.min())
 
         # print("Normalizing data...")
-        data = np.moveaxis(data, 2, 0)  # DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144)
-        norm_data = (data - stats["mean"]) / (stats["std"])
-        print("I completed the normalisation of the data.")
+        x = data.astype(np.float32, copy=False)  # expect (B, T, S, C)
+        B, T, S, C = x.shape
 
-        norm_data = np.moveaxis(norm_data, 0, 2)  # Switch back to (258, 12, 4, 96, 144)
+        # Try to use provided stats if they’re already reasonable; else compute from data.
+        if stats is not None and ("mean" in stats) and ("std" in stats):
+            mean = np.asarray(stats["mean"], dtype=np.float32)
+            std = np.asarray(stats["std"], dtype=np.float32)
+
+            # Accept only (1,1,S,C) or (S,C); otherwise fall back to computing.
+            if mean.shape == (S, C):
+                mean = mean.reshape(1, 1, S, C)
+            if std.shape == (S, C):
+                std = std.reshape(1, 1, S, C)
+
+            if mean.shape != (1, 1, S, C) or std.shape != (1, 1, S, C):
+                mean = np.nanmean(x, axis=(0, 1), keepdims=True)  # (1,1,S,C)
+                std = np.nanstd(x, axis=(0, 1), keepdims=True)  # (1,1,S,C)
+        else:
+            # Pointwise stats across (B,T)
+            mean = np.nanmean(x, axis=(0, 1), keepdims=True)  # (1,1,S,C)
+            std = np.nanstd(x, axis=(0, 1), keepdims=True)  # (1,1,S,C)
+
+        # Guard std
+        std = np.where(np.isfinite(std) & (std > 0), std, 1.0).astype(np.float32, copy=False)
+
+        norm_data = (x - mean) / (std + np.float32(eps))
+        print("I completed the normalisation of the data.")
 
         # Replace NaNs with 0s
         norm_data = np.nan_to_num(norm_data)
-
         # print("Really, I completed the normalisation of the data, just about to return.")
         return norm_data
 
-    def _rolling_mean_time(self, data, window=31):
+    def _rolling_mean_time(self, data):
         """
         Vectorized, NaN-safe, centered moving average along time axis (axis=1).
 
@@ -764,9 +784,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         """
         assert data.ndim == 4, "Expected data shape (B, T, S, C)"
         B, T, S, C = data.shape
-
-        # ensure odd window and clamp to [1, T]
-        win = int(window)
+        win = int(getattr(self, "rolling_mean_time", 61))
         if win < 1:
             win = 1
         if win > T:
@@ -820,7 +838,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         assert data.ndim == 4, "Expected data shape (B, T, S, C)"
 
         # SAME-LENGTH climatology
-        clim = self._rolling_mean_time(data, window=61)  # keep 61 if you want ±30
+        clim = self._rolling_mean_time(data)  # keep 61 if you want ±30
         if clim.shape != data.shape:
             raise ValueError(f"[seasonality] clim.shape {clim.shape} != data.shape {data.shape}")
 

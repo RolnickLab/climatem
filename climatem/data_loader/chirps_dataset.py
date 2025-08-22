@@ -35,6 +35,7 @@ class CHIRPSDataset(TeleconnectionsDataset):
         lon: int = 144,
         icosahedral_coordinates_path: str = "",
         season: str = "all",
+        rolling_mean_time: int = 61,
         *args,
         **kwargs,
     ):
@@ -50,6 +51,7 @@ class CHIRPSDataset(TeleconnectionsDataset):
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
         self.season = season
+        self.rolling_mean_time = int(rolling_mean_time)
         self.input_var_shapes = {}
         self.input_var_offsets = [0]
 

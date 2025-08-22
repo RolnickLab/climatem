@@ -112,6 +112,7 @@ def main(
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
             season=data_params.season,
+            rolling_mean_time=data_params.rolling_mean_time,
             # Below SAVAR data arguments
             time_len=savar_params.time_len,
             comp_size=savar_params.comp_size,

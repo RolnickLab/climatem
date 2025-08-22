@@ -171,6 +171,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
                         season=self.hparams.season,
+                        rolling_mean_time=self.hparams.rolling_mean_time,
                     )
                 else:
                     train_val_input4mips = Input4MipsDataset(
