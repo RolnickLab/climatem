@@ -743,6 +743,7 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         # min-max = (v - v.min()) / (v.max() - v.min())
 
         # print("Normalizing data...")
+
         data = np.moveaxis(data, 2, 0)  # DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144)
         norm_data = (data - stats["mean"]) / (stats["std"])
         print("I completed the normalisation of the data.")
@@ -757,70 +758,30 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
 
     def remove_seasonality(self, data):
         """
-        Robust seasonality removal.
+        Function to remove seasonality from the data There are various different options to do this These are just
+        different methods of removing seasonality.
 
-        - If B>1 (multiple years stacked on axis 0): keep original behavior (median/MAD across axis=0).
-        - If B==1 (seasonal run as one long sequence): use median/MAD across time (axis=1),
-        broadcast back, so we don't subtract the sample from itself.
+        e.g.
+        monthly - remove seasonality on a per month basis
+        rolling monthly - remove seasonality on a per month basis but using a rolling window,
+        removing only the average from the months that have preceded this month
+        linear - remove seasonality using a linear model to predict seasonality
+
+        or trend removal
+        emissions - remove the trend using the emissions data, such as cumulative CO2
         """
-        print("[seasonality] data.shape:", data.shape)
-        B, T, S, C = data.shape  # you currently pass (B,T,S,1) per your logs
+        # print("Removing seasonality from the data.")
 
-        if B > 1:
-            axis = 0
-            keepdims = False
-            print("[seasonality] using median/MAD across B (years) [axis=0]")
-            median = np.nanmedian(data, axis=axis)  # (T,S,C)
-            abs_dev = np.abs(data - median[None, ...])  # (B,T,S,C)
-            mad = np.nanmedian(abs_dev, axis=axis)  # (T,S,C)
-            mad_scaled = mad * 1.4826
-            mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
-            deseasonalized = (data - median[None, ...]) / mad_safe[None, ...]
-        else:
-            axis = 1  # time
-            keepdims = True
-            print("[seasonality] B==1 → using median/MAD across time [axis=1]")
-            median = np.nanmedian(data, axis=axis, keepdims=keepdims)  # (B,1,S,C)
-            abs_dev = np.abs(data - median)  # (B,T,S,C)
-            mad = np.nanmedian(abs_dev, axis=axis, keepdims=keepdims)  # (B,1,S,C)
-            mad_scaled = mad * 1.4826
-            mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
-            deseasonalized = (data - median) / mad_safe  # broadcasts over T
+        mean = np.nanmean(data, axis=0)
+        std = np.nanstd(data, axis=0)
+        # make a numpy array containing the mean and std for each month:
+        remove_season_stats = np.array([mean, std])
 
-        # Debug stats
-        print("[seasonality] median.shape:", median.shape, "mad.shape:", mad.shape)
-        print(
-            "[seasonality] median stats:",
-            "min",
-            float(np.nanmin(median)),
-            "max",
-            float(np.nanmax(median)),
-            "std",
-            float(np.nanstd(median)),
-        )
-        print(
-            "[seasonality] mad_scaled stats:",
-            "min",
-            float(np.nanmin(mad_scaled)),
-            "max",
-            float(np.nanmax(mad_scaled)),
-            "mean",
-            float(np.nanmean(mad_scaled)),
-            "zeros",
-            int(np.sum(mad_scaled == 0)),
-        )
-        print(
-            "[seasonality] deseasonalized stats:",
-            "min",
-            float(np.nanmin(deseasonalized)),
-            "max",
-            float(np.nanmax(deseasonalized)),
-            "mean",
-            float(np.nanmean(deseasonalized)),
-            "std",
-            float(np.nanstd(deseasonalized)),
-        )
+        np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
 
+        print("Just about to return the data after removing seasonality.")
+        std_safe = np.where(std == 0, 1, std)
+        deseasonalized = (data - mean[None]) / std_safe[None]
         return deseasonalized
 
     def write_dataset_statistics(self, fname, stats):

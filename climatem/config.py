@@ -68,7 +68,7 @@ class dataParams:
         load_train_into_mem: bool = True,
         load_test_into_mem: bool = True,
         num_months_aggregated: List[int] = [
-            1
+            3
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
     ):
         self.data_dir = data_dir

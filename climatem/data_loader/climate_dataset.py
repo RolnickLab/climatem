@@ -604,22 +604,49 @@ class ClimateDataset(torch.utils.data.Dataset):
         or trend removal
         emissions - remove the trend using the emissions data, such as cumulative CO2
         """
+        window = 31  # ±15 days
+        use_mad = True  # set True to use MAD instead of STD
+        eps = 1e-6
 
-        # print("Removing seasonality from the data.")
-        median = np.nanmedian(data, axis=0)
-        abs_dev = np.abs(data - median[None])
-        mad = np.nanmedian(abs_dev, axis=0)
+        # Detect time axis (assume it's the longer of the first two dims; your case: axis=1)
+        time_axis = 1 if (data.ndim >= 2 and data.shape[1] > data.shape[0]) else 0
 
-        # Consistency factor so that MAD ~= std for Gaussian data
-        mad_scaled = mad * 1.4826
+        # Move time to front: (T, ...)
+        x = np.moveaxis(data, time_axis, 0)
+        T = x.shape[0]
+        pad = window // 2
 
-        # make a numpy array containing the mean and std for each month:
-        remove_season_stats = np.array([median, mad_scaled], dtype=data.dtype)
-        np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
+        # Rolling climatology mean (circular along time)
+        mean_tfirst = np.empty_like(x, dtype=np.float64)
+        idx_base = np.arange(T)
+        for t in range(T):
+            idx = (idx_base[t - pad : t + pad + 1]) % T
+            win = x[idx, ...]  # (window, ...)
+            mean_tfirst[t, ...] = np.nanmean(win, axis=0)
 
-        print("Just about to return the data after removing seasonality (robust median/MAD).")
-        mad_safe = np.where(mad_scaled == 0, 1, mad_scaled)
-        deseasonalized = (data - median[None]) / mad_safe[None]
+        # Global scale per grid point across full time
+        if use_mad:
+            median_all = np.nanmedian(x, axis=0, keepdims=True)
+            global_scale = 1.4826 * np.nanmedian(np.abs(x - median_all), axis=0)
+        else:
+            global_scale = np.nanstd(x, axis=0)
+
+        # Safe fallback to avoid divide-by-zero
+        global_scale = np.where(np.isfinite(global_scale) & (global_scale > 0), global_scale, 1.0)
+
+        # Deseasonalize and move back to original axis order
+        deseason_tfirst = (x - mean_tfirst) / (global_scale + eps)
+        deseasonalized = np.moveaxis(deseason_tfirst, 0, time_axis)
+        mean = np.moveaxis(mean_tfirst, 0, time_axis)
+
+        # Save stats (rolling mean + single global scale)
+        np.save(
+            self.output_save_dir / "remove_season_stats",
+            {"mean": mean, "global_scale": global_scale},
+            allow_pickle=True,
+        )
+
+        print("Just about to return the data after removing seasonality (±15-day rolling climatology; global scale).")
         return deseasonalized
 
     def write_dataset_statistics(self, fname, stats):
