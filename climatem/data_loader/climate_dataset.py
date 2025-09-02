@@ -48,6 +48,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         lat: int = 96,
         lon: int = 144,
         icosahedral_coordinates_path: Optional[str] = "../../mappings/vertex_lonlat_mapping.npy",
+        rolling_mean_time: int = 31,
         # input_transform=None,  # TODO: implement
         # input_normalization="z-norm",  # TODO: implement
         # output_transform=None,
@@ -110,6 +111,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         self.lat = lat
         self.lon = lon
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        self.rolling_mean_time = int(rolling_mean_time)
 
     # NOTE:() changing this so it can deal with with grib files and netcdf files
     # this operates variable wise now.... #TODO: sizes for input4mips / adapt to mulitple vars
@@ -604,7 +606,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         or trend removal
         emissions - remove the trend using the emissions data, such as cumulative CO2
         """
-        window = 31  # ±15 days
+        window = int(getattr(self, "rolling_mean_time", 31))
         use_mad = True  # set True to use MAD instead of STD
         eps = 1e-6
 
