@@ -577,12 +577,12 @@ class TrainingLatent:
             h_acyclic = self.get_acyclicity_violation()
             if self.optim_params.update_sparsity_after_acyclicity and h_acyclic < self.optim_params.acyclic_h_threshold:
                 h_sparsity = self.get_sparsity_violation(
-                    lower_threshold=0.33,
+                    lower_threshold=0.05,
                     upper_threshold=self.optim_params.sparsity_upper_threshold,
                 )
-            if self.optim_params.binarize_transition and h_sparsity == 0:
-                h_sparsity = self.adj_transition_variance()
-            h_acyclic = h_sparsity
+                if self.optim_params.binarize_transition and h_sparsity == 0:
+                    h_sparsity = self.adj_transition_variance()
+                h_acyclic = h_sparsity
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
@@ -846,7 +846,7 @@ class TrainingLatent:
                     and h_acyclic < self.optim_params.acyclic_h_threshold
                 ):
                     h_sparsity = self.get_sparsity_violation(
-                        lower_threshold=0.33,
+                        lower_threshold=0.05,
                         upper_threshold=self.optim_params.sparsity_upper_threshold,
                     )
 
