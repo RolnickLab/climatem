@@ -214,6 +214,8 @@ class Plotter:
 
         # this is where this was before, but I have now added the argument names for myself
         if learner.plot_params.savar:
+            print("Ground truth adjacency matrix: \n", learner.datamodule.savar_gt_adj)
+            print("Learned adjacency matrix: \n", adj)
             self.plot_adjacency_matrix(
                 mat1=adj,
                 # Below savar dag
@@ -415,8 +417,10 @@ class Plotter:
 
         # this is where this was before, but I have now added the argument names for myself
         if learner.plot_params.savar:
+            print("Ground truth adjacency matrix: \n", learner.datamodule.savar_gt_adj)
+            print("Learned adjacency matrix: \n", adj)
             self.plot_adjacency_matrix(
-                mat1=adj,
+                mat1=adj[::-1],
                 # Below savar dag
                 mat2=learner.datamodule.savar_gt_adj,
                 path=learner.plots_path,
@@ -427,7 +431,7 @@ class Plotter:
             )
         else:
             self.plot_adjacency_matrix(
-                mat1=adj,
+                mat1=adj[::-1],
                 mat2=gt_dag,
                 path=learner.plots_path,
                 name_suffix="transition",

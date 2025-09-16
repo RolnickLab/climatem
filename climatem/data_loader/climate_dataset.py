@@ -21,6 +21,8 @@ from climatem.utils import get_logger
 
 log = get_logger()
 
+device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
+
 
 # base data set: implements copy to slurm, get item etc pp
 # cmip6 data set: model wise
@@ -73,6 +75,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
 
         super().__init__()
+        self.Data = None # used by inhereted classes to store the data (e.g. input4mips)
         self.test_dir = output_save_dir
         self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
@@ -331,7 +334,8 @@ class ClimateDataset(torch.utils.data.Dataset):
         num_years = self.length
         # print("In get_causal_data, num_years:", num_years)
 
-        data = self.Data
+        data = self.Data.to(device)
+        print("data device: ", data.device)
 
         # print("Here in get_causal_data, self.length:", self.length)
 

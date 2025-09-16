@@ -305,3 +305,4 @@ class SAVAR:
                 # data_field[..., t:t + 1] += torch.matmul(torch.matmul(torch.matmul(weights_inv, phi[..., i]), weights), data_field[..., t - 1 - i:t - i])
 
         self.data_field = data_field[..., self.transient :].detach().cpu().numpy()
+        # self.data_field = data_field[..., self.transient :]

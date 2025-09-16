@@ -162,6 +162,7 @@ class modelParams:
         fixed_output_fraction=None,  # NOT SURE, Remove this?
         tau_neigh: int = 0,  # NOT SURE
         hard_gumbel: bool = False,  # NOT SURE
+        use_grad_norm: bool = False,
     ):
         self.instantaneous = instantaneous
         self.no_w_constraint = no_w_constraint
@@ -179,6 +180,7 @@ class modelParams:
         self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh
         self.hard_gumbel = hard_gumbel
+        self.use_grad_norm = use_grad_norm
 
 
 class optimParams:

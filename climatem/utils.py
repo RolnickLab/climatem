@@ -15,7 +15,7 @@ from torch import default_generator, randperm
 from torch.utils.data.dataset import Subset
 
 # What functions do we axctually use from this? ... I feel like we could delete everything
-
+device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
 
 def to_DictConfig(obj: Optional[Union[List, Dict]]):
     if isinstance(obj, DictConfig):
@@ -122,6 +122,9 @@ def random_split(dataset, lengths, generator=default_generator):
         lengths (sequence): lengths or fractions of splits to be produced
         generator (Generator): Generator used for the random permutation.
     """
+    print("random_split device: ", dataset.Data.device)
+    dataset.Data.to(device)
+    print("random_split device after device: ", dataset.Data.device)
     if math.isclose(sum(lengths), 1) and sum(lengths) <= 1:
         subset_lengths: List[int] = []
         for i, frac in enumerate(lengths):

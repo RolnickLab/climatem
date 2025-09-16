@@ -369,7 +369,18 @@ class LatentTSDCD(nn.Module):
         if debug_gt_w:
             self.decoder.w = gt_w
 
-        self.transition_model = TransitionModelParamSharing(
+        # self.transition_model = TransitionModelParamSharing(
+        #     self.d,
+        #     self.d_z,
+        #     self.total_tau,
+        #     self.nonlinear_dynamics,
+        #     self.num_layers,
+        #     self.num_hidden,
+        #     self.num_output,
+        #     self.position_embedding_dim,
+        # )
+
+        self.transition_model = TransitionModel(
             self.d,
             self.d_z,
             self.total_tau,
@@ -377,7 +388,6 @@ class LatentTSDCD(nn.Module):
             self.num_layers,
             self.num_hidden,
             self.num_output,
-            self.position_embedding_dim,
         )
 
         # print("We are setting the Mask here.")
@@ -479,8 +489,15 @@ class LatentTSDCD(nn.Module):
             # print("What is the shape of the mask?", mask.shape)
             # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
             # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
-            pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
-
+            
+            if type(self.transition_model) == TransitionModelParamSharing:
+                pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
+            else:
+                pz_params = torch.zeros(b, self.d_z, 1)
+                for k in range(self.d_z):
+                    pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
+            
+            
             # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
             # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
             # print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
@@ -516,9 +533,8 @@ class LatentTSDCD(nn.Module):
         # sample Zs (based on X)
 
         # print("========= DBG =========")
-        # print(f"Mean of x: {x.mean()}, Mean of y: {y.mean()}")
-        # print(f"Min of x: {x.min()}, Max of x: {x.max()}")
-        # print(f"Min of y: {y.min()}, Max of y: {y.max()}")
+        print(f"x stats: mean {x.mean()}, min {x.min()}, max {x.max()}")
+        print(f"y stats: mean {y.mean()}, min {y.min()}, max {y.max()}")
 
         z, q_mu_y, q_std_y = self.encode(x, y)
         # if torch.isnan(z).any():
@@ -539,6 +555,9 @@ class LatentTSDCD(nn.Module):
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
 
+        print ("z shape:", z.shape)
+        print(f"z[:,-1] stats: mean {z[:,-1].mean().item()}, std {z[:,-1].std().item()}, min {z[:,-1].min().item()}, max {z[:,-1].max().item()}")
+        print("z[:,-1] contains NaNs:", torch.isnan(z[:,-1]).any().item())
         px_mu, px_std = self.decode(z[:, -1])
 
         # TODO - quick fix, figure out why px_mu has nans
@@ -562,12 +581,15 @@ class LatentTSDCD(nn.Module):
                 - 0.5
             )
         else:
+            print("px_mu stats:", px_mu.mean().item(), px_mu.std().item(), px_mu.min().item(), px_mu.max().item())
+            print("px_mu contains NaNs:", torch.isnan(px_mu).any())
+
             px_distr = self.distr_decoder(px_mu, px_std)
         recons = torch.mean(torch.sum(px_distr.log_prob(y.to(px_mu.device)), dim=[1, 2]))
         # compute the KL, the reconstruction and the ELBO
         # kl = distr.kl_divergence(q, p).mean()
         kl_raw = (
-            0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2))
+            0.5 * (torch.log(pz_std**2 + 1e-6) - torch.log(q_std_y**2))
             + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
             - 0.5
         )

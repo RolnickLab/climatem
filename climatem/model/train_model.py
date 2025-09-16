@@ -28,11 +28,14 @@ def get_predictions(x, y, trained_model, accelerator):
     :param trained_model: trained model
     :return: reshaped input and target data
     """
-    x = x.to(accelerator.device)
-    y = y.to(accelerator.device)
+    # x = x.to(accelerator.device, non_blocking=True)
+    # y = y.to(accelerator.device, non_blocking=True)
+    # print("x device: ", x.device)
+    # print("y device: ", y.device)
+    # print("trained_model device: ", trained_model.device)
 
     if trained_model is not None:
-        trained_model = trained_model.to(x.device)
+        # trained_model = trained_model.to(x.device)
         with torch.no_grad():
             if trained_model.name == "vae":
                 # remove one dimension of y from [batch_size, 1, 1, dim] to [batch_size, 1, dim]
@@ -55,7 +58,7 @@ def get_predictions(x, y, trained_model, accelerator):
         print("Warning: target data contains NaN values, replacing with 0.")
         y = torch.nan_to_num(y)
     
-    y = y.to(accelerator.device)
+    # y = y.to(accelerator.device)
 
     return x, y
 
@@ -86,13 +89,19 @@ class TrainingLatent:
         # Params for learning causal graph on a trained model
         self.trained_model = trained_model
         self.trained_model_type = trained_model_type
+        
 
         self.accelerator = accelerator
         self.model = model
-        self.model.to(accelerator.device)
+        # self.model.to(accelerator.device)
         self.datamodule = datamodule
-        self.data_loader_train = iter(datamodule.train_dataloader(accelerator=accelerator))
-        self.data_loader_val = iter(datamodule.val_dataloader())
+        self.data_loader_train_raw = datamodule.train_dataloader(accelerator=accelerator)
+        self.data_loader_val_raw = datamodule.val_dataloader(accelerator=accelerator)
+        
+        self.data_loader_train = iter(self.data_loader_train_raw)
+        self.data_loader_val = iter(self.data_loader_val_raw)
+        self.iter_train = 0
+        self.iter_val = 0
         self.coordinates = datamodule.coordinates
         self.exp_params = exp_params
         self.train_params = train_params
@@ -114,6 +123,7 @@ class TrainingLatent:
         self.debug_gt_z = gt_params.debug_gt_z
         self.d_z = exp_params.d_z
         self.no_w_constraint = model_params.no_w_constraint
+        self.use_grad_norm = model_params.use_grad_norm
 
         self.d = d
         self.patience = train_params.patience
@@ -233,6 +243,9 @@ class TrainingLatent:
         self.data_loader_train, self.model, self.optimizer, self.scheduler = accelerator.prepare(
             self.data_loader_train, self.model, self.optimizer, self.scheduler
         )
+        # self.model, self.optimizer, self.scheduler = accelerator.prepare(
+        #     self.model, self.optimizer, self.scheduler
+        # )
 
         # Check that model and everything is on gpu
         # print("\nModel Parameter Devices after moving to GPU:")
@@ -555,19 +568,18 @@ class TrainingLatent:
     def train_step(self):  # noqa: C901
 
         self.model.train()
-        self.model = self.model.to(self.accelerator.device)
+        # self.model = self.model.to(self.accelerator.device)
         # sample data
 
         # TODO: send data to gpu in the initialization and sample afterwards
         # x, y = next(self.data_loader_train) #.sample(self.batch_size, valid=False)
-
         try:
             x, y = next(self.data_loader_train)
-            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
         except StopIteration:
-            self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
+            self.data_loader_train = iter(self.data_loader_train_raw)
             x, y = next(self.data_loader_train)
-            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
+
+        x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
         # y = y[:, 0]
         z = None
@@ -591,7 +603,8 @@ class TrainingLatent:
             y_pred_all[:, k] = y_pred
             
             
-            x_bis = torch.cat((x_bis[:, 1:], y_pred.to(x_bis.device).unsqueeze(1)), dim=1)
+            # x_bis = torch.cat((x_bis[:, 1:], y_pred.to(x_bis.device).unsqueeze(1)), dim=1)
+            x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
         del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
         assert y.shape == y_pred_all.shape
@@ -601,10 +614,11 @@ class TrainingLatent:
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
-            self.ALM_sparsity.gamma = self.ALM_sparsity.gamma.to(h_sparsity.device)
+            # self.ALM_sparsity.gamma = self.ALM_sparsity.gamma.to(h_sparsity.device)
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
-                h_variance = self.adj_transition_variance().to(h_sparsity.device)
+                # h_variance = self.adj_transition_variance().to(h_sparsity.device)
+                h_variance = self.adj_transition_variance()
                 sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
 
         else:
@@ -621,7 +635,8 @@ class TrainingLatent:
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
-        loss = nll.to(self.accelerator.device) + connect_reg.to(self.accelerator.device) + sparsity_reg.to(self.accelerator.device)
+        # loss = nll.to(self.accelerator.device) + connect_reg.to(self.accelerator.device) + sparsity_reg.to(self.accelerator.device)
+        loss = nll + connect_reg + sparsity_reg
         if not self.no_w_constraint:
             self.ALM_ortho.gamma = self.ALM_ortho.gamma.to(h_ortho.device)
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
@@ -674,6 +689,12 @@ class TrainingLatent:
         self.optimizer.zero_grad(set_to_none=True)
         # loss.backward()
         self.accelerator.backward(loss)
+
+        #gradient clipping on the autoencoder model
+        if self.use_grad_norm:
+            print ("clipping grad norm")
+            torch.nn.utils.clip_grad_norm_(self.model.autoencoder.parameters(), max_norm=1)
+
         # for name, param in self.model.named_parameters():
         #     if param.grad is not None and torch.isnan(param.grad).any():
         _, _ = (
@@ -682,7 +703,7 @@ class TrainingLatent:
         # projection of the gradient for w
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
-                self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
+                self.model.autoencoder.get_w_decoder().clamp_(min=1e-6)
 
             # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
@@ -829,11 +850,10 @@ class TrainingLatent:
             # sample data
             try:
                 x, y = next(self.data_loader_val)
-                x, y = get_predictions(x, y, self.trained_model, self.accelerator)
             except StopIteration:
-                self.data_loader_val = iter(self.datamodule.val_dataloader())
+                self.data_loader_val = iter(self.data_loader_val_raw)
                 x, y = next(self.data_loader_val)
-                x, y = get_predictions(x, y, self.trained_model, self.accelerator)
+            x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
 
@@ -1521,8 +1541,14 @@ class TrainingLatent:
             predictions = []
 
             # Make the iterator again, since otherwise we have iterated through it already...
-            train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
-            x, y = next(train_dataloader)
+            # train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
+            
+            try:
+                x, y = next(self.data_loader_train)
+            except StopIteration:
+                self.data_loader_train = iter(self.data_loader_train_raw)
+                x, y = next(self.data_loader_train)
+
             x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
             y = y[:, 0]
@@ -1659,8 +1685,12 @@ class TrainingLatent:
 
             # bs = np.min([self.data.n_valid, 1000])
             # Make the iterator again
-            val_dataloader = iter(self.datamodule.val_dataloader())
-            x, y = next(val_dataloader)
+            # val_dataloader = iter(self.datamodule.val_dataloader())
+            try:
+                x, y = next(self.data_loader_val)
+            except StopIteration:
+                self.data_loader_val = iter(self.data_loader_val_raw)
+                x, y = next(self.data_loader_val)
             x, y = get_predictions(x, y, self.trained_model, self.accelerator)
 
             y = y[:, 0]

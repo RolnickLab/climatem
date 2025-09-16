@@ -171,8 +171,14 @@ class ClimateDataModule(LightningDataModule):
             fractions = [1 - +self.hparams.val_split, self.hparams.val_split]
             ds_list = random_split(full_ds, lengths=fractions)
             train_ds, val_ds = ds_list
+
+            train_ds.Data = train_ds.Data.to(self.accelerator.device)
+            print ("train_ds device: ", train_ds.Data.device)
+            val_ds.Data = val_ds.Data.to(self.accelerator.device)
+
             self._data_train = train_ds
             self._data_val = val_ds
+            
         # Test sets:
         if stage == "test" or stage is None:
             self._data_test = [
@@ -220,30 +226,38 @@ class ClimateDataModule(LightningDataModule):
         #     train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
 
         # Set generator seed for reproducibility
-        generator = torch.Generator(device="cpu")
+        generator = torch.Generator(device=accelerator.device)
+        # generator = torch.Generator()
         generator.manual_seed(self.hparams.seed)
-        
-        return DataLoader(
+        # print("self._data_train device: ", self._data_train.Data.device)
+        # self._data_train.x = torch.from_numpy(self._data_train.x).to(accelerator.device)
+        # self._data_train.y = torch.from_numpy(self._data_train.y).to(accelerator.device)
+        # breakpoint()
+        dl = DataLoader(
             dataset=self._data_train,
             batch_size=self.hparams.batch_size,
             shuffle=True,
+            # generator=torch.Generator(device=accelerator.device),
             generator=generator,
             drop_last=True,
             **self._shared_dataloader_kwargs(),
         )
+        print ("dl construction worked")
+        dl = accelerator.prepare(dl)
+        return dl
 
-    def val_dataloader(self):
+    def val_dataloader(self, accelerator):
 
         # valid_sampler = None
         # if multi_gpu:
         #     # setup_ddp()
         #     valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
+        dl = DataLoader(dataset=self._data_val, drop_last=True, **self._shared_eval_dataloader_kwargs())
+        # self._data_val.x = torch.from_numpy(self._data_val.x).to(accelerator.device)
+        # self._data_val.y = torch.from_numpy(self._data_val.y).to(accelerator.device)
 
-        return (
-            DataLoader(dataset=self._data_val, drop_last=True, **self._shared_eval_dataloader_kwargs())
-            if self._data_val is not None
-            else None
-        )
+        dl = accelerator.prepare(dl)
+        return dl
 
     def test_dataloader(self) -> List[DataLoader]:
 
