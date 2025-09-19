@@ -1,11 +1,11 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/results/CHIRPS_DATA_TEST",
+        "exp_path": "$SCRATCH/results/CHIRPS_DATA_TEST/no_update_sparsity_acyclicity/muin_1-e1/mumult_1.0",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
         "d_z": [
             25,
-            25
+            10
         ],
         "d_x": 6250,
         "lon": 144,
@@ -19,8 +19,8 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "/network/scratch/l/lastc/data/CHIRPS_DATA_TEST",
-        "climateset_data": "/network/scratch/l/lastc/data/CHIRPS_DATA_TEST",
+        "data_dir": "$SCRATCH/data/CHIRPS_DATA_TEST",
+        "climateset_data": "$SCRATCH/data/CHIRPS_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
         "in_var_ids": {
@@ -124,8 +124,8 @@
         "sparsity_h_threshold": 0.1,
         "sparsity_min_iter_convergence": 1000,
         "sparsity_upper_threshold": 1,
-        "acyclic_mu_init": 1e-4,
-        "acyclic_mu_mult_factor": 1.2,
+        "acyclic_mu_init": 1e-1,
+        "acyclic_mu_mult_factor": 1.0,
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
         "acyclic_h_threshold": 1e-1,

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=run_single                                           # Set name of job
-#SBATCH --output=run_single_output.txt                                  # Set location of output file
-#SBATCH --error=run_single_error.txt                                    # Set location of error file
+#SBATCH --job-name=run-chirps                                           # Set name of job
+#SBATCH --output=run-chirps-out.txt                                  # Set location of output file
+#SBATCH --error=run-chirps-err.txt                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs

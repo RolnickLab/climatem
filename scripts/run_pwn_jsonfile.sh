@@ -1,14 +1,14 @@
 #!/bin/bash
 
-#SBATCH --job-name=pnw_S_15_[10,25]                                         # Set name of job
-#SBATCH --output=pnw_S_15_[10,25].txt                                  # Set location of output file
-#SBATCH --error=pnw_S_15_[10,25]_err.txt                                    # Set location of error file
-#SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
+#SBATCH --job-name=pnw                                         # Set name of job
+#SBATCH --output=pnw-out.txt                                  # Set location of output file
+#SBATCH --error=pnw-err.txt                                    # Set location of error file
+#SBATCH --gpus-per-task=4                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
-#SBATCH --mem=256G                                                       # Ask for 32 GB of RAM
-#SBATCH --time=48:00:00                                                 # The job will run for 2 hours
+#SBATCH --mem=128G                                                       # Ask for 32 GB of RAM
+#SBATCH --time=12:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 
 # 0. Clear the environment
