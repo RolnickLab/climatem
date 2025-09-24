@@ -1,6 +1,6 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/results/CHIRPS_DATA_TEST/no_update_sparsity_acyclicity/muin_1-e1/mumult_1.0",
+        "exp_path": "$SCRATCH/teleconnection_results",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
         "d_z": [
@@ -19,8 +19,8 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/CHIRPS_DATA_TEST",
-        "climateset_data": "$SCRATCH/data/CHIRPS_DATA_TEST",
+        "data_dir": "$SCRATCH/teleconnection_data/CHIRPS_DATA_TEST",
+        "climateset_data": "$SCRATCH/teleconnection_data/CHIRPS_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
         "in_var_ids": {
@@ -115,20 +115,20 @@
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
-        "ortho_h_threshold": 0.01,
+        "ortho_h_threshold": 1e-21,
         "ortho_min_iter_convergence": 1000,
         "sparsity_mu_init": 1e-8,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
-        "sparsity_h_threshold": 0.1,
+        "sparsity_h_threshold": 0.2,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 1,
+        "sparsity_upper_threshold": 1e-8,
         "acyclic_mu_init": 1e-1,
         "acyclic_mu_mult_factor": 1.0,
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
-        "acyclic_h_threshold": 1e-1,
+        "acyclic_h_threshold": 1e-8,
         "acyclic_min_iter_convergence": 1000,
         "mu_acyclic_init": null,
         "h_acyclic_threshold": null
