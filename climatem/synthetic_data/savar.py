@@ -553,3 +553,35 @@ class SAVAR:
                 data_field[:, t] += poly_sum.squeeze(-1)
 
         self.data_field = data_field[:, self.transient :].detach().cpu().numpy()
+
+    def _create_intervened_nextstep(self, input_data, intervened_mode=None, intervention_value=None, intervened_t=None):
+        """
+        Not tested yet!!!
+
+        input_data are the tau timesteps that get intervened on
+        at mode intervened_mode, with value +intervention_value, at timestep intervened_t
+
+        input_data is here of shape `self.spatial_resolution * self.time_length`.
+        This is to keep the savar structure similar to the one of `self.data_field`
+        """
+
+        weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
+        # weights_inv = np.linalg.pinv(weights)
+        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
+        weights = torch.Tensor(weights).to(device="cuda")
+        tau = input_data.shape[1]
+
+        # phi = dict_to_matrix(self.links_coeffs)
+        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        # data_field = deepcopy(self.data_field)
+        next_step = torch.zeros(self.spatial_resolution).to(device="cuda")
+
+        # perform intervention
+        input_data[
+            intervened_mode * self.spatial_resolution : (intervened_mode + 1) * self.spatial_resolution, intervened_t
+        ] += intervention_value
+
+        for i in range(tau):
+            next_step += weights_inv @ phi[..., i] @ weights @ input_data[..., tau - 1 - i : tau - i]
+
+        return next_step
