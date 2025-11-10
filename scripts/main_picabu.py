@@ -116,8 +116,20 @@ def main(
             n_per_col=savar_params.n_per_col,
             difficulty=savar_params.difficulty,
             seasonality=savar_params.seasonality,
+            periods=savar_params.periods,
+            amplitudes=savar_params.amplitudes,
+            phases=savar_params.phases,
+            yearly_jitter_amp=savar_params.yearly_jitter_amp,
+            yearly_jitter_phase=savar_params.yearly_jitter_phase,
             overlap=savar_params.overlap,
             is_forced=savar_params.is_forced,
+            f_1=savar_params.f_1,
+            f_2=savar_params.f_2,
+            f_time_1=savar_params.f_time_1,
+            f_time_2=savar_params.f_time_2,
+            ramp_type=savar_params.ramp_type,
+            linearity=savar_params.linearity,
+            poly_degrees=savar_params.poly_degrees,
             plot_original_data=savar_params.plot_original_data,
         )
         datamodule.setup()
@@ -207,12 +219,14 @@ def main(
     trainer = TrainingLatent(
         model,
         datamodule,
+        data_params,
         experiment_params,
         gt_params,
         model_params,
         train_params,
         optim_params,
         plot_params,
+        savar_params,
         save_path,
         plots_path,
         best_metrics,
@@ -220,6 +234,7 @@ def main(
         accelerator,
         wandbname=name,
         profiler=False,
+        profiler_path="./log",
     )
 
     # where is the model at this point?
@@ -378,4 +393,3 @@ if __name__ == "__main__":
     )
 
     main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
-

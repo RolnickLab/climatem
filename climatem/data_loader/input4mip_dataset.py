@@ -1,8 +1,6 @@
 # NOTE: as of 14th Oct, I am also trying to get this to work for multiple variables.
 
-import glob
 import os
-import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -23,6 +21,7 @@ log = get_logger()
 # base data set: implements copy to slurm, get item etc pp
 # input4mips data set: same per model
 # from datamodule create one of these per train/test/val
+
 
 class Input4MipsDataset(ClimateDataset):
     """

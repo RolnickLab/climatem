@@ -288,8 +288,20 @@ class savarParams:
         n_per_col: int = 2,  # square grid, equivalent of lat/lon
         difficulty: str = "easy",  # easy, med_easy, med_hard, hard: difficulty of the graph
         seasonality: bool = False,  # Seasonality in synthetic data
+        periods: List[float] = [365, 182.5, 60],  # Periods of the seasonality in days
+        amplitudes: List[float] = [0.06, 0.02, 0.01],  # Amplitudes of the seasonality
+        phases: List[float] = [0.0, 0.7853981634, 1.5707963268],  # Phases of the seasonality in radians
+        yearly_jitter_amp: float = 0.05,  # Amplitude of the yearly jitter
+        yearly_jitter_phase: float = 0.10,  # Phase of the yearly
         overlap: bool = False,  # Modes overlap
         is_forced: bool = False,  # Forcings in synthetic data
+        f_1: int = 1,
+        f_2: int = 2,
+        f_time_1: int = 4000,
+        f_time_2: int = 8000,
+        ramp_type: str = "linear",
+        linearity: str = "linear",
+        poly_degrees: List[int] = [2],
         plot_original_data: bool = True,
     ):
         self.time_len = time_len
@@ -298,8 +310,20 @@ class savarParams:
         self.n_per_col = n_per_col
         self.difficulty = difficulty
         self.seasonality = seasonality
+        self.periods = periods
+        self.amplitudes = amplitudes
+        self.phases = phases
+        self.yearly_jitter_amp = yearly_jitter_amp
+        self.yearly_jitter_phase = yearly_jitter_phase
         self.overlap = overlap
         self.is_forced = is_forced
+        self.f_1 = f_1
+        self.f_2 = f_2
+        self.f_time_1 = f_time_1
+        self.f_time_2 = f_time_2
+        self.ramp_type = ramp_type
+        self.linearity = linearity
+        self.poly_degrees = poly_degrees
         self.plot_original_data = plot_original_data
 
 

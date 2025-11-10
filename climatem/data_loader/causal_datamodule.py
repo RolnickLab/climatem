@@ -11,8 +11,8 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
 from climatem.data_loader.cmip6_dataset import CMIP6Dataset
-from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.era5_dataset import ERA5Dataset
+from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.savar_dataset import SavarDataset
 
 
@@ -99,6 +99,13 @@ class CausalClimateDataModule(ClimateDataModule):
                     seasonality=self.hparams.seasonality,
                     overlap=self.hparams.overlap,
                     is_forced=self.hparams.is_forced,
+                    f_1=self.hparams.f_1,
+                    f_2=self.hparams.f_2,
+                    f_time_1=self.hparams.f_time_1,
+                    f_time_2=self.hparams.f_time_2,
+                    ramp_type=self.hparams.ramp_type,
+                    linearity=self.hparams.linearity,
+                    poly_degrees=self.hparams.poly_degrees,
                     plot_original_data=self.hparams.plot_original_data,
                 )
             elif (

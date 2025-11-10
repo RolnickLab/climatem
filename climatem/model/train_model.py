@@ -22,12 +22,14 @@ class TrainingLatent:
         self,
         model,
         datamodule,
+        data_params,
         exp_params,
         gt_params,
         model_params,
         train_params,
         optim_params,
         plot_params,
+        savar_params,
         save_path,
         plots_path,
         best_metrics,
@@ -45,6 +47,7 @@ class TrainingLatent:
         self.data_loader_train = iter(datamodule.train_dataloader(accelerator=accelerator))
         self.data_loader_val = iter(datamodule.val_dataloader())
         self.coordinates = datamodule.coordinates
+        self.data_params = data_params
         self.exp_params = exp_params
         self.train_params = train_params
         self.optim_params = optim_params
@@ -55,6 +58,7 @@ class TrainingLatent:
         )
 
         self.plot_params = plot_params
+        self.savar_params = savar_params
         self.best_metrics = best_metrics
         self.save_path = save_path
         self.plots_path = plots_path

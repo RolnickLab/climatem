@@ -4,6 +4,7 @@ import os
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -48,13 +49,13 @@ class Plotter:
         if learner.latent:
             # save matrix W of the decoder and encoder
             print("Saving the decoder, encoder and graphs.")
-            w_decoder = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+            w_decoder = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_decoder.npy", w_decoder)
-            w_encoder = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+            w_encoder = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_encoder.npy", w_encoder)
 
             # save the graphs G
-            adj = learner.model.get_adj().cpu().detach().numpy()
+            adj = learner.model.module.get_adj().cpu().detach().numpy()
             np.save(learner.plots_path / "graphs.npy", adj)
 
     def load(self, exp_path, data_loader):
@@ -167,12 +168,12 @@ class Plotter:
             )
 
         # plot the adjacency matrix (learned vs ground-truth)
-        adj = learner.model.get_adj().cpu().detach().numpy()
+        adj = learner.model.module.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag
@@ -209,14 +210,13 @@ class Plotter:
             gt_w = None
 
             # for latent models, find the right permutation of the latent
-            adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
         if learner.plot_params.savar:
             self.plot_adjacency_matrix(
                 mat1=adj,
-                # Below savar dag
                 mat2=learner.datamodule.savar_gt_adj,
                 path=learner.plots_path,
                 name_suffix="transition",
@@ -363,17 +363,30 @@ class Plotter:
                 path=learner.plots_path,
             )
 
+        # Load gt mode weights
+        if learner.plot_params.savar:
+            savar_folder = learner.data_params.data_dir
+            n_modes = learner.savar_params.n_per_col**2
+            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}_f1_{learner.savar_params.f_1}_f2_{learner.savar_params.f_2}_ft1_{learner.savar_params.f_time_1}_ft2_{learner.savar_params.f_time_2}_ramp_{learner.savar_params.ramp_type}_linearity_{learner.savar_params.linearity}_polydegs_{learner.savar_params.poly_degrees}"
+            # Get the gt mode weights
+            modes_gt = np.load(f"{savar_folder}/{savar_fname}_mode_weights.npy")
+            if learner.iteration == 500:
+                savar_data = np.load(f"{savar_folder}/{savar_fname}.npy")
+                savar_anim_path = f"{savar_folder}/{savar_fname}_original_savar_data.gif"
+                self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
+                print(modes_gt)
+
         # TODO: plot the prediction vs gt
         # plot_compare_prediction(x, x_hat)
 
         # plot the adjacency matrix (learned vs ground-truth)
         # Here if SAVAR, learner should have GT and gt_dag should be the SAVAR GT
-        adj = learner.model.get_adj().cpu().detach().numpy()
+        adj = learner.model.module.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag
@@ -410,27 +423,35 @@ class Plotter:
             gt_w = None
 
             # for latent models, find the right permutation of the latent
-            adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # this is where this was before, but I have now added the argument names for myself
         if learner.plot_params.savar:
             self.plot_adjacency_matrix(
+                learner,
                 mat1=adj,
                 # Below savar dag
                 mat2=learner.datamodule.savar_gt_adj,
+                modes_gt=modes_gt,
+                modes_inferred=adj_w,
                 path=learner.plots_path,
                 name_suffix="transition",
+                savar=True,
                 no_gt=False,
                 iteration=learner.iteration,
                 plot_through_time=learner.plot_params.plot_through_time,
             )
         else:
             self.plot_adjacency_matrix(
+                learner,
                 mat1=adj,
                 mat2=gt_dag,
+                modes_gt=gt_w,
+                modes_inferred=adj_w,
                 path=learner.plots_path,
                 name_suffix="transition",
+                savar=False,
                 no_gt=learner.no_gt,
                 iteration=learner.iteration,
                 plot_through_time=learner.plot_params.plot_through_time,
@@ -873,7 +894,7 @@ class Plotter:
     ):
 
         grid_shape = (learner.lat, learner.lon)
-
+        print("SAVAR plot is called")
         w_adj = w_adj[0]  # Now w_adj_mean should be (lat*lon, num_latents)
         d_z = w_adj.shape[1]
 
@@ -1057,8 +1078,8 @@ class Plotter:
         if not os.path.exists(learner.plots_path / "coordinates.npy"):
             np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
-        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-        adj_encoder_w = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+        adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_encoder_w = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
         np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
         np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 
@@ -1066,10 +1087,14 @@ class Plotter:
     # simply follow the lead of the function above, and try to plot through time.
     def plot_adjacency_matrix(
         self,
+        learner,
         mat1: np.ndarray,
         mat2: np.ndarray,
+        modes_gt,
+        modes_inferred,
         path,
         name_suffix: str,
+        savar,
         no_gt: bool = False,
         iteration: int = 0,
         plot_through_time: bool = True,
@@ -1083,7 +1108,36 @@ class Plotter:
           name_suffix: suffix for the name of the plot
           no_gt: if True, does not use the ground-truth graph
         """
+
+        lat = learner.lat
+        lon = learner.lon
         tau = mat1.shape[0]
+
+        if savar and modes_gt is not None and modes_inferred is not None:
+            # Find the permutation
+            modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
+
+            # Get the flat index of the maximum for each mode
+            idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)  # shape: (n_modes,)
+            idx_inferred_flat = np.argmax(
+                modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1
+            )  # shape: (n_modes,)
+
+            # Convert flat indices to 2D coordinates (row, col)
+            idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])  # shape: (n_modes, 2)
+            idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
+
+            # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
+            permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+            print("permutation_list:", permutation_list)
+
+            # Permute
+            for k in range(tau):
+                mat1[k] = mat1[k][np.ix_(permutation_list, permutation_list)]
+
+            print("PERMUTED THE MATRICES")
+
+            # np.save(learner.plots_path / f"adjacency_{name_suffix}_permuted.npy", mat1)
 
         subfig_names = [
             f"Learned, latent dimensions = {mat1.shape[1], mat1.shape[2]}",
@@ -1372,14 +1426,44 @@ class Plotter:
             fig.savefig(exp_path / "mcc.png")
             fig.clf()
 
+    def plot_original_savar(self, data, lat, lon, path):
+        """Plotting the original savar data."""
+        print(f"data shape {data.shape}")
+        # Get the dimensions
+        time_steps = data.shape[1]
+        data_reshaped = data.T.reshape((time_steps, lat, lon))
+
+        # Calculate the average over the time axis
+        avg_data = np.mean(data_reshaped, axis=0)
+
+        # Determine the global min and max from the averaged data for consistent color scaling
+        vmin = np.min(avg_data)
+        vmax = np.max(avg_data)
+
+        fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
+        cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
+        # cbar = fig.colorbar(cax, ax=ax)
+
+        def animate(i):
+            cax.set_data(data_reshaped[i])
+            ax.set_title(f"Time step: {i+1}")
+            return (cax,)
+
+        # Create an animation
+        ani = animation.FuncAnimation(fig, animate, frames=100, blit=False)
+
+        # Save the animation as a video file
+        ani.save(path, writer="pillow", fps=10)
+
+        plt.close()
+
     # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
 
-    # def plot_original_savar(self, path, lon, lat, savar_path):
+    # def plot_original_savar(self, data, lon, lat, path):
     #     """Plotting the original savar data."""
-    #     data = np.load(f"{savar_path}.npy")
-
+    #     print(f"data shape {data.shape}")
     #     # Get the dimensions
-    #     time_steps = data.shape[1]
+    #     time_steps = data.shape[0]
     #     data_reshaped = data.T.reshape((time_steps, lat, lon))
 
     #     # Calculate the average over the time axis
