@@ -363,18 +363,7 @@ class Plotter:
                 path=learner.plots_path,
             )
 
-        # Load gt mode weights
-        if learner.plot_params.savar:
-            savar_folder = learner.data_params.data_dir
-            n_modes = learner.savar_params.n_per_col**2
-            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}_f1_{learner.savar_params.f_1}_f2_{learner.savar_params.f_2}_ft1_{learner.savar_params.f_time_1}_ft2_{learner.savar_params.f_time_2}_ramp_{learner.savar_params.ramp_type}_linearity_{learner.savar_params.linearity}_polydegs_{learner.savar_params.poly_degrees}"
-            # Get the gt mode weights
-            modes_gt = np.load(f"{savar_folder}/{savar_fname}_mode_weights.npy")
-            if learner.iteration == 500:
-                savar_data = np.load(f"{savar_folder}/{savar_fname}.npy")
-                savar_anim_path = f"{savar_folder}/{savar_fname}_original_savar_data.gif"
-                self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
-                print(modes_gt)
+        modes_gt = self.prepare_savar_context(learner)
 
         # TODO: plot the prediction vs gt
         # plot_compare_prediction(x, x_hat)
@@ -488,6 +477,33 @@ class Plotter:
                     idx_region=None,
                     annotate=True,
                 )
+
+    def prepare_savar_context(self, learner):
+        """Load the SAVAR ground-truth artifacts needed for plotting."""
+        if not learner.plot_params.savar:
+            return None
+
+        savar_folder = learner.data_params.data_dir
+        savar_params = learner.savar_params
+        n_modes = savar_params.n_per_col**2
+        savar_fname = (
+            f"modes_{n_modes}_tl_{savar_params.time_len}_isforced_{savar_params.is_forced}_"
+            f"difficulty_{savar_params.difficulty}_noisestrength_{savar_params.noise_val}_"
+            f"seasonality_{savar_params.seasonality}_overlap_{savar_params.overlap}_"
+            f"f1_{savar_params.f_1}_f2_{savar_params.f_2}_ft1_{savar_params.f_time_1}_"
+            f"ft2_{savar_params.f_time_2}_ramp_{savar_params.ramp_type}_"
+            f"linearity_{savar_params.linearity}_polydegs_{savar_params.poly_degrees}"
+        )
+        savar_base_path = f"{savar_folder}/{savar_fname}"
+        modes_gt = np.load(f"{savar_base_path}_mode_weights.npy")
+
+        if learner.iteration == 500:
+            savar_data = np.load(f"{savar_base_path}.npy")
+            savar_anim_path = f"{savar_base_path}_original_savar_data.gif"
+            self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
+            print(modes_gt)
+
+        return modes_gt
 
     def plot_learned_mixing(self, z, z_hat, w, gt_w, x, path):
         n_first = 5
@@ -791,6 +807,102 @@ class Plotter:
         plt.savefig(path / fname, format="png")
         plt.close()
 
+    def plot_compare_predictions_savar(
+        self,
+        x_past: np.ndarray,
+        y_true: np.ndarray,
+        y_recons: np.ndarray,
+        y_hat: np.ndarray,
+        sample: int,
+        lat: int,
+        lon: int,
+        path,
+        filename_prefix=None,
+        iteration: int = 0,
+        valid: str = False,
+        plot_through_time: bool = True,
+    ):
+        """Plot SAVAR predictions alongside reconstruction and ground truth on a latitude/longitude grid."""
+
+        def _reshape(arr: np.ndarray, var_idx: int) -> np.ndarray:
+            arr = np.asarray(arr)
+            if arr.ndim == 2:
+                if sample >= arr.shape[0]:
+                    raise ValueError("Sample index out of bounds for provided array.")
+                if var_idx != 0:
+                    raise ValueError("Variable index must be 0 for 2D inputs shaped (n_samples, lat*lon).")
+                flat = arr[sample]
+            elif arr.ndim >= 3:
+                if sample >= arr.shape[0] or var_idx >= arr.shape[1]:
+                    raise ValueError("Sample or variable index out of bounds for provided array.")
+                flat = arr[sample, var_idx]
+            else:
+                raise ValueError("Expected arrays with at least 2 dimensions.")
+            flat = np.nan_to_num(flat)
+            return flat.reshape(lat, lon)
+
+        y_true = np.asarray(y_true)
+        y_recons = np.asarray(y_recons)
+        y_hat = np.asarray(y_hat)
+
+        if y_true.ndim >= 4:
+            y_true_current = y_true[:, 0]
+            y_true_next = y_true[:, 1] if y_true.shape[1] > 1 else None
+        else:
+            y_true_current = y_true
+            y_true_next = None
+
+        n_vars = y_true_current.shape[1] if y_true_current.ndim > 2 else 1
+        num_cols = 5 if y_true_next is not None else 4
+        fig_width = 8 * num_cols
+        fig_height = 16 if n_vars > 1 else 8
+
+        fig, axs = plt.subplots(n_vars, num_cols, figsize=(fig_width, fig_height), layout="constrained")
+        ax_rows = axs if n_vars > 1 else [axs]
+
+        panels = [
+            ("Ground-truth t-1", x_past),
+            ("Ground truth t", y_true_current),
+            ("Reconstruction", y_recons),
+            ("Prediction", y_hat),
+        ]
+        if y_true_next is not None:
+            panels.append(("Ground truth t+1", y_true_next))
+
+        for var_idx, ax_row in enumerate(ax_rows):
+            grids = [_reshape(arr, var_idx) for _, arr in panels]
+            vmin = min(grid.min() for grid in grids)
+            vmax = max(grid.max() for grid in grids)
+            im = None
+            for ax, (title, _), grid in zip(ax_row, panels, grids):
+                im = ax.imshow(grid, cmap="RdBu_r", vmin=vmin, vmax=vmax, origin="lower", aspect="auto")
+                ax.set_title(title)
+                ax.set_xlabel("Longitude index")
+                ax.set_ylabel("Latitude index")
+            if im is not None:
+                fig.colorbar(im, ax=ax_row[-1], orientation="vertical", shrink=1.0, label=f"Variable {var_idx}")
+
+        if not valid:
+            if plot_through_time:
+                fname = f"compare_predictions_savar_{iteration}_sample_{sample}_train.png"
+            else:
+                fname = "compare_predictions_savar_train.png"
+        else:
+            if plot_through_time:
+                fname = f"compare_predictions_savar_{iteration}_sample_{sample}_valid.png"
+            else:
+                fname = "compare_predictions_savar_valid.png"
+
+        if y_true_next is not None:
+            title = "Ground truth t-1, Ground truth t, Reconstruction, Prediction, and Ground truth t+1 (SAVAR)"
+        else:
+            title = "Ground truth last timestep, Ground truth, Reconstruction, and Prediction (SAVAR)"
+        plt.suptitle(title, fontsize=24)
+        if filename_prefix:
+            fname = f"{filename_prefix}_{fname}"
+        plt.savefig(path / fname, format="png")
+        plt.close()
+
     def plot_compare_regions():
         pass
 
@@ -1083,6 +1195,91 @@ class Plotter:
         np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
         np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 
+    def plot_adjacency_matrix_savar(
+        self,
+        learner,
+        mat1: np.ndarray,
+        mat2: np.ndarray,
+        modes_gt,
+        modes_inferred,
+        path,
+        name_suffix: str,
+        no_gt: bool = False,
+        iteration: int = 0,
+        plot_through_time: bool = True,
+    ):
+        """Plot adjacency matrices for SAVAR runs after aligning inferred modes with the ground truth."""
+
+        effective_no_gt = no_gt or mat2 is None
+        lat = getattr(learner, "lat", None)
+        lon = getattr(learner, "lon", None)
+
+        mat1_to_plot = np.array(mat1, copy=True)
+
+        if (
+            not effective_no_gt
+            and lat is not None
+            and lon is not None
+            and modes_gt is not None
+            and modes_inferred is not None
+        ):
+
+            def _flatten_modes(arr):
+                if arr is None:
+                    return None
+                arr = np.asarray(arr)
+                try:
+                    if arr.ndim == 3 and arr.shape[1:] == (lat, lon):
+                        return arr.reshape(arr.shape[0], -1)
+                    if arr.ndim == 2:
+                        if arr.shape[1] == lat * lon:
+                            return arr
+                        if arr.shape[0] == lat * lon:
+                            return arr.T
+                    if arr.ndim == 1 and arr.size == lat * lon:
+                        return arr.reshape(1, -1)
+                    if arr.ndim >= 2:
+                        return arr.reshape(arr.shape[0], -1)
+                except Exception:
+                    return None
+                return None
+
+            gt_flat = _flatten_modes(modes_gt)
+            inferred_flat = _flatten_modes(modes_inferred)
+
+            if gt_flat is not None and inferred_flat is not None:
+                expected_size = lat * lon
+                if gt_flat.shape[1] != expected_size or inferred_flat.shape[1] != expected_size:
+                    gt_flat = None
+                    inferred_flat = None
+
+            if gt_flat is not None and inferred_flat is not None:
+                n_modes = min(mat1_to_plot.shape[1], gt_flat.shape[0], inferred_flat.shape[0])
+                if n_modes > 0:
+                    gt_idx = gt_flat[:n_modes].argmax(axis=1)
+                    inf_idx = inferred_flat[:n_modes].argmax(axis=1)
+                    if np.max(gt_idx) < expected_size and np.max(inf_idx) < expected_size:
+                        coords_gt = np.stack(np.unravel_index(gt_idx, (lat, lon)), axis=-1)
+                        coords_inf = np.stack(np.unravel_index(inf_idx, (lat, lon)), axis=-1)
+                        distance = ((coords_gt[:, None, :] - coords_inf[None, :, :]) ** 2).sum(axis=2)
+                        permutation = distance.argmin(axis=1)
+                        mat1_to_plot = np.take(mat1_to_plot, permutation, axis=1)
+                        mat1_to_plot = np.take(mat1_to_plot, permutation, axis=2)
+
+        self.plot_adjacency_matrix(
+            learner=learner,
+            mat1=mat1_to_plot,
+            mat2=mat2,
+            modes_gt=None,
+            modes_inferred=None,
+            path=path,
+            name_suffix=name_suffix,
+            savar=False,
+            no_gt=effective_no_gt,
+            iteration=iteration,
+            plot_through_time=plot_through_time,
+        )
+
     # SH: edited to do plot through time, without changing the function name
     # simply follow the lead of the function above, and try to plot through time.
     def plot_adjacency_matrix(
@@ -1200,6 +1397,7 @@ class Plotter:
                 axes = subfig.subplots(nrows=1, ncols=tau)
                 for i in range(tau):
                     axes[i].set_title(f"t - {i+1}")
+                    mat2_rev = mat2[::-1]
                     if row == 0:
                         sns.heatmap(
                             mat1[tau - i - 1],
@@ -1217,10 +1415,9 @@ class Plotter:
                         # add a vertical line every 50 columns
                         for j in range(0, mat1.shape[1], 50):
                             axes[i].axvline(x=j, color="black", linewidth=0.4)
-
                     elif row == 1:
                         sns.heatmap(
-                            mat2[i + 1 - tau],
+                            mat2_rev[tau - i - 1],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
@@ -1231,7 +1428,7 @@ class Plotter:
                         )
                     elif row == 2:
                         sns.heatmap(
-                            mat1[tau - i - 1] - mat2[i + 1 - tau],
+                            mat1[tau - i - 1] - mat2_rev[tau - i - 1],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
@@ -1456,6 +1653,46 @@ class Plotter:
         ani.save(path, writer="pillow", fps=10)
 
         plt.close()
+
+    def plot_savar_forcing_map(self, forcing_data_field: np.ndarray, lat: int, lon: int, path):
+        """Plot the time-averaged SAVAR forcing field on a 2D grid."""
+        data = np.asarray(forcing_data_field)
+
+        if data.ndim == 1:
+            if data.size != lat * lon:
+                raise ValueError("Forcing field length does not match provided spatial dimensions.")
+            spatial_series = data
+        elif data.ndim == 2:
+            if data.shape[0] == lat * lon:
+                spatial_series = np.nanmean(data, axis=1)
+            elif data.shape[1] == lat * lon:
+                spatial_series = np.nanmean(data, axis=0)
+            elif data.shape == (lat, lon):
+                spatial_series = data.reshape(-1)
+            else:
+                raise ValueError("Unable to infer spatial layout from forcing field shape.")
+        elif data.ndim == 3 and data.shape[-2:] == (lat, lon):
+            spatial_series = np.nanmean(data, axis=tuple(range(data.ndim - 2))).reshape(-1)
+        else:
+            raise ValueError("Unsupported forcing field shape for plotting.")
+
+        forcing_map = spatial_series.reshape(lat, lon)
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        im = ax.imshow(forcing_map, cmap="viridis", origin="lower", aspect="auto")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Forcing magnitude")
+        ax.set_xlabel("Longitude index")
+        ax.set_ylabel("Latitude index")
+        ax.set_title("SAVAR Forcing Field (time-mean)")
+        fig.tight_layout()
+
+        print(f"Saving forcing field plot to {path}")
+        save_path = os.fspath(path)
+        directory = os.path.dirname(save_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        fig.savefig(save_path, format="png")
+        plt.close(fig)
 
     # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
 

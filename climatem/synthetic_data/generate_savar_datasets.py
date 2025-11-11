@@ -2,7 +2,6 @@ import copy
 import csv
 import json
 
-import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -304,8 +303,7 @@ def generate_save_savar_data(
             time_length=time_len,
             mode_weights=modes_weights,
             noise_strength=noise_val,  # How to play with this parameter?
-            season_dict=season_dict,  # turn off by commenting out
-            # forcing_dict=forcing_dict #turn off by commenting out
+            season_dict=season_dict,
             linearity=linearity,
             poly_degrees=poly_degrees,
         )
@@ -315,8 +313,8 @@ def generate_save_savar_data(
             time_length=time_len,
             mode_weights=modes_weights,
             noise_strength=noise_val,
-            season_dict=season_dict,  # turn off by commenting out
-            forcing_dict=forcing_dict,  # turn off by commenting out
+            season_dict=season_dict,
+            forcing_dict=forcing_dict,
             linearity=linearity,
             poly_degrees=poly_degrees,
         )
@@ -324,150 +322,11 @@ def generate_save_savar_data(
     savar_model.generate_data()  # Remember to generate data, otherwise the data field will be empty
     np.save(save_path, savar_model.data_field)
 
+    forcing_field = getattr(savar_model, "forcing_data_field", None)
+    if forcing_field is not None:
+        forcing_path = save_dir_path / f"{name}_forcing_data_field.npy"
+        np.save(forcing_path, forcing_field)
+
     print(f"{name} DONE!")
 
-    plot_original_savar(savar_model.data_field, nx, ny, save_dir_path / f"{name}_original_savar_data2.gif")
-
-    if seasonality:
-        plot_seasonality_only(savar_model.seasonal_data_field, nx, ny, save_dir_path / f"{name}_seasonality_only.gif")
-
-        # Check the seasonality
-        season_std = savar_model.seasonal_data_field.std()
-        total_std = savar_model.data_field.std()
-        ratio = season_std / total_std
-        print(f"[diag] σ_season / σ_total = {ratio:.3f}")
-
-        if ratio < 0.05:
-            print("[diag] Seasonality is tiny – raise amplitudes or lower noise_val.")
-        elif ratio < 0.15:
-            print("[diag] Seasonality is subtle – visible but easy to miss.")
-        else:
-            print("[diag] Seasonality should be visually obvious.")
-
-        hovmoller_seasonality(
-            savar_model.seasonal_data_field,
-            nx,
-            ny,
-            n_steps=100,
-            path=save_dir_path / f"{name}_seasonality_hovmoller.png",
-        )
-
     return savar_model.data_field
-
-
-def plot_original_savar(data, lat, lon, path):
-    """Plotting the original savar data."""
-    print(f"data shape {data.shape}")
-    # Get the dimensions
-    time_steps = data.shape[1]
-    data_reshaped = data.T.reshape((time_steps, lat, lon))
-
-    avg_data = np.mean(data_reshaped, axis=0)
-    vmin_avg, vmax_avg = avg_data.min(), avg_data.max()
-    vmin_all, vmax_all = data_reshaped.min(), data_reshaped.max()
-    print(f"avg_data range: {vmin_avg:.3e} to {vmax_avg:.3e}")
-    print(f"full data range: {vmin_all:.3e} to {vmax_all:.3e}")
-
-    fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
-    cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin_avg, vmax=vmax_avg)
-    # cbar = fig.colorbar(cax, ax=ax)
-
-    def animate(i):
-        cax.set_data(data_reshaped[i])
-        ax.set_title(f"Time step: {i+1}")
-        return (cax,)
-
-    # Create an animation
-    ani = animation.FuncAnimation(fig, animate, frames=100, blit=False)
-
-    # Save the animation as a video file
-    ani.save(path, writer="pillow", fps=10)
-
-    plt.close()
-
-
-# Save an animation of the pure seasonality component
-def plot_seasonality_only(seasonal_field, nx, ny, path, n_frames=100):
-    """
-    Save an animation (GIF) of the pure seasonal component.
-
-    Parameters
-    ----------
-    seasonal_field : (L, T) ndarray
-    nx, ny         : grid dims  (L must equal nx*ny)
-    path           : output filename (.gif)
-    n_frames       : how many timesteps to animate (default 100)
-    """
-    import matplotlib.animation as animation
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    T = seasonal_field.shape[1]
-    n_frames = min(n_frames, T)
-
-    vmax = np.abs(seasonal_field).max()
-    vmin = -vmax
-
-    field_2d = seasonal_field[:, :n_frames].T.reshape(n_frames, nx, ny)
-
-    fig, ax = plt.subplots(figsize=(ny / 6, nx / 10))
-    im = ax.imshow(field_2d[0], cmap="RdBu_r", vmin=vmin, vmax=vmax)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="3%", pad=0.02)
-    cbar = fig.colorbar(im, cax=cax)
-    cbar.ax.tick_params(labelsize=8)
-    cbar.set_label("seasonal anomaly")
-
-    def animate(i):
-        im.set_data(field_2d[i])
-        ax.set_title(f"Seasonality – t={i+1}")
-        return (im,)
-
-    ani = animation.FuncAnimation(fig, animate, frames=n_frames, blit=False)
-
-    ani.save(path, writer="pillow", fps=10)
-    plt.close()
-
-
-def hovmoller_seasonality(seasonal_field, nx, ny, n_steps=100, path="seasonality_hovmoller.png"):
-    """
-    Hovmöller-style plot that compresses the whole seasonal signal into one figure.
-
-    Parameters
-    ----------
-    seasonal_field : ndarray  shape (L, T)
-    nx, ny         : grid dimensions  (L must equal nx × ny)
-    n_steps        : how many time-steps to include on the x-axis
-    path           : PNG filename to save
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    L, T = seasonal_field.shape
-    n_steps = min(n_steps, T)
-
-    # reshape to [time, lat, lon]
-    field_3d = seasonal_field.T.reshape(T, nx, ny)
-
-    # zonal mean (average over lon axis)
-    hov = field_3d[:n_steps].mean(axis=2)  # shape (n_steps, nx)
-
-    # transpose so y-axis is latitude, x-axis is time
-    hov = hov.T  # shape (nx, n_steps)
-
-    vmax = np.abs(hov).max()  # symmetric colour scale
-    vmin = -vmax
-
-    plt.figure(figsize=(8, 4))
-    im = plt.imshow(hov, aspect="auto", origin="lower", cmap="RdBu_r", vmin=vmin, vmax=vmax)  # south pole at bottom
-    plt.colorbar(im, label="seasonal anomaly")
-    plt.xlabel("time-step")
-    plt.ylabel("latitude index")
-    plt.title("Seasonality • zonal mean (first {:d} steps)".format(n_steps))
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
-    print("saved:", path)
