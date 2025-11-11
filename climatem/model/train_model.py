@@ -1367,8 +1367,13 @@ class TrainingLatent:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
         if take_log:
-            fft_true = torch.log(fft_true)
-            fft_pred = torch.log(fft_pred)
+            eps = torch.as_tensor(
+                getattr(self.optim_params, "spectral_eps", 1e-8),
+                dtype=fft_true.real.dtype,
+                device=fft_true.device,
+            )
+            fft_true = torch.log(fft_true + eps)
+            fft_pred = torch.log(fft_pred + eps)
 
         spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
 
