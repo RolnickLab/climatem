@@ -50,6 +50,7 @@ notebook = "^7.3.2"
 jupyterlab-widgets = "^3.0.13"
 netcdf4 = "^1.7.2"
 h5netcdf = "^1.6.3"
+healpy = "^1.18.1"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -1,6 +1,6 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/teleconnection_results",
+        "exp_path": "$SCRATCH/teleconnection_results/CHIRPS_DATA",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
         "d_z": [
@@ -56,7 +56,8 @@
         "num_months_aggregated": [
             3
         ],
-        "train_val_interval_length": 40
+        "train_val_interval_length": 40,
+        "season": "winter"
     },
     "gt_params": {
         "no_gt": true,
@@ -111,24 +112,27 @@
         "schedule_reg": 0,
         "schedule_ortho": 0,
         "schedule_sparsity": 0,
+
         "ortho_mu_init": 1e5,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 1e-21,
         "ortho_min_iter_convergence": 1000,
+
         "sparsity_mu_init": 1e-8,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
-        "sparsity_h_threshold": 0.2,
+        "sparsity_h_threshold": 1e-8,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 1e-8,
-        "acyclic_mu_init": 1e-1,
+        "sparsity_upper_threshold": 0.2,
+
+        "acyclic_mu_init": 1e-4,
         "acyclic_mu_mult_factor": 1.0,
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
-        "acyclic_h_threshold": 1e-8,
+        "acyclic_h_threshold": 1e-21,
         "acyclic_min_iter_convergence": 1000,
         "mu_acyclic_init": null,
         "h_acyclic_threshold": null

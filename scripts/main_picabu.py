@@ -121,6 +121,7 @@ def main(
             overlap=savar_params.overlap,
             is_forced=savar_params.is_forced,
             plot_original_data=savar_params.plot_original_data,
+            season=data_params.season,
         )
         datamodule.setup()
 

@@ -1,6 +1,6 @@
 {
     "exp_params": {
-        "exp_path": "$SCRATCH/results/ERA5_DATA_TEST",
+        "exp_path": "$SCRATCH/teleconnection_results/PNW_DATA",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",
         "latent": true,
         "d_z": [
@@ -18,8 +18,8 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/ERA5_DATA_PROCESSED/combined",
-        "climateset_data": "$SCRATCH/data/ERA5_DATA_TEST",
+        "data_dir": "$SCRATCH/teleconnection_data/ERA5_DATA_PROCESSED/combined",
+        "climateset_data": "$SCRATCH/teleconnection_data/ERA5_DATA_TEST",
         "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "",
         "in_var_ids": {
@@ -55,7 +55,8 @@
         "num_months_aggregated": [
             5
         ],
-        "train_val_interval_length": 40
+        "train_val_interval_length": 40,
+        "season": "summer"
     },
     "gt_params": {
         "no_gt": true,

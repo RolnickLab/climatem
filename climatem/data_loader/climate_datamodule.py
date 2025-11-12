@@ -67,10 +67,10 @@ class ClimateDataModule(LightningDataModule):
         noise_val: float = 0.2,
         n_per_col: int = 2,
         difficulty: str = "easy",
-        seasonality: bool = False,
         overlap: bool = False,
         is_forced: bool = False,
         plot_original_data: bool = True,
+        season: str = "all",
     ):
         """
         Args:

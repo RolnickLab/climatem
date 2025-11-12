@@ -132,6 +132,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         global_normalization=self.hparams.global_normalization,
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
+                        season=self.hparams.season,
                     )
                 elif source == "cmip6":
                     train_val_input4mips = CMIP6Dataset(
@@ -152,8 +153,10 @@ class CausalClimateDataModule(ClimateDataModule):
                         global_normalization=self.hparams.global_normalization,
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
+                        season=self.hparams.season,
                     )
                 elif source == "chirps":
+                    print("LOADING CHIRPS DATASET")
                     train_val_input4mips = CHIRPSDataset(
                         years=train_years,
                         historical_years=train_historical_years,
@@ -170,7 +173,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         global_normalization=self.hparams.global_normalization,
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
-                        rolling_mean_time=self.hparams.rolling_mean_time,
+                        season=self.hparams.season,
                     )
                 else:
                     train_val_input4mips = Input4MipsDataset(
@@ -189,6 +192,7 @@ class CausalClimateDataModule(ClimateDataModule):
                         global_normalization=self.hparams.global_normalization,
                         seasonality_removal=self.hparams.seasonality_removal,
                         reload_climate_set_data=self.hparams.reload_climate_set_data,
+                        season=self.hparams.season,
                     )
 
             ratio_train = 1 - self.hparams.val_split

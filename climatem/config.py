@@ -71,6 +71,7 @@ class dataParams:
             3
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
         rolling_mean_time: int = 31,
+        season: str = "all",
     ):
         self.data_dir = data_dir
         self.climateset_data = climateset_data
@@ -104,6 +105,7 @@ class dataParams:
         self.load_test_into_mem = load_test_into_mem
         self.num_months_aggregated = num_months_aggregated
         self.rolling_mean_time = int(rolling_mean_time)
+        self.season = season
 
 
 # This class is only for debugging and for setting some params to the true aprams when training picabu

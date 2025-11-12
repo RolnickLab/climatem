@@ -19,7 +19,8 @@ module --quiet load python/3.10
 
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/env/env_climatem/bin/activate
+source $HOME/causal_model/env_climatem/bin/activate
+
 # 3. Enable expandable allocator to avoid fragmentation
 # export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 

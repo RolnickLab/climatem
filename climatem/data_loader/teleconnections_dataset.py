@@ -1,6 +1,7 @@
 # import glob
 # import os
 # from datetime import datetime, timedelta
+import os
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -192,7 +193,16 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         aligned = [ds.sel(time=common_time) for ds in aligned]
         return aligned
 
-    def _process_one_variable(self, ds, var_name: str, season: str, upscaling_factor: int):
+    def _process_one_variable(
+        self,
+        ds,
+        var_name: str,
+        season: str,
+        upscaling_factor: int,
+        global_normalization: bool,
+        seasonality_removal: bool,
+        mode: str,
+    ):
         """
         Process a single aligned dataset:
         - to_numpy
@@ -223,6 +233,25 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         dates = pd.to_datetime(ds["time"].values)
         assert len(dates) == t, f"[load_into_mem] time/array length mismatch: {len(dates)} vs {t}"
 
+        if global_normalization:
+            if mode in ["train", "train+val"]:
+                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                    mode=mode, file="statistics", kwargs=self.fname_kwargs
+                )
+                if os.path.isfile(stats_fname):
+                    stats = self.load_dataset_statistics(stats_fname, mode=mode, mips="cmip6")
+                else:
+                    stat1, stat2 = self.get_dataset_statistics(arr, mode, mips="cmip6")
+                    stats = {"mean": stat1, "std": stat2}
+            elif mode == "test":
+                stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
+                    mode="train+val", file="statistics", kwargs=self.fname_kwargs
+                )
+                stats = self.load_dataset_statistics(stats_fname, mode=mode, mips="cmip6")
+            arr = self.normalize_data(arr, stats)
+        if self.seasonality_removal:
+            arr = self.remove_seasonality(arr, days_lag=15)
+
         if season == "summer":
             mask = self.get_month_mask(t, self.seq_len, months=[6, 7, 8], mode="keep")
             arr = arr[mask]
@@ -231,7 +260,8 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             seq_len_eff = kept
             self.seq_len = seq_len_eff
         elif season == "winter":
-            mask = self.get_month_mask(t, self.seq_len, months=[12, 1, 2], mode="keep")
+            # extended winter
+            mask = self.get_month_mask(t, self.seq_len, months=[11, 12, 1, 2, 3], mode="keep")
             arr = arr[mask]
             kept = arr.shape[0]
             batch_years = 1
@@ -284,6 +314,8 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             assert morocco_mask.shape == (h, w), f"Morocco mask shape {morocco_mask.shape} != data shape {(h, w)}"
 
             if upscaling_factor > 1:
+
+                # Why reshape here? it was just reshaped before?
                 reshaped = arr.reshape(-1, h, w)
                 downscaled = downscale_data_batch_regular(reshaped, lat, lon, upscaling_factor)
                 new_h, new_w = downscaled.shape[1], downscaled.shape[2]
@@ -320,6 +352,9 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         seq_to_seq: bool = True,
         upscaling_factor: int = 2,
         season: str = "summer",
+        global_normalization: bool = False,
+        seasonality_removal: bool = False,
+        mode: str = "train",
     ):
         """
         Load multiple variables from NetCDF/GRIB, align time, return:
@@ -341,7 +376,13 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         for i, ds in enumerate(aligned_datasets):
             var_name = variables[i]
             arr, coords, spatial_dim, new_lat_i, new_lon_i = self._process_one_variable(
-                ds, var_name=var_name, season=season, upscaling_factor=upscaling_factor
+                ds,
+                var_name=var_name,
+                season=season,
+                upscaling_factor=upscaling_factor,
+                global_normalization=global_normalization,
+                seasonality_removal=seasonality_removal,
+                mode=mode,
             )
 
             if new_lat_i is not None:
@@ -434,12 +475,13 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             seq_len (int): nominal days/year (used only for info prints here)
             months (list[int] | None): months to act on; defaults:
                 - if mode == "remove": [6, 7, 8]  (remove summer)
-                - if mode == "keep":   [12, 1, 2] (keep winter: Dec, Jan, Feb)
+                - if mode == "keep":   [11, 12, 1, 2, 3] (keep extended winter: Nov, Dec, Jan, Feb, March)
             mode ("remove" | "keep"): whether to remove or keep the listed months
         """
         if months is None:
-            months = [6, 7, 8] if mode == "remove" else [12, 1, 2]
+            months = [6, 7, 8] if mode == "remove" else [11, 12, 1, 2, 3]
 
+        # Pass this as input... why 2001? 2001 - 1981 = 20 so ok? ERA5?
         start_date = pd.Timestamp("2001-01-01")  # non-leap reference year
         dates = pd.date_range(start=start_date, periods=total_timesteps, freq="D")
         mm = dates.month.values  # shape (total_timesteps,)
@@ -708,6 +750,11 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             vars_std = np.nanstd(data, axis=(1, 2, 3))
             vars_mean = np.expand_dims(vars_mean, (1, 2, 3))
             vars_std = np.expand_dims(vars_std, (1, 2, 3))
+        elif data.ndim == 3:
+            vars_mean = np.nanmean(data)
+            vars_std = np.nanstd(data)
+            # vars_mean = np.expand_dims(vars_mean, (1, 2, 3))
+            # vars_std = np.expand_dims(vars_std, (1, 2, 3))
         else:
             print("Data dimension not recognized. Please check the dimensions of the data.")
             raise ValueError
@@ -730,6 +777,9 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
             vars_min = np.nanmin(data, axis=(1, 2, 3))
             vars_max = np.expand_dims(vars_max, (1, 2, 3))
             vars_min = np.expand_dims(vars_min, (1, 2, 3))
+        elif data.ndim == 3:
+            vars_max = np.nanmax(data)
+            vars_min = np.nanmin(data)
         else:
             print("Data dimension not recognized. Please check the dimensions of the data.")
             raise ValueError
@@ -756,33 +806,136 @@ class TeleconnectionsDataset(torch.utils.data.Dataset):
         # print("Really, I completed the normalisation of the data, just about to return.")
         return norm_data
 
-    def remove_seasonality(self, data):
-        """
-        Function to remove seasonality from the data There are various different options to do this These are just
-        different methods of removing seasonality.
+    def remove_seasonality(self, data, days_lag=15):
 
-        e.g.
-        monthly - remove seasonality on a per month basis
-        rolling monthly - remove seasonality on a per month basis but using a rolling window,
-        removing only the average from the months that have preceded this month
-        linear - remove seasonality using a linear model to predict seasonality
+        # Pass this as input... why 2001? 2001 - 1981 = 20 so ok? ERA5?
+        start_date = pd.Timestamp("2001-01-01")  # non-leap reference year
+        dates = pd.date_range(start=start_date, periods=data.shape[0], freq="D")
+        mm = dates.month.values  # shape (total_timesteps,)
+        days = dates.day.values
 
-        or trend removal
-        emissions - remove the trend using the emissions data, such as cumulative CO2
-        """
-        # print("Removing seasonality from the data.")
+        arr_idx = np.c_[mm, days]
+        _, idx_season = np.unique(arr_idx, axis=0, return_inverse=True)
 
-        mean = np.nanmean(data, axis=0)
-        std = np.nanstd(data, axis=0)
-        # make a numpy array containing the mean and std for each month:
-        remove_season_stats = np.array([mean, std])
+        n_days = idx_season.max() + 1
+        season_mean = np.zeros((n_days, data.shape[1], data.shape[2]))
+        season_std = np.zeros(n_days)
 
-        np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
+        print(f"n days: {n_days}")
 
-        print("Just about to return the data after removing seasonality.")
-        std_safe = np.where(std == 0, 1, std)
-        deseasonalized = (data - mean[None]) / std_safe[None]
+        for k in range(n_days):
+            all_to_take = np.flatnonzero(
+                np.logical_or(
+                    np.abs(idx_season - k) < days_lag,
+                    np.abs(idx_season - k) > n_days - days_lag,
+                )
+            )
+            data_season = data[all_to_take]  # .squeeze()
+            season_mean[k] = np.nanmean(data_season, axis=0)
+            season_std[k] = np.nanstd(data_season)
+
+        # TODO: Variable????? this might be saved twice
+        np.save(
+            self.output_save_dir / "remove_season_stats",
+            {"mean": season_mean, "global_scale": season_std},
+            allow_pickle=True,
+        )
+
+        season_mean = season_mean[idx_season]
+        season_std = season_std[idx_season]
+        deseasonalized = (data - season_mean) / season_std[:, None, None]
+
         return deseasonalized
+
+    # def remove_seasonality(self, data):
+    #     # Redo this - use the timestamps from the pandas i.e.
+    #     """
+    #     Function to remove seasonality from the data There are various different options to do this These are just
+    #     different methods of removing seasonality.
+
+    #     e.g.
+    #     monthly - remove seasonality on a per month basis
+    #     rolling monthly - remove seasonality on a per month basis but using a rolling window,
+    #     removing only the average from the months that have preceded this month
+    #     linear - remove seasonality using a linear model to predict seasonality
+
+    #     or trend removal
+    #     emissions - remove the trend using the emissions data, such as cumulative CO2
+    #     """
+    #     window = int(getattr(self, "rolling_mean_time", 31))
+    #     use_mad = True  # set True to use MAD instead of STD
+    #     eps = 1e-6
+
+    #     # Detect time axis (assume it's the longer of the first two dims; your case: axis=1)
+    #     time_axis = 1 if (data.ndim >= 2 and data.shape[1] > data.shape[0]) else 0
+
+    #     # Move time to front: (T, ...)
+    #     x = np.moveaxis(data, time_axis, 0)
+    #     T = x.shape[0]
+    #     pad = window // 2
+
+    #     # Rolling climatology mean (circular along time)
+    #     mean_tfirst = np.empty_like(x, dtype=np.float64)
+    #     idx_base = np.arange(T)
+    #     for t in range(T):
+    #         idx = (idx_base[t - pad : t + pad + 1]) % T
+    #         win = x[idx, ...]  # (window, ...)
+    #         mean_tfirst[t, ...] = np.nanmean(win, axis=0)
+
+    #     # Global scale per grid point across full time
+    #     if use_mad:
+    #         median_all = np.nanmedian(x, axis=0, keepdims=True)
+    #         global_scale = 1.4826 * np.nanmedian(np.abs(x - median_all), axis=0)
+    #     else:
+    #         global_scale = np.nanstd(x, axis=0)
+
+    #     # Safe fallback to avoid divide-by-zero
+    #     global_scale = np.where(np.isfinite(global_scale) & (global_scale > 0), global_scale, 1.0)
+
+    #     # Deseasonalize and move back to original axis order
+    #     deseason_tfirst = (x - mean_tfirst) / (global_scale + eps)
+    #     deseasonalized = np.moveaxis(deseason_tfirst, 0, time_axis)
+    #     mean = np.moveaxis(mean_tfirst, 0, time_axis)
+
+    #     # Save stats (rolling mean + single global scale)
+    #     np.save(
+    #         self.output_save_dir / "remove_season_stats",
+    #         {"mean": mean, "global_scale": global_scale},
+    #         allow_pickle=True,
+    #     )
+
+    #     print("Just about to return the data after removing seasonality (±15-day rolling climatology; global scale).")
+    #     return deseasonalized
+
+    # def remove_seasonality(self, data):
+    #     """
+    #     Function to remove seasonality from the data There are various different options to do this These are just
+    #     different methods of removing seasonality.
+
+    #     e.g.
+    #     monthly - remove seasonality on a per month basis
+    #     rolling monthly - remove seasonality on a per month basis but using a rolling window,
+    #     removing only the average from the months that have preceded this month
+    #     linear - remove seasonality using a linear model to predict seasonality
+
+    #     or trend removal
+    #     emissions - remove the trend using the emissions data, such as cumulative CO2
+    #     """
+    #     print("Removing seasonality from the data.")
+
+    #     print(f"data.shape when removing seasonality {data.shape}")
+
+    #     mean = np.nanmean(data, axis=0)
+    #     std = np.nanstd(data, axis=0)
+    #     # make a numpy array containing the mean and std for each month:
+    #     remove_season_stats = np.array([mean, std])
+
+    #     np.save(self.output_save_dir / "remove_season_stats", remove_season_stats, allow_pickle=True)
+
+    #     print("Just about to return the data after removing seasonality.")
+    #     std_safe = np.where(std == 0, 1, std)
+    #     deseasonalized = (data - mean[None]) / std_safe[None]
+    #     return deseasonalized
 
     def write_dataset_statistics(self, fname, stats):
         #            fname = fname.replace('.npz.npy', '.npy')

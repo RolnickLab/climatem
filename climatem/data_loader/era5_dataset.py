@@ -56,6 +56,7 @@ class ERA5Dataset(ClimateDataset):
         lat: int = 96,
         lon: int = 144,
         icosahedral_coordinates_path: str = "/mappings/vertex_lonlat_mapping.txt",
+        season: str = "all",
         *args,
         **kwargs,
     ):  # noqa: C901
@@ -73,6 +74,7 @@ class ERA5Dataset(ClimateDataset):
         self.lon = lon
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        self.season = season
 
         fname_kwargs = dict(
             climate_model=climate_model,
@@ -244,6 +246,7 @@ class ERA5Dataset(ClimateDataset):
                 num_vars=len(variables),
                 channels_last=channels_last,
                 seq_to_seq=seq_to_seq,
+                season=self.season,
             )
             self.coordinates = self.load_coordinates_into_mem(files_per_var)
 

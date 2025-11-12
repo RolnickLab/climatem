@@ -19,15 +19,16 @@ module --quiet load python/3.10
 
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/env/env_climatem/bin/activate
+source $HOME/causal_model/env_climatem/bin/activate
+
 # 3. Enable expandable allocator to avoid fragmentation
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # 3. Get a unique port for this job based on the job ID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export MASTER_ADDR="127.0.0.1"
 
-
+export SSL_CERT_DIR=/etc/ssl/certs
 export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
 
@@ -42,4 +43,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_ERA5.json
+    $HOME/causal_model/climatem/scripts/main_picabu.py --config-path single_param_file_ERA5.json
