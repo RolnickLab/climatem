@@ -291,6 +291,7 @@ class savarParams:
         overlap: bool = False,  # Modes overlap
         is_forced: bool = False,  # Forcings in synthetic data
         plot_original_data: bool = True,
+        use_correct_hyperparams: bool = True,  # Override some of the model params to match those of savar data if true
     ):
         self.time_len = time_len
         self.comp_size = comp_size
@@ -301,6 +302,7 @@ class savarParams:
         self.overlap = overlap
         self.is_forced = is_forced
         self.plot_original_data = plot_original_data
+        self.use_correct_hyperparams = use_correct_hyperparams
 
 
 class rolloutParams:

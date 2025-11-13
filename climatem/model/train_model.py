@@ -582,17 +582,18 @@ class TrainingLatent:
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
         crps = 0
-        spectral_loss = 0
+        spectral_loss = torch.as_tensor([0.0])
         for k in range(self.future_timesteps):
             # This step (predict) could be removed - need to rewrite predict function, to speed things up
             px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
-            spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
-                y[:, k], y_pred_all[:, k], take_log=True
-            )
+            if self.optim_params.spectral_coeff > 0:
+                spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
+                    y[:, k], y_pred_all[:, k], take_log=True
+                )
 
         # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
-        if self.tau > 1:
+        if self.tau > 1 and self.optim_params.temporal_spectral_coeff > 0:
             temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
         else:
             temporal_spectral_loss = torch.as_tensor([0.0])
@@ -662,7 +663,7 @@ class TrainingLatent:
         self.train_spectral_loss = spectral_loss.item()
 
         # adding the temporal spectral loss to the logs
-        if self.tau > 1:
+        if self.tau > 1 and self.optim_params.temporal_spectral_coeff > 0:
             self.train_temporal_spectral_loss = temporal_spectral_loss.item()
         else:
             self.train_temporal_spectral_loss = torch.as_tensor([0.0])

@@ -134,13 +134,13 @@ def generate_save_savar_data(
 
     # This is the probabiliity of having a link between latent k and j, with k different from j. latents always have one link with themselves at a previous time.
     if difficulty == "easy":
-        prob = 0
+        prob = 0  # expected N out of N^2 total links
     if difficulty == "med_easy":
-        prob = 1 / (N - 1)
+        prob = 1 / (N - 1)  # expected 2N out of N^2 total links
     if difficulty == "med_hard":
-        prob = 2 / (N - 1)
+        prob = 2 / (N - 1)  # expected 3N out of N^2 total links
     if difficulty == "hard":
-        prob = 1 / 2
+        prob = 1 / 2  # (N + 2*N / 2)/N^2
 
     links_coeffs = create_links_coeffs(N, prob_edge=prob, difficulty=difficulty)
 
