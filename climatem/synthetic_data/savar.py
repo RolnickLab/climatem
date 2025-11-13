@@ -68,6 +68,8 @@ class SAVAR:
         "noise_data_field",
         "seasonal_data_field",
         "forcing_data_field",
+        "co2_forcing_data_field",
+        "aerosol_forcing_data_field",
         "linearity",
         "poly_degrees",
         "verbose",
@@ -95,6 +97,8 @@ class SAVAR:
         noise_data_field: np.ndarray = None,
         seasonal_data_field: np.ndarray = None,
         forcing_data_field: np.ndarray = None,
+        co2_forcing_data_field: np.ndarray = None,
+        aerosol_forcing_data_field: np.ndarray = None,
         verbose: bool = False,
         model_seed: int = None,
     ):
@@ -141,6 +145,8 @@ class SAVAR:
         self.noise_data_field = noise_data_field
         self.seasonal_data_field = seasonal_data_field
         self.forcing_data_field = forcing_data_field
+        self.co2_forcing_data_field = co2_forcing_data_field
+        self.aerosol_forcing_data_field = aerosol_forcing_data_field
 
         if np.random is not None:
             np.random.seed(model_seed)
@@ -531,12 +537,23 @@ class SAVAR:
         t = torch.linspace(0.0, 1.0, time_len, device=dev, dtype=dtype)
         co2_trend = t.pow(1.5)
 
-        # Base spatial pattern derived from mode weights (falls back to ones).
-        spatial_pattern = torch.ones(spatial_len, device=dev, dtype=dtype)
-        if self.mode_weights is not None:
-            mw = torch.as_tensor(self.mode_weights, device=dev, dtype=dtype)
-            spatial_pattern = mw.reshape(self.n_vars, -1).abs().mean(dim=0)
-            spatial_pattern = spatial_pattern / (spatial_pattern.mean() + 1e-8)
+        if spatial_len == 1:
+            base_pattern = torch.ones(1, device=dev, dtype=dtype)
+        else:
+            coords = torch.linspace(-1.0, 1.0, spatial_len, device=dev, dtype=dtype)
+            num_lobes = max(3, min(8, spatial_len // 64 + 3))
+            rand_params = torch.as_tensor(np.random.rand(num_lobes, 3), device=dev, dtype=dtype)
+            centers = rand_params[:, 0] * 2.0 - 1.0
+            widths = 0.3 + rand_params[:, 1] * 0.7
+            amplitudes = 0.3 + rand_params[:, 2] * 0.7
+
+            diff = coords.unsqueeze(0) - centers.unsqueeze(1)
+            gaussians = torch.exp(-0.5 * (diff / widths.unsqueeze(1)) ** 2)
+            base_pattern = (amplitudes.unsqueeze(1) * gaussians).sum(dim=0)
+            base_pattern = base_pattern / (base_pattern.mean() + 1e-6)
+
+        spatial_pattern = base_pattern
+        spatial_pattern = spatial_pattern / (spatial_pattern.mean() + 1e-8)
 
         # Add a deterministic oscillation so the grid is not uniform.
         if spatial_len > 1:
@@ -832,6 +849,12 @@ class SAVAR:
         if spatial_len <= 0:
             raise ValueError("Spatial resolution must be positive")
 
+        forcing_cfg = self.forcing_dict or {}
+        aerosol_scale = float(forcing_cfg.get("aerosol_scale", 0.2))
+        aerosol_contrast = float(forcing_cfg.get("aerosol_spatial_contrast", 1.05))
+        aerosol_scale = max(aerosol_scale, 0.0)
+        aerosol_contrast = max(aerosol_contrast, 0.5)
+
         # Aerosols respond quickly and decay fast: sharp rise, plateau, and decline.
         t = torch.linspace(0.0, 1.0, time_len, device=dev, dtype=dtype)
         ramp_up = torch.sigmoid((t - 0.2) * 10.0)
@@ -841,14 +864,25 @@ class SAVAR:
         # Episodic spikes to mimic industrial cycles and volcanic-like bursts.
         seasonal_cycle = torch.sin(2.0 * math.pi * 6.0 * t)
         short_bursts = torch.sin(2.0 * math.pi * 18.0 * t + 0.3)
-        aerosol_trend = -0.45 * envelope * (1.0 + 0.15 * seasonal_cycle + 0.05 * short_bursts)
+        aerosol_trend = -aerosol_scale * envelope * (1.0 + 0.15 * seasonal_cycle + 0.05 * short_bursts)
 
         # Spatial hotspots emphasize regions with stronger aerosol influence.
-        spatial_pattern = torch.ones(spatial_len, device=dev, dtype=dtype)
-        if self.mode_weights is not None:
-            mw = torch.as_tensor(self.mode_weights, device=dev, dtype=dtype)
-            spatial_pattern = mw.reshape(self.n_vars, -1).abs().mean(dim=0)
-            spatial_pattern = spatial_pattern / (spatial_pattern.mean() + 1e-8)
+        if spatial_len == 1:
+            base_pattern = torch.ones(1, device=dev, dtype=dtype)
+        else:
+            coords = torch.linspace(-1.0, 1.0, spatial_len, device=dev, dtype=dtype)
+            num_lobes = max(3, min(8, spatial_len // 64 + 3))
+            rand_params = torch.as_tensor(np.random.rand(num_lobes, 3), device=dev, dtype=dtype)
+            centers = rand_params[:, 0] * 2.0 - 1.0
+            widths = 0.3 + rand_params[:, 1] * 0.7
+            amplitudes = 0.3 + rand_params[:, 2] * 0.7
+
+            diff = coords.unsqueeze(0) - centers.unsqueeze(1)
+            gaussians = torch.exp(-0.5 * (diff / widths.unsqueeze(1)) ** 2)
+            base_pattern = (amplitudes.unsqueeze(1) * gaussians).sum(dim=0)
+            base_pattern = base_pattern / (base_pattern.mean() + 1e-6)
+
+        spatial_pattern = base_pattern
 
         if spatial_len > 1:
             idx = torch.linspace(0.0, 2.0 * math.pi, spatial_len, device=dev, dtype=dtype)
@@ -856,7 +890,7 @@ class SAVAR:
             hemispheric_gradient = 0.8 + 0.2 * torch.cos(idx)
             spatial_pattern = spatial_pattern * regional_variability * hemispheric_gradient
 
-        spatial_pattern = spatial_pattern.pow(1.2)
+        spatial_pattern = spatial_pattern.pow(aerosol_contrast)
         spatial_pattern = spatial_pattern / (spatial_pattern.abs().mean() + 1e-8)
 
         forcing = spatial_pattern.unsqueeze(1) * aerosol_trend.unsqueeze(0)
@@ -883,6 +917,15 @@ class SAVAR:
         if self.forcing_data_field is None:
             # Keep an accumulator so diagnostics can inspect the total applied forcing.
             self.forcing_data_field = np.zeros_like(self.data_field)
+        if self.co2_forcing_data_field is None:
+            self.co2_forcing_data_field = np.zeros_like(self.data_field)
+        if self.aerosol_forcing_data_field is None:
+            self.aerosol_forcing_data_field = np.zeros_like(self.data_field)
+
+        # Store separate CO2 and aerosol forcings before combining them.
+        # This allows training code to subtract them as known exogenous drivers.
+        np.add(self.co2_forcing_data_field, co2_forcing, out=self.co2_forcing_data_field)
+        np.add(self.aerosol_forcing_data_field, aerosol_forcing, out=self.aerosol_forcing_data_field)
 
         # Merge the long-lived CO2 warming and short-lived aerosol cooling into a single field.
         # Start from greenhouse-gas warming and add aerosol cooling to get a net radiative signal.
@@ -1081,3 +1124,35 @@ class SAVAR:
                 data_field[:, t] += poly_sum.squeeze(-1)
 
         self.data_field = data_field[:, self.transient :].detach().cpu().numpy()
+
+    def _create_intervened_nextstep(self, input_data, intervened_mode=None, intervention_value=None, intervened_t=None):
+        """
+        Not tested yet!!!
+
+        input_data are the tau timesteps that get intervened on
+        at mode intervened_mode, with value +intervention_value, at timestep intervened_t
+
+        input_data is here of shape `self.spatial_resolution * self.time_length`.
+        This is to keep the savar structure similar to the one of `self.data_field`
+        """
+
+        weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
+        # weights_inv = np.linalg.pinv(weights)
+        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
+        weights = torch.Tensor(weights).to(device="cuda")
+        tau = input_data.shape[1]
+
+        # phi = dict_to_matrix(self.links_coeffs)
+        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        # data_field = deepcopy(self.data_field)
+        next_step = torch.zeros(self.spatial_resolution).to(device="cuda")
+
+        # perform intervention
+        input_data[
+            intervened_mode * self.spatial_resolution : (intervened_mode + 1) * self.spatial_resolution, intervened_t
+        ] += intervention_value
+
+        for i in range(tau):
+            next_step += weights_inv @ phi[..., i] @ weights @ input_data[..., tau - 1 - i : tau - i]
+
+        return next_step
