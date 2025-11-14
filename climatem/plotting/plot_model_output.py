@@ -1166,7 +1166,7 @@ class Plotter:
 
                     elif row == 1:
                         sns.heatmap(
-                            mat2[i + 1 - tau],
+                            mat2[i],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
@@ -1177,7 +1177,7 @@ class Plotter:
                         )
                     elif row == 2:
                         sns.heatmap(
-                            mat1[tau - i - 1] - mat2[i + 1 - tau],
+                            mat1[tau - i - 1] - mat2[i],
                             ax=axes[i],
                             cbar=False,
                             vmin=-1,
