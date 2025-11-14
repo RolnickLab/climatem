@@ -290,6 +290,13 @@ class savarParams:
         seasonality: bool = False,  # Seasonality in synthetic data
         overlap: bool = False,  # Modes overlap
         is_forced: bool = False,  # Forcings in synthetic data
+        f_1: int = 1,
+        f_2: int = 2,
+        f_time_1: int = 4000,
+        f_time_2: int = 8000,
+        ramp_type: str = "linear",
+        linearity: str = "linear",
+        poly_degrees: List[int] = [2],
         plot_original_data: bool = True,
         use_correct_hyperparams: bool = True,  # Override some of the model params to match those of savar data if true
     ):
@@ -301,6 +308,13 @@ class savarParams:
         self.seasonality = seasonality
         self.overlap = overlap
         self.is_forced = is_forced
+        self.f_1 = f_1
+        self.f_2 = f_2
+        self.f_time_1 = f_time_1
+        self.f_time_2 = f_time_2
+        self.ramp_type = ramp_type
+        self.linearity = linearity
+        self.poly_degrees = poly_degrees
         self.plot_original_data = plot_original_data
         self.use_correct_hyperparams = use_correct_hyperparams
 

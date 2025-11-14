@@ -15,8 +15,15 @@
 module purge
 
 # 1. Load the required modules
-module --quiet load python/3.10
+module load compiler/intel/2021.4.0
+module load devel/python/3.10.5_intel_2021.4.0
 
+<<<<<<< HEAD
+# 2. Load your environment
+source $HOME/my_projects/climatem/env_emulator_climatem/bin/activate
+source $HOME/env_climatem/bin/activate
+=======
+>>>>>>> main
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
 source $HOME/env/env_climatem/bin/activate

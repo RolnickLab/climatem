@@ -118,6 +118,13 @@ def main(
             seasonality=savar_params.seasonality,
             overlap=savar_params.overlap,
             is_forced=savar_params.is_forced,
+            f_1=savar_params.f_1,
+            f_2=savar_params.f_2,
+            f_time_1=savar_params.f_time_1,
+            f_time_2=savar_params.f_time_2,
+            ramp_type=savar_params.ramp_type,
+            linearity=savar_params.linearity,
+            poly_degrees=savar_params.poly_degrees,
             plot_original_data=savar_params.plot_original_data,
         )
         datamodule.setup()
@@ -195,6 +202,7 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
+    hp["savar_params"] = savar_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
@@ -207,12 +215,14 @@ def main(
     trainer = TrainingLatent(
         model,
         datamodule,
+        data_params,
         experiment_params,
         gt_params,
         model_params,
         train_params,
         optim_params,
         plot_params,
+        savar_params,
         save_path,
         plots_path,
         best_metrics,

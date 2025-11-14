@@ -132,82 +132,126 @@ def varimax(Phi, gamma=1, q=20, tol=1e-6):
 
 if __name__ == "__main__":
 
-    ### Here set SAVAR paths and load data ####
-    difficulty = "easy"
-    tau = 5
-    n_modes = 25
-    comp_size = 25
-    time_len = 10_000
+
+    # load your existing JSON config
+    config_path = Path("configs/single_param_file_savar.json")
+    with open(config_path, "r") as f:
+        cfg = json.load(f)
+
+    exp   = cfg["exp_params"]
+    data  = cfg["data_params"]
+    savar = cfg["savar_params"]
+
+    # pull out exactly the bits you used to hard-code
+    tau        = exp["tau"]
+    n_modes    = exp["d_z"]               # latent dim = number of modes
+    comp_size  = savar["comp_size"]
+    time_len   = savar["time_len"]
+    is_forced  = savar["is_forced"]
+    seasonality = savar["seasonality"]
+    overlap    = savar["overlap"]
+    difficulty = savar["difficulty"]
     lat = lon = int(np.sqrt(n_modes)) * comp_size
-    noisestrength = 1
+    noise_val = savar["noise_val"]
 
     var_names = []
     for k in range(n_modes):
         var_names.append(rf"$X^{k}$")
 
-    savar_folder = Path("$HOME/savar_data")
-    savar_fname = f"m_{n_modes_gt}_{difficulty}_savar_name"
+    savar_folder = "/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST"
+    # Load gt mode weights
+    savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
+    # Get the gt mode weights
+    modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
 
-    savar_data = np.load(savar_folder / savar_fname)
-    params_file = savar_folder / f"{savar_fname[:-4]}_parameters.npy"
+    #savar_data = np.load(savar_folder / savar_fname)
+    params_file = savar_folder + f"/{savar_fname}_parameters.npy"
     params = np.load(params_file, allow_pickle=True).item()
     links_coeffs = params["links_coeffs"]
 
-    modes_gt = np.load(savar_folder / f"{savar_fname[:-4]}_mode_weights.npy")
-    modes_gt -= modes_gt.mean()
-    modes_gt /= modes_gt.std()
+    # modes_gt = np.load(savar_folder / f"{savar_fname[:-4]}_mode_weights.npy")
+    # modes_gt -= modes_gt.mean()
+    # modes_gt /= modes_gt.std()
 
-    gt_adj_list = extract_adjacency_matrix(links_coeffs, n_modes, tau)
-    n_gt_connections = (np.array(gt_adj_list) > 0).sum()
+    adj_gt = extract_adjacency_matrix(links_coeffs, n_modes, tau)
+    n_gt_connections = (np.array(adj_gt) > 0).sum()
+
+    # load CDSD results (already permuted / aligned)
+    cdsd_adj_inferred_path = Path("/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True/plots/graphs.npy")
+    cdsd_modes_inferred_path = Path("/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True/plots/w_decoder.npy")
+    modes_inferred = np.load(cdsd_modes_inferred_path)
+    adj_w = np.load(cdsd_adj_inferred_path)
+
     ############################
 
-    # Fit PCA + varimax
-    pca_model = PCA(n_modes).fit(savar_data.T)
-    latent_data = pca_model.transform(savar_data.T)
-    varimaxpcs, varimax_rotation = varimax(latent_data)
+    # # Fit PCA + varimax
+    # pca_model = PCA(n_modes).fit(savar_data.T)
+    # latent_data = pca_model.transform(savar_data.T)
+    # varimaxpcs, varimax_rotation = varimax(latent_data)
 
-    # To recover which mode is which and permute accordingly when evaluating
-    inverse_varimax = dot(latent_data, np.linalg.pinv(varimax_rotation))
-    reverted_data = pca_model.inverse_transform(inverse_varimax)
+    # # To recover which mode is which and permute accordingly when evaluating
+    # inverse_varimax = dot(latent_data, np.linalg.pinv(varimax_rotation))
+    # reverted_data = pca_model.inverse_transform(inverse_varimax)
 
-    dataframe = pp.DataFrame(varimaxpcs, datatime={0: np.arange(len(varimaxpcs))}, var_names=var_names)
-    # Run PCMCI
-    pcmci = PCMCI(dataframe=dataframe, cond_ind_test=parcorr, verbosity=1)
+    # dataframe = pp.DataFrame(varimaxpcs, datatime={0: np.arange(len(varimaxpcs))}, var_names=var_names)
+    # # Run PCMCI
+    # pcmci = PCMCI(dataframe=dataframe, cond_ind_test=parcorr, verbosity=1)
 
-    results = pcmci.run_pcmci(tau_min=1, tau_max=5, pc_alpha=None, alpha_level=0.001)
+    # results = pcmci.run_pcmci(tau_min=1, tau_max=5, pc_alpha=None, alpha_level=0.001)
 
     # Permute accordingly before evaluating learned graph.
-    individual_modes = np.zeros((n_modes, time_len, lat, lon))
-    for k in range(n_modes):
-        latent_data_bis = np.zeros(latent_data.shape)
-        latent_data_bis[:, k] = latent_data[:, k]
-        inverse_varimax = dot(latent_data_bis, np.linalg.pinv(varimax_rotation))
-        reverted_data = pca_model.inverse_transform(inverse_varimax)
-        individual_modes[k] = reverted_data.reshape((-1, lat, lon))
-    individual_modes = individual_modes.std(1)
-    individual_modes -= individual_modes.mean()
-    individual_modes /= individual_modes.std()
+    # individual_modes = np.zeros((n_modes, time_len, lat, lon))
+    # for k in range(n_modes):
+    #     latent_data_bis = np.zeros(latent_data.shape)
+    #     latent_data_bis[:, k] = latent_data[:, k]
+    #     inverse_varimax = dot(latent_data_bis, np.linalg.pinv(varimax_rotation))
+    #     reverted_data = pca_model.inverse_transform(inverse_varimax)
+    #     individual_modes[k] = reverted_data.reshape((-1, lat, lon))
+    # individual_modes = individual_modes.std(1)
+    # individual_modes -= individual_modes.mean()
+    # individual_modes /= individual_modes.std()
 
-    permutation_list = ((modes_gt[:, None] - individual_modes[None]) ** 2).sum((2, 3)).argmin(1)
+    # permutation_list = ((modes_gt[:, None] - individual_modes[None]) ** 2).sum((2, 3)).argmin(1)
 
-    # Get adjacency matrix from PCMCI graph
-    graph = results["graph"]
-    graph[
-        results["val_matrix"]
-        < np.abs(results["val_matrix"].flatten()[results["val_matrix"].flatten().argsort()[::-1][n_gt_connections - 1]])
-    ] = ""
+    # # Get adjacency matrix from PCMCI graph
+    # graph = results["graph"]
+    # graph[
+    #     results["val_matrix"]
+    #     < np.abs(results["val_matrix"].flatten()[results["val_matrix"].flatten().argsort()[::-1][n_gt_connections - 1]])
+    # ] = ""
 
-    adj_matrix_inferred = np.zeros((tau, n_modes, n_modes))
-    for k in range(n_modes):
-        graph_k = graph[k]
-        for j in range(n_modes):
-            adj_matrix_inferred[:, k, j] = graph_k[j][1:] == "-->"
+    # adj_matrix_inferred = np.zeros((tau, n_modes, n_modes))
+    # for k in range(n_modes):
+    #     graph_k = graph[k]
+    #     for j in range(n_modes):
+    #         adj_matrix_inferred[:, k, j] = graph_k[j][1:] == "-->"
 
+    # for k in range(tau):
+    #     adj_matrix_inferred[k] = adj_matrix_inferred[k][np.ix_(permutation_list, permutation_list)]
+    # adj_matrix_inferred = adj_matrix_inferred.transpose((0, 2, 1))
+
+    # Find the permutation 
+    modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
+
+    # Get the flat index of the maximum for each mode
+    idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)          # shape: (n_modes,)
+    idx_inferred_flat = np.argmax(modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1)  # shape: (n_modes,)
+
+    # Convert flat indices to 2D coordinates (row, col)
+    idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])         # shape: (n_modes, 2)
+    idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
+
+    # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
+    permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+    print("permutation_list:", permutation_list)
+
+    # Permute 
     for k in range(tau):
-        adj_matrix_inferred[k] = adj_matrix_inferred[k][np.ix_(permutation_list, permutation_list)]
-    adj_matrix_inferred = adj_matrix_inferred.transpose((0, 2, 1))
+        adj_w[k] = adj_w[k][np.ix_(permutation_list, permutation_list)]
 
-    precision, recall, f1, shd = evaluate_adjacency_matrix(adj_matrix_inferred, gt_adj_list, 0.9)
+    print("PERMUTED THE MATRICES")
+
+    precision, recall, f1, shd = evaluate_adjacency_matrix(adj_w, adj_gt, 0.9)
 
     print(f"difficuly {difficulty} results:")
     print(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
