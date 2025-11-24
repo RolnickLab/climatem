@@ -396,7 +396,7 @@ class TrainingLatent:
                 # Todo propagate the path!
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
-                torch.save(self.model.module.state_dict(), self.save_path / "model.pth")
+                torch.save(self.model.state_dict(), self.save_path / "model.pth")
 
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
@@ -573,7 +573,7 @@ class TrainingLatent:
         h_acyclic = torch.as_tensor([0.0])
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
-        h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
+        h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
         loss = nll + connect_reg + sparsity_reg
@@ -641,7 +641,7 @@ class TrainingLatent:
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
         # projection of the gradient for w
-        if self.model.module.autoencoder.use_grad_project and not self.no_w_constraint:
+        if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
 
@@ -782,7 +782,7 @@ class TrainingLatent:
 
     # Validation step here.
     def valid_step(self):
-        self.model.module.eval()
+        self.model.eval()
 
         with torch.no_grad():
             # sample data
@@ -834,7 +834,7 @@ class TrainingLatent:
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
-            h_ortho = self.get_ortho_violation(self.model.module.autoencoder.get_w_decoder())
+            h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
@@ -978,8 +978,8 @@ class TrainingLatent:
         Convert it to a binary graph and fix it.
         """
         with torch.no_grad():
-            thresholded_adj = (self.model.module.get_adj() > 0.5).type(torch.Tensor)
-            self.model.module.mask.fix(thresholded_adj)
+            thresholded_adj = (self.model.get_adj() > 0.5).type(torch.Tensor)
+            self.model.mask.fix(thresholded_adj)
         self.thresholded = True
         print("Thresholding ================")
 
@@ -1037,9 +1037,9 @@ class TrainingLatent:
             self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
-        self.logvar_decoder_tt.append(self.model.module.autoencoder.logvar_decoder[0].item())
-        self.logvar_encoder_tt.append(self.model.module.autoencoder.logvar_encoder[0].item())
-        self.logvar_transition_tt.append(self.model.module.transition_model.logvar[0, 0].item())
+        self.logvar_decoder_tt.append(self.model.autoencoder.logvar_decoder[0].item())
+        self.logvar_encoder_tt.append(self.model.autoencoder.logvar_encoder[0].item())
+        self.logvar_transition_tt.append(self.model.transition_model.logvar[0, 0].item())
 
     def print_results(self):
         """Print values of many variable: losses, constraint violation, etc.
@@ -1077,7 +1077,7 @@ class TrainingLatent:
 
     def get_regularisation(self) -> float:
         if self.iteration > self.optim_params.schedule_reg:
-            adj = self.model.module.get_adj()
+            adj = self.model.get_adj()
             reg = self.optim_params.reg_coeff * torch.norm(adj, p=1)
             # reg /= adj.numel()
         else:
@@ -1087,7 +1087,7 @@ class TrainingLatent:
 
     def get_acyclicity_violation(self) -> torch.Tensor:
         if self.iteration > 0:
-            adj = self.model.module.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
+            adj = self.model.get_adj()[-1].view(self.d * self.d_z, self.d * self.d_z)
             h = compute_dag_constraint(adj) / self.acyclic_constraint_normalization
         else:
             h = torch.as_tensor([0.0])
@@ -1135,7 +1135,7 @@ class TrainingLatent:
         if self.iteration > self.optim_params.schedule_sparsity:
 
             # first get the adj
-            adj = self.model.module.get_adj()
+            adj = self.model.get_adj()
 
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization
 
@@ -1456,7 +1456,7 @@ class TrainingLatent:
             timesteps: int, the number of timesteps to predict into the future autoregressively
         """
 
-        self.model.module.eval()
+        self.model.eval()
 
         if not valid:
 
@@ -1477,11 +1477,11 @@ class TrainingLatent:
 
             # ensure these are correct
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
 
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
-                samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 10)
+                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 10)
 
             # append the first prediction
             predictions.append(y_pred)
@@ -1522,7 +1522,7 @@ class TrainingLatent:
                 # then predict the next timestep
                 # y at this point is pointless!!!
                 with torch.no_grad():
-                    y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
 
                 # append the prediction
                 predictions.append(y_pred)
@@ -1598,7 +1598,7 @@ class TrainingLatent:
 
                 # save the model in its current state
                 print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
-                torch.save(self.model.module.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
+                torch.save(self.model.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
 
         else:
 
@@ -1620,10 +1620,10 @@ class TrainingLatent:
 
             # swap
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
 
                 # predict and take 100 samples too
-                samples_from_xs, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
+                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
 
             x_original = x.clone().detach()
             y_original = y.clone().detach()
@@ -1653,7 +1653,7 @@ class TrainingLatent:
 
                 with torch.no_grad():
                     # then predict the next timestep
-                    y_pred, y, z, pz_mu, pz_std = self.model.module.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
 
                 np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
                 np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())
@@ -1736,7 +1736,7 @@ class TrainingLatent:
         for _ in range(timesteps):
             # Prediction
             # make all the new predictions, taking samples from the latents
-            _, samples_from_zs, y = self.model.module.predict_sample(x, y, 100)
+            _, samples_from_zs, y = self.model.predict_sample(x, y, 100)
 
             # then calculate the score of each of the samples
             # Update the weights, where we want the weights to increase as the score improves
