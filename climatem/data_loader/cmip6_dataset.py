@@ -301,7 +301,8 @@ class CMIP6Dataset(ClimateDataset):
 
             # self.input_path = self.save_data_into_disk(self.raw_data_input, self.mode, 'input')
             # print("In cmip6, just about to save the data.")
-            self.data_path = self.save_data_into_disk(self.raw_data, fname, self.output_save_dir)
+
+            self.data_path = self.save_data_into_disk(self.raw_data.astype("float32"), fname, self.output_save_dir)
             # print("In cmip6, just saved the data.")
 
             # print("In cmip6, just about to copy the data to slurm.")
@@ -309,7 +310,7 @@ class CMIP6Dataset(ClimateDataset):
             self.copy_to_slurm(self.data_path)
             # print("In cmip6, just copied the data to slurm.")
 
-            self.Data = self.norm_data
+            self.Data = self.norm_data.astype("float32")
 
         # plot_species(self.Data[:, :, 0, :, :], self.coordinates, variables, "../../TEST_REPO", "before_causal")
         # self.Data = self._reload_data(self.data_path)

@@ -4,7 +4,7 @@
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
-        "d_x": 6250,
+        "d_x": 6912,
         "lon": 144, 
         "lat": 96,    
         "tau": 5,
