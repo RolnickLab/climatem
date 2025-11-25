@@ -5,13 +5,17 @@ import os
 from pathlib import Path
 from typing import List, Optional, Union
 
-from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
-    CMIP6_NOM_RES,
-    CMIP6_TEMP_RES,
-)
+import numpy as np
+
+# from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
+#     CMIP6_NOM_RES,
+#     CMIP6_TEMP_RES,
+# ) # ADD constants here for later??
+from climatem.data_loader.healpix_remapping import remap_reg_to_healpix
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
+
 from .climate_dataset import ClimateDataset
 
 log = get_logger()
@@ -45,8 +49,10 @@ class CMIP6Dataset(ClimateDataset):
         reload_climate_set_data: bool = True,
         channels_last: bool = True,
         seq_to_seq: bool = True,
+        map_to_healpix: bool = True,
         global_normalization: bool = True,
         seasonality_removal: bool = True,
+        temp_res: str = "mon",
         seq_len: int = 12,
         lat: int = 96,
         lon: int = 144,
@@ -58,12 +64,14 @@ class CMIP6Dataset(ClimateDataset):
         self.mode = mode
         self.output_save_dir = Path(output_save_dir)
         self.reload_climate_set_data = reload_climate_set_data
-        self.root_dir = Path(data_dir) / "outputs/CMIP6"
+        self.root_dir = Path(data_dir)  # / "outputs/CMIP6" (Previously for already preprocessed data)
         self.input_nc_files = []
         self.output_nc_files = []
         self.in_variables = variables
+        self.map_to_healpix = map_to_healpix
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
+        self.temp_res = temp_res
         self.seq_len = seq_len
         self.lon = lon
         self.lat = lat
@@ -96,6 +104,13 @@ class CMIP6Dataset(ClimateDataset):
             log.warn("Data loader not yet implemented for multiple climate models.")
             raise NotImplementedError
 
+        if len(scenarios) == 1:
+            self.root_dir = self.root_dir / scenarios[0]
+        else:
+            # Logic for multiple scenarios, not sure how to load/create dataset yet
+            log.warn("Data loader not yet implemented for multiple scenarios.")
+            raise NotImplementedError
+
         # I am actually going to make this a list to be compatible with the rest of the code
         if num_ensembles == 1:
             ensemble = os.listdir(self.root_dir)
@@ -122,6 +137,17 @@ class CMIP6Dataset(ClimateDataset):
 
             # print("Ensemble directories:", self.ensemble_dirs)
             # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
+
+        if self.temp_res == "mon":
+            self.ensemble_dirs = [ensemble_dir / "Amon" for ensemble_dir in self.ensemble_dirs]
+        else:
+            # Logic for multiple scenarios, not sure how to load/create dataset yet
+            log.warn("Data loader not yet implemented for multiple scenarios.")
+            raise NotImplementedError
+
+        self.ensemble_dirs = [ensemble_dir / var for ensemble_dir, var in zip(self.ensemble_dirs, self.in_variables)]
+        self.ensemble_dirs = [ensemble_dir / "gn" for ensemble_dir in self.ensemble_dirs]
+        # TODO: Need to implement version + grid for better path control
 
         fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=self.fname_kwargs)
         print(f"coordinates_fname {coordinates_fname}")
@@ -162,10 +188,10 @@ class CMIP6Dataset(ClimateDataset):
             for var in variables:
 
                 for exp in scenarios:
-                    if exp == "historical":
-                        get_years = historical_years
-                    else:
-                        get_years = years
+                    # if exp == "historical":
+                    #     get_years = historical_years
+                    # else:
+                    #     get_years = years
                     # print("ensemble_dirs")
                     # print(self.ensemble_dirs)
 
@@ -188,21 +214,21 @@ class CMIP6Dataset(ClimateDataset):
                         # I am now identing this:
                         output_nc_files = []
 
-                        for y in get_years:
-                            # for y in self.get_years_list(get_years, give_list=True):
-                            # print('y is this:', y)
-                            # print('here is exp:', exp)
-                            var_dir = ensemble_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
-                            print(f"ALL FILES DIRECTORY: {var_dir}")
-                            files = glob.glob(f"{var_dir}/**/*.nc", recursive=True)
-                            print(f"NC FILES: {files}")
-                            if len(files) == 0:
-                                # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
-                                files = glob.glob(f"{var_dir}/*.grib", recursive=True)
+                        # for y in get_years:
+                        # for y in self.get_years_list(get_years, give_list=True):
+                        # print('y is this:', y)
+                        # print('here is exp:', exp)
+                        # var_dir = ensemble_dir # TODO: This should be rewritten according to ESMValTools / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+                        print(f"ALL FILES DIRECTORY: {ensemble_dir}")
+                        files = glob.glob(f"{ensemble_dir}/**/*.nc", recursive=True)
+                        print(f"NC FILES: {files}")
+                        if len(files) == 0:
+                            # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
+                            files = glob.glob(f"{ensemble_dir}/*.grib", recursive=True)
                             print(f"Grib FILES: {files}")
-                            # print('files here:', files)
-                            # loads all years! implement splitting
-                            output_nc_files += files
+                        # print('files here:', files)
+                        # loads all years! implement splitting
+                        output_nc_files += files
 
                         # print("Here the final var_dir be:", var_dir)
                         # print('files here after looping through all the years:', output_nc_files)
@@ -227,7 +253,13 @@ class CMIP6Dataset(ClimateDataset):
             self.raw_data = self.load_into_mem(
                 files_per_var, num_vars=len(variables), channels_last=channels_last, seq_to_seq=seq_to_seq
             )
-            self.coordinates = self.load_coordinates_into_mem(files_per_var)
+
+            lon, lat = self.load_coordinates_into_mem(files_per_var)
+
+            if self.map_to_healpix:
+                print("remapping to healpix")
+                self.raw_data, latitudes_new, longitudes_new = remap_reg_to_healpix(self.raw_data, lon, lat)
+                self.coordinates = np.c_[longitudes_new, latitudes_new]
 
             if self.mode in ["train", "train+val"]:
                 print("creating stats fname")

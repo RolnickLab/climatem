@@ -58,6 +58,7 @@ class dataParams:
         temp_res: str = "mon",  # temporal resolution. Only "mon" is accepted for now
         batch_size: int = 256,  # batch size for loading the data
         eval_batch_size: int = 256,  # batch size for loading the evaluation data
+        map_to_healpix: bool = False,
         global_normalization: bool = True,  # normalize the data?
         seasonality_removal: bool = False,  # deseasonalize the data?
         channels_last: bool = False,  # last dimension of data is the channel
@@ -90,8 +91,10 @@ class dataParams:
             self.seq_len = SEQ_LEN_MAPPING[temp_res]
         except ValueError:
             print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
+        self.temp_res = temp_res
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
+        self.map_to_healpix = map_to_healpix
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last

@@ -55,6 +55,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # output_normalization="z-norm",
         global_normalization: bool = True,
         seasonality_removal: bool = True,
+        temp_res: str = "mon",
         *args,
         **kwargs,
     ):
@@ -109,6 +110,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
+        self.temp_res = temp_res
 
         # if climate_model in AVAILABLE_MODELS_FIRETYPE:
         #     openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
@@ -164,6 +166,9 @@ class ClimateDataset(torch.utils.data.Dataset):
             array_list.append(temp_data)
 
         temp_data = np.concatenate(array_list, axis=0)
+        # (1, 4812, 96, 144)
+
+        print(f"temp_data shape {temp_data.shape}")
 
         if paths[0][0].endswith(".grib"):
             years = len(paths[0])
@@ -177,8 +182,9 @@ class ClimateDataset(torch.utils.data.Dataset):
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
         else:
-            years = len(paths[0])
-            temp_data = temp_data.reshape(num_vars, years, self.seq_len, self.lon, self.lat)
+            # years = len(paths[0])
+            # second dimension is years
+            temp_data = temp_data.reshape(num_vars, -1, self.seq_len, self.lat, self.lon)
 
         if seq_to_seq is False:
             temp_data = temp_data[:, :, -1, :, :]  # only take last time step
@@ -190,6 +196,8 @@ class ClimateDataset(torch.utils.data.Dataset):
             temp_data = temp_data.transpose((1, 2, 0, 3))
         else:
             temp_data = temp_data.transpose((1, 2, 0, 3, 4))
+
+        print(f"Output of load into mem of shape {temp_data.shape}")
 
         return temp_data
 
@@ -212,35 +220,39 @@ class ClimateDataset(torch.utils.data.Dataset):
         if paths[0][0][-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.load(self.icosahedral_coordinates_path)
+            return coordinates[:, 0], coordinates[:, 1]
         elif paths[0][0][-5:] == "grib2":
             coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
+            return coordinates[:, 0], coordinates[:, 1]
         else:
-            for vlist in [paths[0]]:
-                # print("I am in the else of load_coordinates_into_mem")
-                # print("length_paths_list", len(vlist))
-                temp_data = xr.open_mfdataset(
-                    vlist, concat_dim="time", combine="nested"
-                ).compute()  # .compute is not necessary but eh, doesn't hurt
-                # print("self.in_variables:", self.in_variables)
-                # NOTE:() - should this be for all possible variables? Not sure...
-                if (
-                    "tas" in self.in_variables
-                    or "pr" in self.in_variables
-                    or "psl" in self.in_variables
-                    or "ts" in self.in_variables
-                ):
-                    array_list_lon = temp_data.lon.to_numpy()
-                    # print('array_list_lon shape:', array_list_lon.shape)
-                    array_list_lon = array_list_lon[:]
-                    array_list_lat = temp_data.lat.to_numpy()
-                    array_list_lat = array_list_lat[:]
-                else:
-                    array_list_lon = temp_data.lon.to_numpy()
-                    array_list_lat = temp_data.lat.to_numpy()
-            coordinates = np.meshgrid(array_list_lon, array_list_lat)
-            coordinates = np.c_[coordinates[1].flatten(), coordinates[0].flatten()]
+            vlist = paths[0]
+            # for vlist in [paths[0]]:
+            # print("I am in the else of load_coordinates_into_mem")
+            # print("length_paths_list", len(vlist))
+            temp_data = xr.open_mfdataset(
+                vlist, concat_dim="time", combine="nested"
+            ).compute()  # .compute is not necessary but eh, doesn't hurt
+            # print("self.in_variables:", self.in_variables)
+            # NOTE:() - should this be for all possible variables? Not sure...
+            # if (
+            #     "tas" in self.in_variables
+            #     or "pr" in self.in_variables
+            #     or "psl" in self.in_variables
+            #     or "ts" in self.in_variables
+            # ):
+            #     array_list_lon = temp_data.lon.to_numpy()
+            #     # print('array_list_lon shape:', array_list_lon.shape)
+            #     array_list_lon = array_list_lon[:]
+            #     array_list_lat = temp_data.lat.to_numpy()
+            #     array_list_lat = array_list_lat[:]
+            # else:
+            # array_list_lon = temp_data.lon.to_numpy()
+            # array_list_lat = temp_data.lat.to_numpy()
+            # coordinates = np.meshgrid(array_list_lon, array_list_lat)
+            # coordinates = np.c_[coordinates[1].flatten(), coordinates[0].flatten()]
 
-        return coordinates
+        return temp_data.lon.to_numpy(), temp_data.lat.to_numpy()
+        # return coordinates
 
     @staticmethod
     def create_multi_res_data(data, num_months_aggregated):
