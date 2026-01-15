@@ -499,8 +499,19 @@ class LatentTSDCD(nn.Module):
         b = x.size(0)
 
         # sample Zs (based on X)
+        if torch.any(torch.isnan(x)):
+            print("x has NaNs")
+        if torch.any(torch.isnan(y)):
+            print("y has NaNs")
 
         z, q_mu_y, q_std_y = self.encode(x, y)
+
+        if torch.any(torch.isnan(z)):
+            print("z has NaNs")
+        if torch.any(torch.isnan(q_mu_y)):
+            print("q_mu_y has NaNs")
+        if torch.any(torch.isnan(q_std_y)):
+            print("q_std_y has NaNs")
 
         if self.debug_gt_z:
             z = gt_z
@@ -512,10 +523,20 @@ class LatentTSDCD(nn.Module):
         else:
             pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
 
+        if torch.any(torch.isnan(pz_mu)):
+            print("pz_mu has NaNs")
+        if torch.any(torch.isnan(pz_std)):
+            print("pz_std has NaNs")
+
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
 
         px_mu, px_std = self.decode(z[:, -1])
+
+        if torch.any(torch.isnan(px_mu)):
+            print("px_mu has NaNs")
+        if torch.any(torch.isnan(px_std)):
+            print("px_std has NaNs")
 
         # set distribution with obtained parameters
         if self.distr_decoder.__name__ == "GEVDistribution":
@@ -530,6 +551,10 @@ class LatentTSDCD(nn.Module):
                 - 0.5
             )
         else:
+            if torch.any(torch.isnan(px_mu)):
+                print("px_mu has NaNs")
+            if torch.any(torch.isnan(px_std)):
+                print("px_std has NaNs")
             px_distr = self.distr_decoder(px_mu, px_std)
             recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
             # compute the KL, the reconstruction and the ELBO

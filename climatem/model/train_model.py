@@ -555,6 +555,8 @@ class TrainingLatent:
             )
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
+                print("Now binarizing!!")
+                print(f"h_sparsity {h_sparsity}")
                 h_variance = self.adj_transition_variance()
                 sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
 
@@ -1068,6 +1070,9 @@ class TrainingLatent:
 
         # this is just running the forward pass of LatentTSDCD...
         elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
+        if torch.any(torch.isnan(elbo)):
+            print("get_nlls has NaNs")
+
         # print('what is len(self.model(arg)) with arguments', len(self.model(x, y, z, self.iteration)))
         return -elbo, recons, kl, preds
 
@@ -1089,6 +1094,8 @@ class TrainingLatent:
             h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
+        if torch.any(torch.isnan(h)):
+            print("acyclicity constraint has NaNs")
 
         return h
 
@@ -1108,6 +1115,8 @@ class TrainingLatent:
             h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
+        if torch.any(torch.isnan(h)):
+            print("ortho constraint has NaNs")
 
         return h
 
@@ -1117,8 +1126,15 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
+        if torch.any(torch.isnan(adj)):
+            print("adjacency matrix has NaNs")
+            print(f"self.sparsity_normalization {self.sparsity_normalization}")
+
         h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
         assert torch.is_tensor(h)
+        if torch.any(torch.isnan(h)):
+            print("adjacency constraint has NaNs")
+            print(f"self.sparsity_normalization {self.sparsity_normalization}")
         return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
@@ -1155,6 +1171,9 @@ class TrainingLatent:
             h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
+
+        if torch.any(torch.isnan(h)):
+            print("sparsity constraint has NaNs")
 
         return h
 
@@ -1312,6 +1331,9 @@ class TrainingLatent:
             # add together all the CRPS values and divide by the number of samples
             crps = torch.sum(crps) / y.size(0)
 
+            if torch.any(torch.isnan(crps)):
+                print("CRPS has NaNs")
+
             return crps
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
@@ -1364,18 +1386,21 @@ class TrainingLatent:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
         if take_log:
-            fft_true = torch.log(fft_true)
-            fft_pred = torch.log(fft_pred)
+            idx_pos = torch.where(torch.logical_and(torch.abs(fft_pred) > 1e-4, torch.abs(fft_true) > 1e-4))
+            fft_true = torch.log(torch.abs(fft_true[idx_pos]) + 1e-4)
+            fft_pred = torch.log(torch.abs(fft_pred[idx_pos]) + 1e-4)
 
-        spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
+        spectral_loss = torch.abs(fft_pred - fft_true)
+        # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
+
+        if torch.any(torch.isnan(spectral_loss)):
+            print("Spatial spectrum has NaNs")
 
         # Calculate the power spectrum
         if self.optim_params.fraction_highest_wavenumbers is not None:
-            spectral_loss = spectral_loss[
-                :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
-            ]
+            spectral_loss = spectral_loss[: round(self.optim_params.fraction_highest_wavenumbers * len(idx_pos[0]))]
         if self.optim_params.fraction_lowest_wavenumbers is not None:
-            spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
+            spectral_loss = spectral_loss[: round(self.optim_params.fraction_lowest_wavenumbers * len(idx_pos[0]))]
 
         spectral_loss = torch.mean(spectral_loss)
         # print('what is the shape of the spectral loss?', spectral_loss)
@@ -1397,7 +1422,13 @@ class TrainingLatent:
         pred = torch.cat((x, y_pred), dim=1)
         # Calculate the power spectrum
         # compute the distance between the losses...
-        return torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1)))
+        temporal_spectral_loss = torch.nan_to_num(
+            torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1))), 0
+        )
+        if torch.any(torch.isnan(temporal_spectral_loss)):
+            print("Spatial spectrum has NaNs")
+
+        return temporal_spectral_loss
         # the shape here is (time/2 + 1, num_vars, coords)
 
     def connectivity_reg_complete(self):

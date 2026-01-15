@@ -147,7 +147,9 @@ class CMIP6Dataset(ClimateDataset):
 
         self.ensemble_dirs = [ensemble_dir / var for ensemble_dir, var in zip(self.ensemble_dirs, self.in_variables)]
         self.ensemble_dirs = [ensemble_dir / "gn" for ensemble_dir in self.ensemble_dirs]
-        # TODO: Need to implement version + grid for better path control
+
+        # TODO: Need to implement version + grid for better path control BOTTOM IS HARDCODED
+        # self.ensemble_dirs = [ensemble_dir / "v20210118" for ensemble_dir in self.ensemble_dirs]
 
         fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=self.fname_kwargs)
         print(f"coordinates_fname {coordinates_fname}")
@@ -173,6 +175,7 @@ class CMIP6Dataset(ClimateDataset):
                 self.Data = self.raw_data
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
+            self.Data = self.Data.astype("float32")
 
             # print("In CMIP6Dataset, just finished removing the seasonality.")
 
