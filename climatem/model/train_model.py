@@ -591,7 +591,9 @@ class TrainingLatent:
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             if self.optim_params.spectral_coeff > 0:
                 spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
-                    y[:, k], y_pred_all[:, k], take_log=True
+                    y[:, k],
+                    y_pred_all[:, k],
+                    take_log=self.model_params.take_log_spectra,
                 )
 
         # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
@@ -1358,6 +1360,7 @@ class TrainingLatent:
         """
 
         # assert that y_true has 3 dimensions
+
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
 
@@ -1386,11 +1389,13 @@ class TrainingLatent:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
         if take_log:
-            idx_pos = torch.where(torch.logical_and(torch.abs(fft_pred) > 1e-4, torch.abs(fft_true) > 1e-4))
-            fft_true = torch.log(torch.abs(fft_true[idx_pos]) + 1e-4)
-            fft_pred = torch.log(torch.abs(fft_pred[idx_pos]) + 1e-4)
+            idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
+            fft_true = torch.where(idx_pos, fft_true, 0.0)
+            fft_pred = torch.where(idx_pos, fft_pred, 0.0)
+            fft_true = torch.log(torch.abs(fft_true) + 1e-4)
+            fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
 
-        spectral_loss = torch.abs(fft_pred - fft_true)
+        spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
         # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
 
         if torch.any(torch.isnan(spectral_loss)):
@@ -1398,14 +1403,15 @@ class TrainingLatent:
 
         # Calculate the power spectrum
         if self.optim_params.fraction_highest_wavenumbers is not None:
-            spectral_loss = spectral_loss[: round(self.optim_params.fraction_highest_wavenumbers * len(idx_pos[0]))]
+            spectral_loss = spectral_loss[
+                :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
+            ]
         if self.optim_params.fraction_lowest_wavenumbers is not None:
-            spectral_loss = spectral_loss[: round(self.optim_params.fraction_lowest_wavenumbers * len(idx_pos[0]))]
+            spectral_loss = spectral_loss[
+                :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
+            ]
 
-        spectral_loss = torch.mean(spectral_loss)
-        # print('what is the shape of the spectral loss?', spectral_loss)
-
-        return spectral_loss
+        return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """

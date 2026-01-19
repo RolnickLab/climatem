@@ -93,7 +93,7 @@
 
         "fraction_highest_wavenumbers": 0.5,
         "fraction_lowest_wavenumbers": null,
-
+        "take_log_spectra": true,
         "scheduler_spectra": null,
 
         "reg_coeff": 0.12801,
