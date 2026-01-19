@@ -42,6 +42,7 @@ class ClimateDataModule(LightningDataModule):
         test_scenarios: List[str] = ["ssp370", "ssp126"],
         train_models: List[str] = ["NorESM2-LM"],
         test_models: Union[List[str], None] = None,
+        temp_res: str = "mon",
         batch_size: int = 16,
         eval_batch_size: int = 64,
         num_workers: int = 0,
@@ -142,6 +143,7 @@ class ClimateDataModule(LightningDataModule):
             lon=self.hparams.lon,
             global_normalization=self.hparams.global_normalization,
             seasonality_removal=self.hparams.seasonality_removal,
+            temp_res=self.hparams.temp_res,
         )
         # create datasets
         # assign to vars

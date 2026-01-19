@@ -499,9 +499,7 @@ class LatentTSDCD(nn.Module):
         b = x.size(0)
 
         # sample Zs (based on X)
-
         z, q_mu_y, q_std_y = self.encode(x, y)
-
         if self.debug_gt_z:
             z = gt_z
 
@@ -511,7 +509,6 @@ class LatentTSDCD(nn.Module):
             pz_mu, pz_std = self.transition(z.clone(), mask)
         else:
             pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
-
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
 

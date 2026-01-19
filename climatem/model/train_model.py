@@ -559,6 +559,8 @@ class TrainingLatent:
             )
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
+                print("Now binarizing!!")
+                print(f"h_sparsity {h_sparsity}")
                 h_variance = self.adj_transition_variance()
                 sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
 
@@ -575,7 +577,7 @@ class TrainingLatent:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
-        # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
+        # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
         loss = nll + connect_reg + sparsity_reg
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
@@ -593,7 +595,9 @@ class TrainingLatent:
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             if self.optim_params.spectral_coeff > 0:
                 spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
-                    y[:, k], y_pred_all[:, k], take_log=True
+                    y[:, k],
+                    y_pred_all[:, k],
+                    take_log=self.optim_params.take_log_spectra,
                 )
 
         # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
@@ -1072,7 +1076,7 @@ class TrainingLatent:
 
         # this is just running the forward pass of LatentTSDCD...
         elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
-        # print('what is len(self.model(arg)) with arguments', len(self.model(x, y, z, self.iteration)))
+
         return -elbo, recons, kl, preds
 
     def get_regularisation(self) -> float:
@@ -1121,8 +1125,10 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
+
         h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
         assert torch.is_tensor(h)
+
         return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
@@ -1340,6 +1346,7 @@ class TrainingLatent:
         """
 
         # assert that y_true has 3 dimensions
+
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
 
@@ -1368,23 +1375,26 @@ class TrainingLatent:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
         if take_log:
-            fft_true = torch.log(fft_true)
-            fft_pred = torch.log(fft_pred)
+            idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
+            fft_true = torch.where(idx_pos, fft_true, 0.0)
+            fft_pred = torch.where(idx_pos, fft_pred, 0.0)
+            fft_true = torch.log(torch.abs(fft_true) + 1e-4)
+            fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
 
         spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
+        # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
 
         # Calculate the power spectrum
         if self.optim_params.fraction_highest_wavenumbers is not None:
             spectral_loss = spectral_loss[
-                :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
+                :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
             ]
         if self.optim_params.fraction_lowest_wavenumbers is not None:
-            spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
+            spectral_loss = spectral_loss[
+                :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
+            ]
 
-        spectral_loss = torch.mean(spectral_loss)
-        # print('what is the shape of the spectral loss?', spectral_loss)
-
-        return spectral_loss
+        return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """
@@ -1401,7 +1411,11 @@ class TrainingLatent:
         pred = torch.cat((x, y_pred), dim=1)
         # Calculate the power spectrum
         # compute the distance between the losses...
-        return torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1)))
+        temporal_spectral_loss = torch.nan_to_num(
+            torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1))), 0
+        )
+
+        return temporal_spectral_loss
         # the shape here is (time/2 + 1, num_vars, coords)
 
     def connectivity_reg_complete(self):

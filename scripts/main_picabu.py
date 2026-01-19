@@ -89,6 +89,7 @@ def main(
             train_scenarios=data_params.train_scenarios,
             test_scenarios=data_params.test_scenarios,
             train_models=data_params.train_models,
+            temp_res=data_params.temp_res,
             # test_models = data_params.test_models,
             batch_size=data_params.batch_size,
             eval_batch_size=data_params.eval_batch_size,
