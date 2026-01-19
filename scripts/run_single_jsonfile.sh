@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
 #SBATCH --mem=128G                                                       # Ask for 32 GB of RAM
-#SBATCH --time=12:00:00                                                 # The job will run for 2 hours
+#SBATCH --time=24:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 
 # 0. Clear the environment
@@ -19,7 +19,7 @@ module --quiet load python/3.10
 
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/env/env_climatem/bin/activate
+source $HOME/causal_model/env_climatem/bin/activate
 # 3. Enable expandable allocator to avoid fragmentation
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -42,4 +42,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file.json
+    $HOME/causal_model/climatem/scripts/main_picabu.py --config-path single_param_file.json

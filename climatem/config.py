@@ -58,6 +58,7 @@ class dataParams:
         temp_res: str = "mon",  # temporal resolution. Only "mon" is accepted for now
         batch_size: int = 256,  # batch size for loading the data
         eval_batch_size: int = 256,  # batch size for loading the evaluation data
+        map_to_healpix: bool = False,
         global_normalization: bool = True,  # normalize the data?
         seasonality_removal: bool = False,  # deseasonalize the data?
         channels_last: bool = False,  # last dimension of data is the channel
@@ -90,8 +91,10 @@ class dataParams:
             self.seq_len = SEQ_LEN_MAPPING[temp_res]
         except ValueError:
             print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
+        self.temp_res = temp_res
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
+        self.map_to_healpix = map_to_healpix
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
@@ -196,6 +199,7 @@ class optimParams:
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
         fraction_highest_wavenumbers: float = None,
         fraction_lowest_wavenumbers: float = None,
+        take_log_spectra: bool = True,
         scheduler_spectra: List[
             int
         ] = None,  # the spectra term coefficient in the loss will be linearly increased from 0 to 1 if this is not None, ex: [0, 30_000, 50_000]
@@ -237,6 +241,7 @@ class optimParams:
 
         self.fraction_highest_wavenumbers = fraction_highest_wavenumbers
         self.fraction_lowest_wavenumbers = fraction_lowest_wavenumbers
+        self.take_log_spectra = take_log_spectra
         self.scheduler_spectra = scheduler_spectra
 
         self.schedule_reg = schedule_reg
