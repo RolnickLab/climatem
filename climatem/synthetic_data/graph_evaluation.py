@@ -197,6 +197,179 @@ def plot_adjacency_matrix(
     plt.close()
 
 
+def plot_adjacency_with_forcing_labels(
+    mat_inferred: np.ndarray,
+    mat_gt: np.ndarray,
+    forcing_indices: dict,
+    path: str,
+    name: str = "adjacency_with_labels",
+    threshold: float = 0.5,
+    tau_idx: int = 0,
+):
+    """
+    Plot adjacency matrices with labeled axes showing climate modes, CO2, and aerosol indices.
+
+    Args:
+        mat_inferred: Inferred adjacency matrices (tau x N x N)
+        mat_gt: Ground truth adjacency matrices (tau x N x N)
+        forcing_indices: Dict with 'co2', 'aerosol' index lists and 'n_total'
+        path: Path where to save the plot
+        name: Name of the plot file
+        threshold: Binarization threshold
+        tau_idx: Which time lag to plot (0-indexed)
+    """
+    co2_indices = forcing_indices.get("co2", [])
+    aerosol_indices = forcing_indices.get("aerosol", [])
+    n_total = forcing_indices.get("n_total", mat_inferred.shape[1])
+    n_climate = n_total - len(co2_indices) - len(aerosol_indices)
+
+    # Create labels for each index
+    labels = []
+    for i in range(n_total):
+        if i < n_climate:
+            labels.append(f"M{i}")
+        elif i in co2_indices:
+            labels.append("CO2")
+        elif i in aerosol_indices:
+            aero_idx = aerosol_indices.index(i)
+            labels.append(f"A{aero_idx}")
+
+    # Binarize matrices
+    mat_inferred_bin = binarize_matrix(mat_inferred[tau_idx], threshold)
+    mat_gt_bin = binarize_matrix(mat_gt[tau_idx], threshold)
+
+    # Create figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Plot inferred adjacency
+    axes[0].imshow(mat_inferred_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+    axes[0].set_title(f"Inferred Adjacency (t-{tau_idx+1})", fontsize=12)
+    axes[0].set_xticks(range(n_total))
+    axes[0].set_yticks(range(n_total))
+    axes[0].set_xticklabels(labels, fontsize=8)
+    axes[0].set_yticklabels(labels, fontsize=8)
+    axes[0].set_xlabel("Source (cause)")
+    axes[0].set_ylabel("Target (effect)")
+
+    # Plot ground truth adjacency
+    im2 = axes[1].imshow(mat_gt_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+    axes[1].set_title(f"Ground Truth Adjacency (t-{tau_idx+1})", fontsize=12)
+    axes[1].set_xticks(range(n_total))
+    axes[1].set_yticks(range(n_total))
+    axes[1].set_xticklabels(labels, fontsize=8)
+    axes[1].set_yticklabels(labels, fontsize=8)
+    axes[1].set_xlabel("Source (cause)")
+    axes[1].set_ylabel("Target (effect)")
+
+    # Add separating lines between climate modes and forcing latents
+    for ax in axes:
+        # Line between climate modes and CO2
+        ax.axhline(y=n_climate - 0.5, color="red", linewidth=1.5, linestyle="--")
+        ax.axvline(x=n_climate - 0.5, color="red", linewidth=1.5, linestyle="--")
+        # Line between CO2 and aerosols (if both exist)
+        if co2_indices and aerosol_indices:
+            co2_end = max(co2_indices) + 0.5
+            ax.axhline(y=co2_end, color="orange", linewidth=1, linestyle=":")
+            ax.axvline(x=co2_end, color="orange", linewidth=1, linestyle=":")
+
+    # Add colorbar
+    fig.colorbar(im2, ax=axes, shrink=0.6, label="Edge present")
+
+    # Add legend for regions
+    legend_text = (
+        f"M0-M{n_climate-1}: Climate Modes | CO2: CO2 Forcing | A0-A{len(aerosol_indices)-1}: Aerosol Forcings"
+    )
+    fig.text(0.5, 0.02, legend_text, ha="center", fontsize=10, style="italic")
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    plt.savefig(Path(path) / f"{name}.png", dpi=150)
+    plt.close()
+
+    print(f"Saved labeled adjacency plot to {Path(path) / name}.png")
+
+
+def plot_adjacency_all_lags_with_labels(
+    mat_inferred: np.ndarray,
+    mat_gt: np.ndarray,
+    forcing_indices: dict,
+    path: str,
+    name: str = "adjacency_all_lags",
+    threshold: float = 0.5,
+):
+    """
+    Plot adjacency matrices for all time lags with labeled axes.
+
+    Args:
+        mat_inferred: Inferred adjacency matrices (tau x N x N)
+        mat_gt: Ground truth adjacency matrices (tau x N x N)
+        forcing_indices: Dict with 'co2', 'aerosol' index lists and 'n_total'
+        path: Path where to save the plot
+        name: Name of the plot file
+        threshold: Binarization threshold
+    """
+    tau = mat_inferred.shape[0]
+    co2_indices = forcing_indices.get("co2", [])
+    aerosol_indices = forcing_indices.get("aerosol", [])
+    n_total = forcing_indices.get("n_total", mat_inferred.shape[1])
+    n_climate = n_total - len(co2_indices) - len(aerosol_indices)
+
+    # Create labels
+    labels = []
+    for i in range(n_total):
+        if i < n_climate:
+            labels.append(f"M{i}")
+        elif i in co2_indices:
+            labels.append("CO2")
+        elif i in aerosol_indices:
+            aero_idx = aerosol_indices.index(i)
+            labels.append(f"A{aero_idx}")
+
+    # Create figure with 2 rows (inferred, gt) x tau columns
+    fig, axes = plt.subplots(2, tau, figsize=(4 * tau, 8))
+
+    if tau == 1:
+        axes = axes.reshape(2, 1)
+
+    for t in range(tau):
+        mat_inf_bin = binarize_matrix(mat_inferred[t], threshold)
+        mat_gt_bin = binarize_matrix(mat_gt[t], threshold)
+
+        # Inferred
+        axes[0, t].imshow(mat_inf_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+        axes[0, t].set_title(f"Inferred t-{t+1}", fontsize=10)
+        if t == 0:
+            axes[0, t].set_ylabel("Target")
+            axes[0, t].set_yticks(range(n_total))
+            axes[0, t].set_yticklabels(labels, fontsize=7)
+        else:
+            axes[0, t].set_yticks([])
+
+        # Ground truth
+        axes[1, t].imshow(mat_gt_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+        axes[1, t].set_title(f"GT t-{t+1}", fontsize=10)
+        axes[1, t].set_xlabel("Source")
+        axes[1, t].set_xticks(range(n_total))
+        axes[1, t].set_xticklabels(labels, fontsize=7, rotation=45)
+        if t == 0:
+            axes[1, t].set_ylabel("Target")
+            axes[1, t].set_yticks(range(n_total))
+            axes[1, t].set_yticklabels(labels, fontsize=7)
+        else:
+            axes[1, t].set_yticks([])
+
+        # Add separator lines
+        for row in range(2):
+            axes[row, t].axhline(y=n_climate - 0.5, color="red", linewidth=1, linestyle="--")
+            axes[row, t].axvline(x=n_climate - 0.5, color="red", linewidth=1, linestyle="--")
+
+    plt.suptitle("Adjacency Matrices by Time Lag (Red line separates climate modes from forcings)", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(Path(path) / f"{name}.png", dpi=150)
+    plt.close()
+
+    print(f"Saved multi-lag adjacency plot to {Path(path) / name}.png")
+
+
 def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
     """Evaluates the precision, recall, F1-score, and Structural Hamming Distance (SHD) between the inferred and ground
     truth adjacency matrices."""
@@ -220,6 +393,121 @@ def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
     shd = false_positives + false_negatives
 
     return precision, recall, f1, shd
+
+
+def evaluate_adjacency_by_link_type(A_inferred, A_ground_truth, threshold, forcing_indices):
+    """
+    Evaluate adjacency matrix metrics separately for different link types.
+
+    Args:
+        A_inferred: Inferred adjacency matrices (tau x N x N)
+        A_ground_truth: Ground truth adjacency matrices (tau x N x N)
+        threshold: Binarization threshold
+        forcing_indices: Dict with 'co2', 'aerosol' index lists and 'n_total'
+
+    Returns:
+        Dict with metrics for each link type:
+        - 'overall': Overall metrics
+        - 'climate_to_climate': Climate mode ↔ Climate mode
+        - 'co2_to_climate': CO2 → Climate mode
+        - 'aerosol_to_climate': Aerosol → Climate mode
+        - 'forcing_autoreg': Forcing autoregressive (CO2→CO2, aerosol→aerosol)
+    """
+    A_inferred_bin = binarize_matrix(A_inferred, threshold)
+    A_ground_truth_bin = binarize_matrix(A_ground_truth, threshold)
+
+    co2_indices = set(forcing_indices.get("co2", []))
+    aerosol_indices = set(forcing_indices.get("aerosol", []))
+    n_total = forcing_indices.get("n_total", A_inferred.shape[1])
+    n_climate = n_total - len(co2_indices) - len(aerosol_indices)
+
+    results = {}
+
+    # Overall metrics
+    results["overall"] = _compute_metrics(A_inferred_bin.flatten(), A_ground_truth_bin.flatten())
+
+    # Climate ↔ Climate (indices 0 to n_climate-1)
+    climate_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    climate_mask[:, :n_climate, :n_climate] = True
+    results["climate_to_climate"] = _compute_metrics(A_inferred_bin[climate_mask], A_ground_truth_bin[climate_mask])
+
+    # CO2 → Climate (column indices in co2_indices, row indices in climate)
+    co2_to_climate_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    for co2_idx in co2_indices:
+        co2_to_climate_mask[:, :n_climate, co2_idx] = True
+    if co2_to_climate_mask.any():
+        results["co2_to_climate"] = _compute_metrics(
+            A_inferred_bin[co2_to_climate_mask], A_ground_truth_bin[co2_to_climate_mask]
+        )
+    else:
+        results["co2_to_climate"] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    # Aerosol → Climate (column indices in aerosol_indices, row indices in climate)
+    aerosol_to_climate_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    for aerosol_idx in aerosol_indices:
+        aerosol_to_climate_mask[:, :n_climate, aerosol_idx] = True
+    if aerosol_to_climate_mask.any():
+        results["aerosol_to_climate"] = _compute_metrics(
+            A_inferred_bin[aerosol_to_climate_mask], A_ground_truth_bin[aerosol_to_climate_mask]
+        )
+    else:
+        results["aerosol_to_climate"] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    # Forcing autoregressive (CO2→CO2, aerosol→aerosol diagonal)
+    forcing_autoreg_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    for idx in co2_indices | aerosol_indices:
+        forcing_autoreg_mask[:, idx, idx] = True
+    if forcing_autoreg_mask.any():
+        results["forcing_autoreg"] = _compute_metrics(
+            A_inferred_bin[forcing_autoreg_mask], A_ground_truth_bin[forcing_autoreg_mask]
+        )
+    else:
+        results["forcing_autoreg"] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    return results
+
+
+def _compute_metrics(inferred_flat, gt_flat):
+    """Helper function to compute precision, recall, F1, SHD from flattened arrays."""
+    if len(inferred_flat) == 0:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    n_gt_links = int(gt_flat.sum())
+    n_inferred_links = int(inferred_flat.sum())
+
+    if n_gt_links == 0 and n_inferred_links == 0:
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0, "shd": 0, "n_gt_links": 0}
+    elif n_gt_links == 0:
+        return {"precision": 0.0, "recall": 1.0, "f1": 0.0, "shd": n_inferred_links, "n_gt_links": 0}
+    elif n_inferred_links == 0:
+        return {"precision": 1.0, "recall": 0.0, "f1": 0.0, "shd": n_gt_links, "n_gt_links": n_gt_links}
+
+    precision = float(precision_score(gt_flat, inferred_flat, zero_division=0))
+    recall = float(recall_score(gt_flat, inferred_flat, zero_division=0))
+    f1 = float(f1_score(gt_flat, inferred_flat, zero_division=0))
+
+    false_positives = int(np.sum((inferred_flat == 1) & (gt_flat == 0)))
+    false_negatives = int(np.sum((inferred_flat == 0) & (gt_flat == 1)))
+    shd = false_positives + false_negatives
+
+    return {"precision": precision, "recall": recall, "f1": f1, "shd": shd, "n_gt_links": n_gt_links}
+
+
+def print_evaluation_by_link_type(results):
+    """Pretty print evaluation results by link type."""
+    print(f"\n{'=' * 70}")
+    print("EVALUATION BY LINK TYPE")
+    print("=" * 70)
+
+    for link_type, metrics in results.items():
+        print(f"\n{link_type.upper().replace('_', ' ')}:")
+        print(f"  GT links: {metrics['n_gt_links']}")
+        print(f"  Precision: {metrics['precision']:.3f}")
+        print(f"  Recall:    {metrics['recall']:.3f}")
+        print(f"  F1:        {metrics['f1']:.3f}")
+        print(f"  SHD:       {metrics['shd']}")
+
+    print(f"\n{'=' * 70}")
 
 
 def extract_adjacency_matrix(links_coeffs, N, tau):

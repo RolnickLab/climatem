@@ -131,6 +131,12 @@ def main(
             linearity=savar_params.linearity,
             poly_degrees=savar_params.poly_degrees,
             plot_original_data=savar_params.plot_original_data,
+            use_separate_forcings=savar_params.use_separate_forcings,
+            aerosol_scale = savar_params.aerosol_scale,
+            aerosol_spatial_contrast = savar_params.aerosol_spatial_contrast,
+            aerosol_ramp_up_time = savar_params.aerosol_ramp_up_time,
+            aerosol_peak_time = savar_params.aerosol_peak_time,
+            aerosol_decline_time = savar_params.aerosol_decline_time
         )
         datamodule.setup()
 
@@ -179,6 +185,12 @@ def main(
         # also
         fixed=model_params.fixed,
         fixed_output_fraction=model_params.fixed_output_fraction,
+        use_exogenous=model_params.use_exogenous,
+        d_y_co2=model_params.d_y_co2,
+        d_y_aerosol=model_params.d_y_aerosol,
+        use_forced_latents=model_params.use_forced_latents,
+        n_forced_latents_co2=model_params.n_forced_latents_co2,
+        n_forced_latents_aerosol=model_params.n_forced_latents_aerosol,
     )
 
     # Make folder to save run results

@@ -94,6 +94,142 @@ def create_links_coeffs(n_modes, prob_edge=0.2, tau=5, a=4, b=8, difficulty="eas
     return links_coeffs
 
 
+def create_forcing_links_coeffs(
+    n_climate_modes,
+    n_co2_latents=1,
+    n_aerosol_latents=4,
+    tau=5,
+    co2_effect_strength=0.15,
+    aerosol_effect_strength=0.10,
+    co2_affected_modes=None,
+    aerosol_affected_modes=None,
+    forcing_autoreg_strength=0.8,
+):
+    """
+    Create causal links from forcing latents to climate modes.
+
+    This extends the links_coeffs structure to include:
+    - CO2 forcing latent(s) → climate modes
+    - Aerosol forcing latent(s) → climate modes
+    - Autoregressive terms for forcing latents
+
+    Forcing indices are assigned as:
+    - Climate modes: 0 to n_climate_modes-1
+    - CO2 latents: n_climate_modes to n_climate_modes + n_co2_latents - 1
+    - Aerosol latents: n_climate_modes + n_co2_latents to end
+
+    Args:
+        n_climate_modes: Number of climate modes (e.g., 4)
+        n_co2_latents: Number of latents for CO2 (default 1)
+        n_aerosol_latents: Number of latents for aerosols (default 4)
+        tau: Maximum time lag
+        co2_effect_strength: Coefficient strength for CO2 → mode connections
+        aerosol_effect_strength: Coefficient strength for aerosol → mode connections
+        co2_affected_modes: List of climate mode indices affected by CO2 (default: all)
+        aerosol_affected_modes: List of climate mode indices affected by aerosols (default: all)
+        forcing_autoreg_strength: Autoregressive coefficient for forcing latents
+
+    Returns:
+        forcing_links: Dictionary with forcing → mode causal links
+        forcing_indices: Dict with 'co2' and 'aerosol' index ranges
+    """
+    # Default: all climate modes are affected by forcings
+    if co2_affected_modes is None:
+        co2_affected_modes = list(range(n_climate_modes))
+    if aerosol_affected_modes is None:
+        aerosol_affected_modes = list(range(n_climate_modes))
+
+    # Compute forcing indices
+    co2_start_idx = n_climate_modes
+    co2_end_idx = co2_start_idx + n_co2_latents
+    aerosol_start_idx = co2_end_idx
+    aerosol_end_idx = aerosol_start_idx + n_aerosol_latents
+
+    forcing_indices = {
+        "co2": list(range(co2_start_idx, co2_end_idx)),
+        "aerosol": list(range(aerosol_start_idx, aerosol_end_idx)),
+        "n_total": aerosol_end_idx,
+    }
+
+    forcing_links = {}
+
+    # CO2 forcing latents: autoregressive + effects on climate modes
+    for i, co2_idx in enumerate(forcing_indices["co2"]):
+        forcing_links[co2_idx] = []
+        # Autoregressive term (CO2 is persistent)
+        forcing_links[co2_idx].append(((co2_idx, -1), forcing_autoreg_strength))
+
+    # Aerosol forcing latents: autoregressive + effects on climate modes
+    for i, aerosol_idx in enumerate(forcing_indices["aerosol"]):
+        forcing_links[aerosol_idx] = []
+        # Autoregressive term (aerosols have shorter persistence)
+        forcing_links[aerosol_idx].append(((aerosol_idx, -1), forcing_autoreg_strength * 0.7))
+
+    # Add CO2 → climate mode connections
+    # CO2 affects all modes with lag 1 (immediate effect on next timestep)
+    for mode_idx in co2_affected_modes:
+        for co2_idx in forcing_indices["co2"]:
+            # Add with some random variation in strength
+            strength = co2_effect_strength * (0.8 + 0.4 * np.random.rand())
+            lag = -np.random.choice([1, 2])  # Lag 1 or 2
+            # This link means: climate_mode[mode_idx] is caused by co2[co2_idx] at lag
+            # We store this in the CLIMATE MODE's entry (target's perspective)
+            if mode_idx not in forcing_links:
+                forcing_links[mode_idx] = []
+            forcing_links[mode_idx].append(((co2_idx, lag), round(strength, 3)))
+
+    # Add Aerosol → climate mode connections
+    # Each aerosol latent affects a subset of modes (more localized effect)
+    for i, aerosol_idx in enumerate(forcing_indices["aerosol"]):
+        # Each aerosol latent primarily affects ~1-2 climate modes
+        # Distribute aerosol effects across modes
+        primary_mode = i % n_climate_modes
+        affected = [primary_mode]
+        # Maybe also affect neighboring mode
+        if np.random.rand() > 0.5 and n_climate_modes > 1:
+            neighbor = (primary_mode + 1) % n_climate_modes
+            affected.append(neighbor)
+
+        for mode_idx in affected:
+            strength = aerosol_effect_strength * (0.7 + 0.6 * np.random.rand())
+            # Aerosols can be negative (cooling effect)
+            if np.random.rand() > 0.3:
+                strength = -strength
+            lag = -np.random.choice([1, 2, 3])
+            if mode_idx not in forcing_links:
+                forcing_links[mode_idx] = []
+            forcing_links[mode_idx].append(((aerosol_idx, lag), round(strength, 3)))
+
+    return forcing_links, forcing_indices
+
+
+def merge_links_coeffs(climate_links, forcing_links):
+    """
+    Merge climate mode links with forcing links into a single links_coeffs dict.
+
+    Args:
+        climate_links: links_coeffs for climate modes (indices 0 to N-1)
+        forcing_links: links from forcing latents (includes forcing → mode links)
+
+    Returns:
+        merged: Combined links_coeffs dictionary
+    """
+    merged = {}
+
+    # Copy climate links
+    for k, v in climate_links.items():
+        merged[k] = list(v)
+
+    # Add/extend with forcing links
+    for k, v in forcing_links.items():
+        if k in merged:
+            merged[k].extend(v)
+        else:
+            merged[k] = list(v)
+
+    return merged
+
+
 def generate_save_savar_data(
     save_dir_path,
     name,
@@ -112,12 +248,23 @@ def generate_save_savar_data(
     is_forced=False,
     f_1=1,
     f_2=2,
-    f_time_1=4000,
+    f_time_1=2000,
     f_time_2=8000,
     ramp_type="linear",
     linearity="polynomial",
     poly_degrees=[2, 3],
     plotting=True,
+    aerosol_scale=0.02,
+    aerosol_spatial_contrast=1.05,
+    aerosol_ramp_up_time=2000,
+    aerosol_peak_time=5000,
+    aerosol_decline_time=8000,
+    # Forcing causal structure parameters
+    n_co2_latents=1,
+    n_aerosol_latents=4,
+    co2_effect_strength=0.15,
+    aerosol_effect_strength=0.10,
+    tau=5,
 ):
 
     # Setup spatial weights of underlying processes
@@ -130,9 +277,13 @@ def generate_save_savar_data(
     noise_weights = np.zeros((N, nx, ny))
     modes_weights = np.zeros((N, nx, ny))
 
+    # Create a subfolder for this specific SAVAR dataset
+    savar_dataset_dir = save_dir_path / name
+    savar_dataset_dir.mkdir(parents=True, exist_ok=True)
+
     # Specify the path where you want to save the data
-    npy_name = f"{name}.npy"
-    save_path = save_dir_path / npy_name
+    npy_name = "savar.npy"
+    save_path = savar_dataset_dir / npy_name
 
     # Center starting position (for fully overlapping modes)
     center_x_start = (nx - comp_size) // 2
@@ -169,11 +320,36 @@ def generate_save_savar_data(
     if difficulty == "hard":
         prob = 1 / 2
 
-    links_coeffs = create_links_coeffs(N, prob_edge=prob, difficulty=difficulty)
+    # Create climate mode links (N x N)
+    climate_links_coeffs = create_links_coeffs(N, prob_edge=prob, tau=tau, difficulty=difficulty)
 
     # One good thing of SAVAR is that if the underlying process is stable and stationary, then SAVAR is also both.
     # Independently of W. This is, we only need to check for stationarity of \PHI and not of W^+\PHI W
-    check_stability(links_coeffs)
+    check_stability(climate_links_coeffs)
+
+    # Initialize forcing_indices (will be populated if is_forced)
+    forcing_indices = None
+
+    if is_forced:
+        # Create forcing → mode causal links
+        forcing_links, forcing_indices = create_forcing_links_coeffs(
+            n_climate_modes=N,
+            n_co2_latents=n_co2_latents,
+            n_aerosol_latents=n_aerosol_latents,
+            tau=tau,
+            co2_effect_strength=co2_effect_strength,
+            aerosol_effect_strength=aerosol_effect_strength,
+        )
+
+        # Merge climate and forcing links into complete links_coeffs
+        links_coeffs = merge_links_coeffs(climate_links_coeffs, forcing_links)
+
+        print(f"Created extended causal graph with {forcing_indices['n_total']} total latents:")
+        print(f"  - Climate modes: 0-{N-1}")
+        print(f"  - CO2 latents: {forcing_indices['co2']}")
+        print(f"  - Aerosol latents: {forcing_indices['aerosol']}")
+    else:
+        links_coeffs = climate_links_coeffs
 
     if is_forced:
         # turn off forcing by setting the time to the last time step
@@ -187,6 +363,11 @@ def generate_save_savar_data(
             "f_time_2": f_time_2,  # The period two goes from t= f_time_2 to the end. Between the two periods, the forcing is risen linearly
             "time_len": time_len,
             "ramp_type": ramp_type,
+            "aerosol_scale": aerosol_scale,  # Scale parameter for aerosol forcing
+            "aerosol_spatial_contrast": aerosol_spatial_contrast,  # Spatial contrast parameter
+            "aerosol_ramp_up_time": aerosol_ramp_up_time,  # When aerosols start increasing
+            "aerosol_peak_time": aerosol_peak_time,  # When aerosols peak
+            "aerosol_decline_time": aerosol_decline_time,  # When aerosols finish declining
         }
 
     season_dict = None
@@ -221,10 +402,10 @@ def generate_save_savar_data(
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plt.colorbar(im, cax=cax)
         ax.set_title("Sum of Circular Modes")
-        fig_name = f"{name}_modes.png"
-        modenpy_name = f"{name}_modes.npy"
-        fig_path = save_dir_path / fig_name
-        modenpy_path = save_dir_path / modenpy_name
+        fig_name = "modes.png"
+        modenpy_name = "modes.npy"
+        fig_path = savar_dataset_dir / fig_name
+        modenpy_path = savar_dataset_dir / modenpy_name
         plt.savefig(fig_path)
         np.save(modenpy_path, sum_modes)
         plt.close()
@@ -238,10 +419,10 @@ def generate_save_savar_data(
         plt.colorbar(im, cax=cax)
         ax.set_title("Sum of Circular Noise")
 
-        fig_name = f"{name}_noise_modes.png"
-        noisenpy_name = f"{name}_noise_modes.npy"
-        fig_path = save_dir_path / fig_name
-        sum_noise_npypath = save_dir_path / noisenpy_name
+        fig_name = "noise_modes.png"
+        noisenpy_name = "noise_modes.npy"
+        fig_path = savar_dataset_dir / fig_name
+        sum_noise_npypath = savar_dataset_dir / noisenpy_name
 
         plt.savefig(fig_path)
         np.save(sum_noise_npypath, sum_noise)
@@ -264,33 +445,40 @@ def generate_save_savar_data(
         "poly_degrees": poly_degrees,
         "season_dict": season_dict,
         "seasonality": True,
+        # Forcing causal structure info
+        "is_forced": is_forced,
+        "forcing_indices": forcing_indices,
+        "n_co2_latents": n_co2_latents if is_forced else 0,
+        "n_aerosol_latents": n_aerosol_latents if is_forced else 0,
+        "n_climate_modes": N,
+        "n_total_latents": forcing_indices["n_total"] if forcing_indices else N,
     }
 
     parameters_copy = copy.deepcopy(parameters)
     convert_ndarray_to_list(parameters_copy)  # safe to mutate
 
     # Specify the path to save the parameters
-    param_names = f"{name}_parameters.npy"
-    params_path = save_dir_path / param_names
+    param_names = "parameters.npy"
+    params_path = savar_dataset_dir / param_names
     # Save the dictionary of parameters to a .npy file
     np.save(params_path, parameters)
 
-    param_names = f"{name}_parameters.csv"
-    params_path = save_dir_path / param_names
+    param_names = "parameters.csv"
+    params_path = savar_dataset_dir / param_names
     save_parameters_to_csv(params_path, parameters_copy)
-    param_names = f"{name}_links_coeffs.csv"
-    params_path = save_dir_path / param_names
+    param_names = "links_coeffs.csv"
+    params_path = savar_dataset_dir / param_names
     save_links_coeffs_to_csv(params_path, parameters["links_coeffs"])
-    param_names = f"{name}_mode_weights.npy"
-    params_path = save_dir_path / param_names
+    param_names = "mode_weights.npy"
+    params_path = savar_dataset_dir / param_names
     np.save(params_path, modes_weights)
 
     # Create a copy of the parameters to modify
     convert_ndarray_to_list(parameters_copy)
 
     # Specify the path to save the parameters
-    param_names = f"{name}_parameters.json"
-    params_path = save_dir_path / param_names
+    param_names = "parameters.json"
+    params_path = savar_dataset_dir / param_names
 
     # Save the dictionary of parameters to a JSON file
     with open(params_path, "w") as json_file:
@@ -306,6 +494,7 @@ def generate_save_savar_data(
             season_dict=season_dict,
             linearity=linearity,
             poly_degrees=poly_degrees,
+            output_save_dir=str(savar_dataset_dir),
         )
     else:
         savar_model = SAVAR(
@@ -315,17 +504,46 @@ def generate_save_savar_data(
             noise_strength=noise_val,
             season_dict=season_dict,
             forcing_dict=forcing_dict,
+            forcing_indices=forcing_indices,  # Pass forcing indices for causal structure
             linearity=linearity,
             poly_degrees=poly_degrees,
+            output_save_dir=str(savar_dataset_dir),
         )
 
     savar_model.generate_data()  # Remember to generate data, otherwise the data field will be empty
     np.save(save_path, savar_model.data_field)
 
+    # Save combined forcing field (backward compatibility)
     forcing_field = getattr(savar_model, "forcing_data_field", None)
     if forcing_field is not None:
-        forcing_path = save_dir_path / f"{name}_forcing_data_field.npy"
+        forcing_path = savar_dataset_dir / "forcing_data_field.npy"
         np.save(forcing_path, forcing_field)
+
+    # Save separate CO2 and aerosol forcings (for dual exogenous conditioning)
+    co2_forcing_field = getattr(savar_model, "co2_forcing_data_field", None)
+    if co2_forcing_field is not None:
+        co2_forcing_path = savar_dataset_dir / "co2_forcing.npy"
+        np.save(co2_forcing_path, co2_forcing_field)
+        print(f"Saved CO2 forcing to {co2_forcing_path}")
+
+    aerosol_forcing_field = getattr(savar_model, "aerosol_forcing_data_field", None)
+    if aerosol_forcing_field is not None:
+        aerosol_forcing_path = savar_dataset_dir / "aerosol_forcing.npy"
+        np.save(aerosol_forcing_path, aerosol_forcing_field)
+        print(f"Saved aerosol forcing to {aerosol_forcing_path}")
+
+    # Save forcing latent trajectories (ground truth for supervision)
+    co2_latent_traj = getattr(savar_model, "co2_latent_trajectory", None)
+    if co2_latent_traj is not None:
+        co2_latent_path = savar_dataset_dir / "co2_latent_trajectory.npy"
+        np.save(co2_latent_path, co2_latent_traj)
+        print(f"Saved CO2 latent trajectory to {co2_latent_path} (shape: {co2_latent_traj.shape})")
+
+    aerosol_latent_traj = getattr(savar_model, "aerosol_latent_trajectory", None)
+    if aerosol_latent_traj is not None:
+        aerosol_latent_path = savar_dataset_dir / "aerosol_latent_trajectory.npy"
+        np.save(aerosol_latent_path, aerosol_latent_traj)
+        print(f"Saved aerosol latent trajectory to {aerosol_latent_path} (shape: {aerosol_latent_traj.shape})")
 
     print(f"{name} DONE!")
 

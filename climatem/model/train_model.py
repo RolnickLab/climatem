@@ -13,6 +13,7 @@ from climatem.model.dag_optim import compute_dag_constraint
 from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
+from climatem.plotting.plot_savar_output import SavarPlotter
 
 euler_mascheroni = 0.57721566490153286060
 
@@ -134,7 +135,13 @@ class TrainingLatent:
 
         self.best_spatial_spectra_score = None
 
-        self.plotter = Plotter()
+        # Automatically use SavarPlotter for SAVAR synthetic data, otherwise use standard Plotter
+        if plot_params.savar:
+            self.plotter = SavarPlotter()
+            print("Using SavarPlotter for synthetic SAVAR data visualization")
+        else:
+            self.plotter = Plotter()
+            print("Using standard Plotter for climate data visualization")
 
         # if MULTI_GPU:
         #     print("I am using multiple GPUs!!")
@@ -341,6 +348,9 @@ class TrainingLatent:
                             "mae_recons_valid": self.val_mae_recons,
                             "mae_pred_valid": self.val_mae_pred,
                             "mse_recons_train": self.train_mse_recons,
+                            "forcing_loss_co2": self.train_forcing_co2_loss,
+                            "forcing_loss_aerosol": self.train_forcing_aerosol_loss,
+                            "forcing_latent_supervision": self.train_forcing_latent_loss,
                             "mse_pred_train": self.train_mse_pred,
                             "mse_recons_valid": self.val_mse_recons,
                             "mse_pred_valid": self.val_mse_pred,
@@ -381,6 +391,9 @@ class TrainingLatent:
                             "kl_valid": self.valid_kl,
                             "loss_valid": self.valid_loss,
                             "recons_valid": self.valid_recons,
+                            "forcing_loss_co2": self.train_forcing_co2_loss,
+                            "forcing_loss_aerosol": self.train_forcing_aerosol_loss,
+                            "forcing_latent_supervision": self.train_forcing_latent_loss,
                         }
                     )
 
@@ -514,14 +527,37 @@ class TrainingLatent:
         # x, y = next(self.data_loader_train) #.sample(self.batch_size, valid=False)
 
         try:
-            x, y = next(self.data_loader_train)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
+            batch = next(self.data_loader_train)
         except StopIteration:
             self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
-            x, y = next(self.data_loader_train)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
+            batch = next(self.data_loader_train)
+
+        # Extract data from batch (handles both dict and tuple formats)
+        if isinstance(batch, dict):
+            # New format with forcings
+            x = batch["x"]
+            y = batch["y"]
+            y_co2 = batch.get("co2_forcing", None)
+            y_aerosol = batch.get("aerosol_forcing", None)
+            # Extract ground truth forcing latents for supervision
+            gt_co2_latent = batch.get("gt_co2_latent", None)
+            gt_aerosol_latent = batch.get("gt_aerosol_latent", None)
+        else:
+            # Legacy format (tuple)
+            x, y = batch
+            y_co2, y_aerosol = None, None
+            gt_co2_latent, gt_aerosol_latent = None, None
+
+        x = torch.nan_to_num(x)
+        y = torch.nan_to_num(y)
+        if y_co2 is not None:
+            y_co2 = torch.nan_to_num(y_co2)
+        if y_aerosol is not None:
+            y_aerosol = torch.nan_to_num(y_aerosol)
+        if gt_co2_latent is not None:
+            gt_co2_latent = torch.nan_to_num(gt_co2_latent)
+        if gt_aerosol_latent is not None:
+            gt_aerosol_latent = torch.nan_to_num(gt_aerosol_latent)
 
         # y = y[:, 0]
         z = None
@@ -530,19 +566,33 @@ class TrainingLatent:
         nll = 0
         recons = 0
         kl = 0
+        forcing_loss_co2 = torch.tensor(0.0, device=self.accelerator.device)
+        forcing_loss_aerosol = torch.tensor(0.0, device=self.accelerator.device)
+        forcing_latent_loss = torch.tensor(0.0, device=self.accelerator.device)
 
         # also make the proper prediction, not the reconstruction as we do above
         # With multiple future timesteps we append the prediction to x and compute the nll of next timestep etc..
         # We add to the loss the sum multiplied by the decay in future timesteps
         # we have to take care here to make sure that we have the right tensors with requires_grad
         for k in range(self.future_timesteps):
-            nll_bis, recons_bis, kl_bis, y_pred_recons = self.get_nll(x_bis, y[:, k], z)
+            (
+                nll_bis,
+                recons_bis,
+                kl_bis,
+                y_pred_recons,
+                forcing_co2_bis,
+                forcing_aerosol_bis,
+                forcing_latent_bis,
+            ) = self.get_nll(x_bis, y[:, k], z, y_co2, y_aerosol, gt_co2_latent, gt_aerosol_latent)
             nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
+            forcing_loss_co2 += (self.optim_params.loss_decay_future_timesteps**k) * forcing_co2_bis
+            forcing_loss_aerosol += (self.optim_params.loss_decay_future_timesteps**k) * forcing_aerosol_bis
+            forcing_latent_loss += (self.optim_params.loss_decay_future_timesteps**k) * forcing_latent_bis
             # Shall we do this if instantaneous??
             if not self.instantaneous:
-                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k], y_co2, y_aerosol)
             else:
                 y_pred = y_pred_recons
             y_pred_all[:, k] = y_pred
@@ -575,6 +625,20 @@ class TrainingLatent:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
+        # Add forcing decoder utilization penalty to encourage non-zero decoder weights for forcing latents
+        decoder_utilization_penalty = torch.tensor(0.0, device=self.accelerator.device)
+        if self.model.use_forced_latents:
+            w_decoder = self.model.autoencoder.get_w_decoder()  # (d_x, d_z)
+            n_climate = self.model.d_z - self.model.n_forced_latents_co2 - self.model.n_forced_latents_aerosol
+            forcing_decoder_weights = w_decoder[:, n_climate:]  # weights for forcing latents
+            forcing_decoder_norms = torch.norm(forcing_decoder_weights, dim=0)  # per-latent norms
+
+            # Penalize if any forcing latent has decoder norm below threshold
+            min_norm_threshold = getattr(self.optim_params, "min_forcing_decoder_norm", 1.5)
+            decoder_util_coeff = getattr(self.optim_params, "decoder_utilization_coeff", 0.1)
+            norm_deficit = torch.relu(min_norm_threshold - forcing_decoder_norms)
+            decoder_utilization_penalty = decoder_util_coeff * torch.sum(norm_deficit**2)
+
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
         loss = nll + connect_reg + sparsity_reg
         if not self.no_w_constraint:
@@ -589,7 +653,9 @@ class TrainingLatent:
         spectral_loss = 0
         for k in range(self.future_timesteps):
             # This step (predict) could be removed - need to rewrite predict function, to speed things up
-            px_mu, px_std = self.model.predict_pxmu_pxstd(torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k])
+            px_mu, px_std = self.model.predict_pxmu_pxstd(
+                torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k], y_co2, y_aerosol
+            )
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
             spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
                 y[:, k], y_pred_all[:, k], take_log=True
@@ -608,6 +674,10 @@ class TrainingLatent:
                 + self.optim_params.crps_coeff * crps
                 + self.optim_params.spectral_coeff * spectral_loss
                 + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+                + self.optim_params.forcing_co2_coeff * forcing_loss_co2
+                + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
+                + self.optim_params.forcing_latent_supervision_coeff * forcing_latent_loss
+                + decoder_utilization_penalty
             )
         else:
             for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
@@ -626,6 +696,10 @@ class TrainingLatent:
                     self.optim_params.spectral_coeff * spectral_loss
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
+                + self.optim_params.forcing_co2_coeff * forcing_loss_co2
+                + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
+                + self.optim_params.forcing_latent_supervision_coeff * forcing_latent_loss
+                + decoder_utilization_penalty
             )
         # backprop
         # mask_prev = self.model.mask.param.clone()
@@ -645,6 +719,42 @@ class TrainingLatent:
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
 
             # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
+
+        # Log gradient norms for diagnostic purposes (every 100 iterations)
+        if self.iteration % 100 == 0:
+            # Compute climate encoder gradient norm
+            climate_encoder_grads = [p.grad for p in self.model.autoencoder.encoder.parameters() if p.grad is not None]
+            if climate_encoder_grads:
+                climate_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in climate_encoder_grads]))
+            else:
+                climate_encoder_grad_norm = torch.tensor(0.0)
+
+            # Compute forcing encoder gradient norms if using forced latents
+            if self.model.use_forced_latents:
+                co2_encoder_grads = [
+                    p.grad for p in self.model.autoencoder.co2_forcing_encoder_mu.parameters() if p.grad is not None
+                ]
+                if co2_encoder_grads:
+                    co2_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in co2_encoder_grads]))
+                else:
+                    co2_encoder_grad_norm = torch.tensor(0.0)
+
+                aerosol_encoder_grads = [
+                    p.grad for p in self.model.autoencoder.aerosol_forcing_encoder_mu.parameters() if p.grad is not None
+                ]
+                if aerosol_encoder_grads:
+                    aerosol_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in aerosol_encoder_grads]))
+                else:
+                    aerosol_encoder_grad_norm = torch.tensor(0.0)
+
+                self.accelerator.log(
+                    {
+                        "grad_norm/climate_encoder": climate_encoder_grad_norm.item(),
+                        "grad_norm/co2_encoder": co2_encoder_grad_norm.item(),
+                        "grad_norm/aerosol_encoder": aerosol_encoder_grad_norm.item(),
+                    },
+                    step=self.iteration,
+                )
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -670,6 +780,29 @@ class TrainingLatent:
             self.train_temporal_spectral_loss = temporal_spectral_loss.item()
         else:
             self.train_temporal_spectral_loss = torch.as_tensor([0.0])
+
+        # adding the forcing reconstruction losses to the logs
+        self.train_forcing_co2_loss = forcing_loss_co2.item()
+        self.train_forcing_aerosol_loss = forcing_loss_aerosol.item()
+        self.train_forcing_latent_loss = forcing_latent_loss.item()
+
+        # Debug logging for forcing latent supervision
+        if self.iteration % 1000 == 0 and self.model.use_forced_latents:
+            print(
+                f"[DEBUG iter {self.iteration}] Forcing losses: "
+                f"CO2={forcing_loss_co2.item():.6f}, "
+                f"Aerosol={forcing_loss_aerosol.item():.6f}, "
+                f"Supervision={forcing_latent_loss.item():.6f}"
+            )
+            if gt_co2_latent is not None:
+                print(f"  GT latent ranges: CO2=[{gt_co2_latent.min():.3f}, {gt_co2_latent.max():.3f}]")
+            else:
+                print("  WARNING: gt_co2_latent is None - supervision loss not computed!")
+            if gt_aerosol_latent is not None:
+                print(f"  GT latent ranges: Aerosol=[{gt_aerosol_latent.min():.3f}, {gt_aerosol_latent.max():.3f}]")
+            else:
+                print("  WARNING: gt_aerosol_latent is None - supervision loss not computed!")
+            print(f"  Decoder utilization penalty: {decoder_utilization_penalty.item():.6f}")
 
         # # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # # This can be cut if we want faster training...
@@ -734,7 +867,50 @@ class TrainingLatent:
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
             if self.iteration % self.plot_params.plot_freq == 0:
-                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                if self.plot_params.savar:
+                    # Use SAVAR-specific plotting for synthetic data
+                    self.plotter.plot_compare_predictions_savar(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        lat=self.lat,
+                        lon=self.lon,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=self.plot_params.plot_through_time,
+                    )
+
+                    self.plotter.plot_compare_predictions_savar(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        lat=self.lat,
+                        lon=self.lon,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=self.plot_params.plot_through_time,
+                    )
+
+                    self.plotter.plot_compare_predictions_savar(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        lat=self.lat,
+                        lon=self.lon,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=False,
+                        plot_through_time=self.plot_params.plot_through_time,
+                    )
+                elif self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
                     self.plotter.plot_compare_predictions_icosahedral(
                         x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                         y_true=y_original.cpu().detach().numpy(),
@@ -786,14 +962,37 @@ class TrainingLatent:
         with torch.no_grad():
             # sample data
             try:
-                x, y = next(self.data_loader_val)
-                x = torch.nan_to_num(x)
-                y = torch.nan_to_num(y)
+                batch = next(self.data_loader_val)
             except StopIteration:
                 self.data_loader_val = iter(self.datamodule.val_dataloader())
-                x, y = next(self.data_loader_val)
-                x = torch.nan_to_num(x)
-                y = torch.nan_to_num(y)
+                batch = next(self.data_loader_val)
+
+            # Extract data from batch (handles both dict and tuple formats)
+            if isinstance(batch, dict):
+                # New format with forcings
+                x = batch["x"]
+                y = batch["y"]
+                y_co2 = batch.get("co2_forcing", None)
+                y_aerosol = batch.get("aerosol_forcing", None)
+                # Extract ground truth forcing latents for supervision
+                gt_co2_latent = batch.get("gt_co2_latent", None)
+                gt_aerosol_latent = batch.get("gt_aerosol_latent", None)
+            else:
+                # Legacy format (tuple)
+                x, y = batch
+                y_co2, y_aerosol = None, None
+                gt_co2_latent, gt_aerosol_latent = None, None
+
+            x = torch.nan_to_num(x)
+            y = torch.nan_to_num(y)
+            if y_co2 is not None:
+                y_co2 = torch.nan_to_num(y_co2)
+            if y_aerosol is not None:
+                y_aerosol = torch.nan_to_num(y_aerosol)
+            if gt_co2_latent is not None:
+                gt_co2_latent = torch.nan_to_num(gt_co2_latent)
+            if gt_aerosol_latent is not None:
+                gt_aerosol_latent = torch.nan_to_num(gt_aerosol_latent)
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
 
@@ -805,17 +1004,31 @@ class TrainingLatent:
             nll = 0
             recons = 0
             kl = 0
+            forcing_loss_co2 = torch.tensor(0.0, device=self.accelerator.device)
+            forcing_loss_aerosol = torch.tensor(0.0, device=self.accelerator.device)
+            forcing_latent_loss = torch.tensor(0.0, device=self.accelerator.device)
 
             # also make the proper prediction, not the reconstruction as we do above
             # With multiple future timesteps we append the prediction to x and compute the nll of next timestep etc..
             # We add to the loss the sum multiplied by the decay in future timesteps
             # we have to take care here to make sure that we have the right tensors with requires_grad
             for k in range(self.future_timesteps):
-                nll_bis, recons_bis, kl_bis, y_pred_recons = self.get_nll(x_bis, y[:, k], z)
+                (
+                    nll_bis,
+                    recons_bis,
+                    kl_bis,
+                    y_pred_recons,
+                    forcing_co2_bis,
+                    forcing_aerosol_bis,
+                    forcing_latent_bis,
+                ) = self.get_nll(x_bis, y[:, k], z, y_co2, y_aerosol, gt_co2_latent, gt_aerosol_latent)
                 nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
                 recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
                 kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
-                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+                forcing_loss_co2 += (self.optim_params.loss_decay_future_timesteps**k) * forcing_co2_bis
+                forcing_loss_aerosol += (self.optim_params.loss_decay_future_timesteps**k) * forcing_aerosol_bis
+                forcing_latent_loss += (self.optim_params.loss_decay_future_timesteps**k) * forcing_latent_bis
+                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k], y_co2, y_aerosol)
                 y_pred_all[:, k] = y_pred
                 x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
                 # print(f"y_pred_recons shape {y_pred_recons.shape}")
@@ -858,6 +1071,9 @@ class TrainingLatent:
             self.valid_ortho_cons = h_ortho.detach()  # .detach()
             self.valid_connect_reg = connect_reg.item()
             self.valid_acyclic_cons = h_acyclic.item()
+            self.valid_forcing_co2_loss = forcing_loss_co2.item()
+            self.valid_forcing_aerosol_loss = forcing_loss_aerosol.item()
+            self.valid_forcing_latent_loss = forcing_latent_loss.item()
 
             # adding the sparsity constraint to the logs
             self.valid_sparsity_cons = h_sparsity.item()  # .detach()
@@ -915,7 +1131,50 @@ class TrainingLatent:
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
             if self.iteration % self.plot_params.plot_freq == 0:
-                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                if self.plot_params.savar:
+                    # Use SAVAR-specific plotting for synthetic data
+                    self.plotter.plot_compare_predictions_savar(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        lat=self.lat,
+                        lon=self.lon,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=self.plot_params.plot_through_time,
+                    )
+
+                    self.plotter.plot_compare_predictions_savar(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        lat=self.lat,
+                        lon=self.lon,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=self.plot_params.plot_through_time,
+                    )
+
+                    self.plotter.plot_compare_predictions_savar(
+                        x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
+                        y_true=y_original.cpu().detach().numpy(),
+                        y_recons=y_original_recons.cpu().detach().numpy(),
+                        y_hat=y_original_pred.cpu().detach().numpy(),
+                        sample=np.random.randint(0, self.batch_size),
+                        lat=self.lat,
+                        lon=self.lon,
+                        path=self.plots_path,
+                        iteration=self.iteration,
+                        valid=True,
+                        plot_through_time=self.plot_params.plot_through_time,
+                    )
+                elif self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4:
                     self.plotter.plot_compare_predictions_icosahedral(
                         x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                         y_true=y_original.cpu().detach().numpy(),
@@ -1067,12 +1326,83 @@ class TrainingLatent:
         # print("The sparsity cons is:", self.train_sparsity_cons)
         # print("****************************************************************************************")
 
-    def get_nll(self, x, y, z=None) -> torch.Tensor:
+    def get_nll(
+        self, x, y, z=None, y_co2=None, y_aerosol=None, gt_co2_latent=None, gt_aerosol_latent=None
+    ) -> torch.Tensor:
+        """
+        Compute negative ELBO (reconstruction + KL) and forcing reconstruction losses.
 
-        # this is just running the forward pass of LatentTSDCD...
-        elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
-        # print('what is len(self.model(arg)) with arguments', len(self.model(x, y, z, self.iteration)))
-        return -elbo, recons, kl, preds
+        Args:
+            x: Historical observations, shape (batch, tau, d, d_x)
+            y: Current observation, shape (batch, d, d_x) or (batch, 1, d, d_x)
+            z: Ground truth latents (None for real data)
+            y_co2: CO2 forcing, shape (batch, lat, lon) or (batch, 1) or None
+            y_aerosol: Aerosol forcing, shape (batch, lat, lon) or (batch, d_x) or None
+            gt_co2_latent: Ground truth CO2 latent, shape (batch, tau+1, 1) or None
+            gt_aerosol_latent: Ground truth aerosol latents, shape (batch, tau+1, n_aerosol) or None
+
+        Returns:
+            Tuple of (-elbo, reconstruction_loss, kl_divergence, predictions,
+                     forcing_co2_loss, forcing_aerosol_loss, forcing_latent_supervision_loss)
+        """
+        # Process exogenous forcings if model uses them
+        if self.model.use_exogenous and y_co2 is not None and y_aerosol is not None:
+            # Check if we have temporal forcings (shape: batch, tau+1, spatial_dim)
+            # vs single-timestep forcings (shape: batch, spatial_dim)
+            has_temporal_dim = len(y_co2.shape) == 3 and y_co2.shape[1] == self.tau + 1
+
+            if not has_temporal_dim:
+                # Legacy path: single-timestep forcings that need spatial processing
+                # CO2: Convert to global mean if spatial
+                if len(y_co2.shape) == 3:  # (batch, lat, lon)
+                    y_co2 = y_co2.mean(dim=(-2, -1), keepdim=True)  # -> (batch, 1)
+                elif len(y_co2.shape) == 2:  # (batch, spatial_dim)
+                    y_co2 = y_co2.mean(dim=-1, keepdim=True)  # -> (batch, 1)
+
+                # Aerosols: Flatten spatial structure to match d_x
+                if len(y_aerosol.shape) == 3:  # (batch, lat, lon)
+                    y_aerosol = y_aerosol.reshape(y_aerosol.shape[0], -1)  # -> (batch, lat*lon)
+            # else: temporal forcings are already spatially processed by the dataset
+            #       shapes are (batch, tau+1, 1) for CO2 and (batch, tau+1, d_x) for aerosols
+        else:
+            # Model doesn't use exogenous or forcings not provided
+            y_co2, y_aerosol = None, None
+
+        # Forward pass through LatentTSDCD model
+        (
+            elbo,
+            recons,
+            kl,
+            preds,
+            forcing_recons_loss_co2,
+            forcing_recons_loss_aerosol,
+            encoded_forcing_mu,
+        ) = self.model(x, y, z, self.iteration, y_co2=y_co2, y_aerosol=y_aerosol)
+
+        # Compute forcing latent supervision loss if ground truth latents available
+        forcing_latent_supervision_loss = torch.tensor(0.0, device=x.device)
+        if encoded_forcing_mu is not None and gt_co2_latent is not None and gt_aerosol_latent is not None:
+            # Extract ground truth latents for the target timestep (last timestep, tau+1 index)
+            # gt_co2_latent shape: (batch, tau+1, 1), we want [:, -1, :]
+            # gt_aerosol_latent shape: (batch, tau+1, n_aerosol_latents), we want [:, -1, :]
+            gt_co2_target = gt_co2_latent[:, -1, :]  # (batch, 1)
+            gt_aerosol_target = gt_aerosol_latent[:, -1, :]  # (batch, n_aerosol_latents)
+
+            # Concatenate ground truth forcing latents: [CO2, aerosol]
+            gt_forcing_target = torch.cat([gt_co2_target, gt_aerosol_target], dim=1)  # (batch, n_forced_latents_total)
+
+            # Compute MSE between encoded and ground truth forcing latents
+            forcing_latent_supervision_loss = torch.mean((encoded_forcing_mu - gt_forcing_target) ** 2)
+
+        return (
+            -elbo,
+            recons,
+            kl,
+            preds,
+            forcing_recons_loss_co2,
+            forcing_recons_loss_aerosol,
+            forcing_latent_supervision_loss,
+        )
 
     def get_regularisation(self) -> float:
         if self.iteration > self.optim_params.schedule_reg:
@@ -1372,8 +1702,9 @@ class TrainingLatent:
                 dtype=fft_true.real.dtype,
                 device=fft_true.device,
             )
-            fft_true = torch.log(fft_true + eps)
-            fft_pred = torch.log(fft_pred + eps)
+            # Take magnitude of complex FFT before log to get log-magnitude spectrum
+            fft_true = torch.log(torch.abs(fft_true) + eps)
+            fft_pred = torch.log(torch.abs(fft_pred) + eps)
 
         spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
 
@@ -1469,23 +1800,40 @@ class TrainingLatent:
 
             # Make the iterator again, since otherwise we have iterated through it already...
             train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
-            x, y = next(train_dataloader)
+            batch = next(train_dataloader)
+
+            # Extract data from batch (handles both dict and tuple formats)
+            if isinstance(batch, dict):
+                x = batch["x"]
+                y = batch["y"]
+                y_co2 = batch.get("co2_forcing", None)
+                y_aerosol = batch.get("aerosol_forcing", None)
+            else:
+                x, y = batch
+                y_co2, y_aerosol = None, None
 
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
+            if y_co2 is not None:
+                y_co2 = torch.nan_to_num(y_co2)
+            if y_aerosol is not None:
+                y_aerosol = torch.nan_to_num(y_aerosol)
+
             y = y[:, 0]
             z = None
 
             # print("First up, I will do the reconstruction effort")
-            nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
+            nll, recons, kl, y_pred_recons, forcing_co2_loss, forcing_aerosol_loss, forcing_latent_supervision_loss = (
+                self.get_nll(x, y, z, y_co2, y_aerosol)
+            )
 
             # ensure these are correct
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y, y_co2, y_aerosol)
 
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
-                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 10)
+                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 10, y_co2, y_aerosol)
 
             # append the first prediction
             predictions.append(y_pred)
@@ -1526,7 +1874,7 @@ class TrainingLatent:
                 # then predict the next timestep
                 # y at this point is pointless!!!
                 with torch.no_grad():
-                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y, y_co2, y_aerosol)
 
                 # append the prediction
                 predictions.append(y_pred)
@@ -1609,25 +1957,42 @@ class TrainingLatent:
             # bs = np.min([self.data.n_valid, 1000])
             # Make the iterator again
             val_dataloader = iter(self.datamodule.val_dataloader())
-            x, y = next(val_dataloader)
+            batch = next(val_dataloader)
+
+            # Extract data from batch (handles both dict and tuple formats)
+            if isinstance(batch, dict):
+                x = batch["x"]
+                y = batch["y"]
+                y_co2 = batch.get("co2_forcing", None)
+                y_aerosol = batch.get("aerosol_forcing", None)
+            else:
+                x, y = batch
+                y_co2, y_aerosol = None, None
 
             # old, using existing dataloader
             # x, y = next(self.data_loader_val)
 
             y = torch.nan_to_num(y)
             x = torch.nan_to_num(x)
+            if y_co2 is not None:
+                y_co2 = torch.nan_to_num(y_co2)
+            if y_aerosol is not None:
+                y_aerosol = torch.nan_to_num(y_aerosol)
+
             y = y[:, 0]
             z = None
 
             # print("First up, I will do the reconstruction effort")
-            nll, recons, kl, y_pred_recons = self.get_nll(x, y, z)
+            nll, recons, kl, y_pred_recons, forcing_co2_loss, forcing_aerosol_loss, forcing_latent_supervision_loss = (
+                self.get_nll(x, y, z, y_co2, y_aerosol)
+            )
 
             # swap
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y, y_co2, y_aerosol)
 
                 # predict and take 100 samples too
-                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
+                samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100, y_co2, y_aerosol)
 
             x_original = x.clone().detach()
             y_original = y.clone().detach()
@@ -1657,7 +2022,7 @@ class TrainingLatent:
 
                 with torch.no_grad():
                     # then predict the next timestep
-                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y, y_co2, y_aerosol)
 
                 np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
                 np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())
@@ -1729,7 +2094,7 @@ class TrainingLatent:
 
         return spatial_spectra_score
 
-    def particle_filter(self, x, y, num_particles, timesteps=120):
+    def particle_filter(self, x, y, num_particles, timesteps=120, y_co2=None, y_aerosol=None):
         """Implement a particle filter to make a set of autoregressive predictions, where each created sample is
         evaluated by some score, and we do a particle filter to select only best samples to continue the autoregressive
         rollout."""
@@ -1740,7 +2105,7 @@ class TrainingLatent:
         for _ in range(timesteps):
             # Prediction
             # make all the new predictions, taking samples from the latents
-            _, samples_from_zs, y = self.model.predict_sample(x, y, 100)
+            _, samples_from_zs, y = self.model.predict_sample(x, y, 100, y_co2, y_aerosol)
 
             # then calculate the score of each of the samples
             # Update the weights, where we want the weights to increase as the score improves

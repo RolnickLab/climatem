@@ -162,6 +162,12 @@ class modelParams:
         fixed_output_fraction=None,  # NOT SURE, Remove this?
         tau_neigh: int = 0,  # NOT SURE
         hard_gumbel: bool = False,  # NOT SURE
+        use_exogenous: bool = False,  # NEW: Enable conditioning on exogenous forcings (CO2 + aerosols)
+        d_y_co2: int = 1,  # NEW: Dimension of CO2 forcing (typically 1 for global, or spatial_dim for local)
+        d_y_aerosol: int = 900,  # NEW: Dimension of aerosol forcing (typically spatial_dim for local effects)
+        use_forced_latents: bool = False,  # NEW: Map forcings directly to dedicated latent dimensions
+        n_forced_latents_co2: int = 1,  # NEW: Number of latent dimensions for CO2 forcing
+        n_forced_latents_aerosol: int = 4,  # NEW: Number of latent dimensions for aerosol forcing
     ):
         self.instantaneous = instantaneous
         self.no_w_constraint = no_w_constraint
@@ -179,6 +185,12 @@ class modelParams:
         self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh
         self.hard_gumbel = hard_gumbel
+        self.use_exogenous = use_exogenous
+        self.d_y_co2 = d_y_co2
+        self.d_y_aerosol = d_y_aerosol
+        self.use_forced_latents = use_forced_latents
+        self.n_forced_latents_co2 = n_forced_latents_co2
+        self.n_forced_latents_aerosol = n_forced_latents_aerosol
 
 
 class optimParams:
@@ -223,6 +235,11 @@ class optimParams:
         acyclic_min_iter_convergence: float = 1_000,
         mu_acyclic_init: float = 0,
         h_acyclic_threshold: float = 0,
+        forcing_co2_coeff: float = 10.0,  # Weight for CO2 forcing reconstruction loss
+        forcing_aerosol_coeff: float = 10.0,  # Weight for aerosol forcing reconstruction loss
+        forcing_latent_supervision_coeff: float = 10.0,  # Weight for direct forcing latent supervision loss
+        decoder_utilization_coeff: float = 0.1,  # Penalty coefficient for underutilized forcing latent decoder weights
+        min_forcing_decoder_norm: float = 1.5,  # Target minimum L2 norm for forcing latent decoder weights
     ):
         self.optimizer = optimizer
         self.use_sparsity_constraint = use_sparsity_constraint
@@ -267,6 +284,12 @@ class optimParams:
         self.mu_acyclic_init = mu_acyclic_init
         self.h_acyclic_threshold = h_acyclic_threshold
 
+        self.forcing_co2_coeff = forcing_co2_coeff
+        self.forcing_aerosol_coeff = forcing_aerosol_coeff
+        self.forcing_latent_supervision_coeff = forcing_latent_supervision_coeff
+        self.decoder_utilization_coeff = decoder_utilization_coeff
+        self.min_forcing_decoder_norm = min_forcing_decoder_norm
+
 
 class plotParams:
     def __init__(
@@ -303,6 +326,18 @@ class savarParams:
         linearity: str = "linear",
         poly_degrees: List[int] = [2],
         plot_original_data: bool = True,
+        use_separate_forcings: bool = False,  # NEW: Use separate CO2 and aerosol forcings
+        aerosol_scale: float = 0.02,  # NEW: Strength of aerosol forcing (cooling effect)
+        aerosol_spatial_contrast: float = 1.05,  # NEW: Regional variability of aerosol forcing
+        aerosol_ramp_up_time: int = 2000,  # When aerosols start increasing (default: 20% of time_len)
+        aerosol_peak_time: int = 5000,  # When aerosols peak (default: 60% of time_len)
+        aerosol_decline_time: int = 8000,  # When aerosols finish declining (default: 85% of time_len)
+        aerosol_timing_stagger: float = 0.3,  # Fraction of time to stagger between aerosol latents
+        # Forcing causal structure parameters
+        n_co2_latents: int = 1,  # Number of CO2 forcing latents in causal graph
+        n_aerosol_latents: int = 4,  # Number of aerosol forcing latents in causal graph
+        co2_effect_strength: float = 0.15,  # Coefficient strength for CO2 → mode links
+        aerosol_effect_strength: float = 0.10,  # Coefficient strength for aerosol → mode links
     ):
         self.time_len = time_len
         self.comp_size = comp_size
@@ -325,6 +360,18 @@ class savarParams:
         self.linearity = linearity
         self.poly_degrees = poly_degrees
         self.plot_original_data = plot_original_data
+        self.use_separate_forcings = use_separate_forcings
+        self.aerosol_scale = aerosol_scale
+        self.aerosol_spatial_contrast = aerosol_spatial_contrast
+        self.aerosol_ramp_up_time = aerosol_ramp_up_time
+        self.aerosol_peak_time = aerosol_peak_time
+        self.aerosol_decline_time = aerosol_decline_time
+        self.aerosol_timing_stagger = aerosol_timing_stagger
+        # Forcing causal structure
+        self.n_co2_latents = n_co2_latents
+        self.n_aerosol_latents = n_aerosol_latents
+        self.co2_effect_strength = co2_effect_strength
+        self.aerosol_effect_strength = aerosol_effect_strength
 
 
 class rolloutParams:

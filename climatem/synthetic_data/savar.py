@@ -51,6 +51,7 @@ class SAVAR:
     __slots__ = [
         "links_coeffs",
         "n_vars",
+        "n_climate_modes",
         "time_length",
         "transient",
         "spatial_resolution",
@@ -63,6 +64,8 @@ class SAVAR:
         "latent_noise_cov",
         "fast_noise_cov",
         "forcing_dict",
+        "forcing_indices",
+        "forcing_coeffs",
         "season_dict",
         "data_field",
         "noise_data_field",
@@ -70,11 +73,14 @@ class SAVAR:
         "forcing_data_field",
         "co2_forcing_data_field",
         "aerosol_forcing_data_field",
+        "co2_latent_trajectory",
+        "aerosol_latent_trajectory",
         "linearity",
         "poly_degrees",
         "verbose",
         "model_seed",
         "nnar_model",
+        "output_save_dir",
     ]
 
     def __init__(
@@ -90,6 +96,7 @@ class SAVAR:
         latent_noise_cov: np.ndarray = None,
         fast_cov: np.ndarray = None,
         forcing_dict: dict = None,
+        forcing_indices: dict = None,
         linearity: str = "linear",
         poly_degrees: List[int] = [2],
         season_dict: dict = None,
@@ -101,6 +108,7 @@ class SAVAR:
         aerosol_forcing_data_field: np.ndarray = None,
         verbose: bool = False,
         model_seed: int = None,
+        output_save_dir: str = None,
     ):
 
         self.links_coeffs = links_coeffs
@@ -117,6 +125,7 @@ class SAVAR:
         self.noise_weights = noise_weights
 
         self.forcing_dict = forcing_dict
+        self.forcing_indices = forcing_indices
         self.season_dict = season_dict
         self.linearity = linearity
         self.poly_degrees = poly_degrees
@@ -125,12 +134,26 @@ class SAVAR:
 
         self.verbose = verbose
         self.model_seed = model_seed
+        self.output_save_dir = output_save_dir
 
         # Computed attributes
         print("Creating attributes")
-        self.n_vars = len(links_coeffs)
+        # n_climate_modes is the number of climate variables (from mode_weights)
+        self.n_climate_modes = mode_weights.shape[0]
+        # n_vars is total latents (climate + forcing) if forcing_indices provided
+        if forcing_indices is not None:
+            self.n_vars = forcing_indices.get("n_total", self.n_climate_modes)
+        else:
+            self.n_vars = self.n_climate_modes
         self.tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(self.links_coeffs.values()))
-        self.spatial_resolution = deepcopy(self.mode_weights.reshape(self.n_vars, -1).shape[1])
+        self.spatial_resolution = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1).shape[1])
+
+        # Extract forcing → mode coefficients if forcing is used
+        self.forcing_coeffs = self._extract_forcing_coefficients() if forcing_indices else None
+
+        # Initialize forcing latent trajectories (populated during forcing generation)
+        self.co2_latent_trajectory = None
+        self.aerosol_latent_trajectory = None
         print("spatial-resolution done")
 
         if self.noise_weights is None:
@@ -150,6 +173,46 @@ class SAVAR:
 
         if np.random is not None:
             np.random.seed(model_seed)
+
+    def _extract_forcing_coefficients(self):
+        """
+        Extract forcing → climate mode causal coefficients from links_coeffs.
+
+        Returns a dictionary with structure:
+        {
+            'co2_to_modes': {mode_idx: [(forcing_idx, lag, coeff), ...]},
+            'aerosol_to_modes': {mode_idx: [(forcing_idx, lag, coeff), ...]},
+        }
+        """
+        if self.forcing_indices is None:
+            return None
+
+        co2_indices = set(self.forcing_indices.get("co2", []))
+        aerosol_indices = set(self.forcing_indices.get("aerosol", []))
+
+        forcing_coeffs = {
+            "co2_to_modes": {m: [] for m in range(self.n_climate_modes)},
+            "aerosol_to_modes": {m: [] for m in range(self.n_climate_modes)},
+        }
+
+        # Scan links_coeffs for forcing → mode connections
+        for target_idx, links in self.links_coeffs.items():
+            # Only consider climate modes as targets
+            if target_idx >= self.n_climate_modes:
+                continue
+
+            for (source_idx, lag), coeff in links:
+                if source_idx in co2_indices:
+                    forcing_coeffs["co2_to_modes"][target_idx].append((source_idx, lag, coeff))
+                elif source_idx in aerosol_indices:
+                    forcing_coeffs["aerosol_to_modes"][target_idx].append((source_idx, lag, coeff))
+
+        # Print summary
+        n_co2_links = sum(len(v) for v in forcing_coeffs["co2_to_modes"].values())
+        n_aerosol_links = sum(len(v) for v in forcing_coeffs["aerosol_to_modes"].values())
+        print(f"Extracted forcing coefficients: {n_co2_links} CO2→mode links, {n_aerosol_links} aerosol→mode links")
+
+        return forcing_coeffs
 
     def generate_data(self, train_nnar=True) -> None:
         """Generates the data of savar :return:"""
@@ -213,7 +276,8 @@ class SAVAR:
         :return:
         """
 
-        W = deepcopy(self.noise_weights).reshape(self.n_vars, -1)
+        # Use n_climate_modes (not n_vars) since noise_weights only covers climate modes
+        W = deepcopy(self.noise_weights).reshape(self.n_climate_modes, -1)
         print(f"noise_weights copied, {W.shape}")
         W_plus = np.linalg.pinv(W)
         print("noise_weights inverted")
@@ -472,51 +536,12 @@ class SAVAR:
 
         print(f"After addition - Data field mean: {self.data_field.mean()}")
 
-        # # Convert tensors to numpy for plotting if necessary
-        # if isinstance(w_f_sum, torch.Tensor):
-        #     w_f_sum = w_f_sum.cpu().numpy()
-        # if isinstance(forcing_field, torch.Tensor):
-        #     forcing_field = forcing_field.cpu().numpy()
-        # if isinstance(data_field_before, torch.Tensor):
-        #     data_field_before = data_field_before.cpu().numpy()
-        # if isinstance(data_field_after, torch.Tensor):
-        #     data_field_after = data_field_after.cpu().numpy()
-
-        # # Compute mean values over spatial dimensions
-        # mean_forcing = forcing_field.mean(axis=0)
-        # mean_data_before = data_field_before.mean(axis=0)
-        # mean_data_after = data_field_after.mean(axis=0)
-
-        # # Plot 1: Mean Forcing over Time
-        # plt.figure(figsize=(10, 4))
-        # plt.plot(range(time_length), mean_forcing, label="Mean Forcing", color="blue")
-        # plt.axvline(x=f_time_1, linestyle="--", color="gray", label="Start Forcing")
-        # plt.axvline(x=f_time_2, linestyle="--", color="gray", label="End Forcing")
-        # plt.xlabel("Time Steps")
-        # plt.ylabel("Forcing Intensity")
-        # plt.title("Evolution of External Forcing Over Time")
-        # plt.legend()
-        # plt.grid()
-        # plt.savefig(f"mean_forcing_over_time_{f_1}_{f_2}_{ramp_type}.png")  # Save to a file
-        # plt.close()
-
-        # # Plot 2: Mean Data Before and After Forcing
-        # plt.figure(figsize=(10, 4))
-        # plt.plot(range(time_length), mean_data_before, label="Data Before Forcing", color="red", linestyle="dashed")
-        # plt.plot(range(time_length), mean_data_after, label="Data After Forcing", color="green")
-        # plt.axvline(x=f_time_1, linestyle="--", color="gray", label="Start Forcing")
-        # plt.axvline(x=f_time_2, linestyle="--", color="gray", label="End Forcing")
-        # plt.xlabel("Time Steps")
-        # plt.ylabel("Mean Data Value")
-        # plt.title("Effect of Forcing on Data Field")
-        # plt.legend()
-        # plt.grid()
-        # plt.savefig(f"mean_data_before_after_forcing_{f_1}_{f_2}_{ramp_type}.png")  # Save to a file
-        # plt.close()
-
     def create_co2_forcing(self) -> np.ndarray:
         """
         Create a CO2 forcing field that grows over time with mild spatial variability.
+
+        Uses f_1, f_2, f_time_1, f_time_2, and ramp_type from forcing_dict to control the temporal evolution of CO2
+        forcing.
 
         Returns an array shaped (spatial_resolution, time_length + transient) that can be added to the synthetic field
         or used as an external driver.
@@ -533,9 +558,58 @@ class SAVAR:
         if spatial_len <= 0:
             raise ValueError("Spatial resolution must be positive")
 
-        # Smoothly accelerating increase to mimic CO2 growth over time.
-        t = torch.linspace(0.0, 1.0, time_len, device=dev, dtype=dtype)
-        co2_trend = t.pow(1.5)
+        # Get forcing parameters from forcing_dict
+        forcing_cfg = self.forcing_dict or {}
+        f_1 = float(forcing_cfg.get("f_1", 0.0))
+        f_2 = float(forcing_cfg.get("f_2", 0.1))
+        f_time_1 = int(forcing_cfg.get("f_time_1", 0))
+        f_time_2 = int(forcing_cfg.get("f_time_2", time_len))
+        ramp_type = forcing_cfg.get("ramp_type", "linear")
+
+        # Adjust times to include transient period
+        f_time_1 += self.transient
+        f_time_2 += self.transient
+
+        # Generate the forcing trend using the specified ramp type
+        if ramp_type == "linear":
+            ramp = torch.linspace(f_1, f_2, f_time_2 - f_time_1, dtype=dtype, device=dev)
+        elif ramp_type == "quadratic":
+            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=dtype, device=dev)
+            ramp = f_1 + (f_2 - f_1) * t**2
+        elif ramp_type == "exponential":
+            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=dtype, device=dev)
+            ramp = f_1 + (f_2 - f_1) * (torch.exp(t) - 1) / (torch.exp(torch.tensor(1.0)) - 1)
+        elif ramp_type == "sigmoid":
+            t = torch.linspace(-6, 6, f_time_2 - f_time_1, dtype=dtype, device=dev)
+            ramp = f_1 + (f_2 - f_1) * (1 / (1 + torch.exp(-t)))
+        elif ramp_type == "sinusoidal":
+            from math import pi
+
+            t = torch.linspace(0, pi, f_time_2 - f_time_1, dtype=dtype, device=dev)
+            ramp = f_1 + (f_2 - f_1) * (0.5 * (1 - torch.cos(t)))
+        else:
+            raise ValueError(
+                f"Unsupported ramp type '{ramp_type}'. Choose from 'linear', 'quadratic', 'exponential', 'sigmoid', or 'sinusoidal'."
+            )
+
+        # Construct the full temporal trend
+        co2_trend = torch.cat(
+            [
+                torch.full((f_time_1,), f_1, dtype=dtype, device=dev),
+                ramp,
+                torch.full((time_len - f_time_2,), f_2, dtype=dtype, device=dev),
+            ]
+        )
+
+        logger.info(
+            f"CO2 forcing: Using {ramp_type} ramp from f_1={f_1} to f_2={f_2} "
+            f"(time {f_time_1} to {f_time_2}, total length {time_len})"
+        )
+
+        print(
+            f"CO2 forcing: Using {ramp_type} ramp from f_1={f_1} to f_2={f_2} "
+            f"(time {f_time_1} to {f_time_2}, total length {time_len})"
+        )
 
         if spatial_len == 1:
             base_pattern = torch.ones(1, device=dev, dtype=dtype)
@@ -565,277 +639,17 @@ class SAVAR:
 
         forcing_np = forcing.detach().cpu().numpy()
 
-        self._maybe_plot_co2_forcing(spatial_pattern, forcing_np, spatial_len)
-
         return forcing_np
-
-    def _maybe_plot_co2_forcing(self, spatial_pattern: torch.Tensor, forcing_np: np.ndarray, spatial_len: int) -> None:
-        diagnostics_cfg = (self.forcing_dict or {}).get("diagnostics", {})
-        if not diagnostics_cfg.get("co2_plots", True):
-            return
-
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib import animation
-        except ImportError:
-            logger.warning("matplotlib not available; skipping CO2 forcing visualisations")
-            return
-
-        output_dir = Path("/hkfs/work/workspace_haic/scratch/qa4548-climate_ws/SAVAR_DATA_TEST/co2_forcing_diagnostics")
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        spatial_pattern_np = spatial_pattern.detach().cpu().numpy()
-
-        fig, ax = plt.subplots()
-        ax.plot(np.arange(spatial_len), spatial_pattern_np, color="tab:red")
-        ax.set_title("CO2 forcing spatial pattern")
-        ax.set_xlabel("Grid point")
-        ax.set_ylabel("Relative intensity")
-        ax.grid(alpha=0.2)
-        fig.tight_layout()
-        fig.savefig(output_dir / "co2_forcing_spatial_pattern.png", dpi=150)
-        plt.close(fig)
-
-        fig, ax = plt.subplots()
-        im = ax.imshow(forcing_np, aspect="auto", origin="lower", interpolation="nearest")
-        ax.set_title("CO2 forcing over space and time")
-        ax.set_xlabel("Time step")
-        ax.set_ylabel("Grid point")
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        fig.tight_layout()
-        fig.savefig(output_dir / "co2_forcing_heatmap.png", dpi=150)
-        plt.close(fig)
-
-        time_axis = np.arange(forcing_np.shape[1])
-        mean_intensity = forcing_np.mean(axis=0)
-        cumulative_intensity = np.cumsum(mean_intensity)
-
-        fig, ax1 = plt.subplots()
-        (line_immediate,) = ax1.plot(time_axis, mean_intensity, color="tab:blue")
-        ax1.set_xlabel("Time step")
-        ax1.set_ylabel("Average intensity")
-        ax1.grid(alpha=0.2)
-
-        ax2 = ax1.twinx()
-        (line_cumulative,) = ax2.plot(time_axis, cumulative_intensity, color="tab:orange")
-        ax2.set_ylabel("Cumulative intensity", color="tab:orange")
-        ax2.tick_params(axis="y", labelcolor="tab:orange")
-        ax1.set_title("CO2 forcing timeline")
-        ax1.legend((line_immediate, line_cumulative), ("Immediate CO2", "Cumulative CO2"), loc="upper left")
-        fig.tight_layout()
-        fig.savefig(output_dir / "co2_forcing_timeline.png", dpi=150)
-        plt.close(fig)
-
-        grid_shape = None
-        if self.mode_weights is not None:
-            mw_shape = tuple(self.mode_weights.shape)
-            if len(mw_shape) >= 3:
-                grid_shape = mw_shape[-2:]
-            elif len(mw_shape) == 2:
-                grid_shape = (1, mw_shape[-1])
-        if grid_shape and np.prod(grid_shape) != spatial_len:
-            grid_shape = None
-
-        max_frames_cfg = diagnostics_cfg.get("co2_animation_max_frames", 120)
-        try:
-            max_frames = int(max_frames_cfg)
-        except (TypeError, ValueError):
-            max_frames = 120
-        max_frames = max(1, max_frames)
-
-        frame_stride = max(1, forcing_np.shape[1] // max_frames)
-        frame_indices = np.arange(0, forcing_np.shape[1], frame_stride, dtype=int)
-        if frame_indices.size == 0 or frame_indices[-1] != forcing_np.shape[1] - 1:
-            frame_indices = np.append(frame_indices, forcing_np.shape[1] - 1)
-
-        if grid_shape:
-            grid_series = forcing_np.reshape(*grid_shape, forcing_np.shape[1])
-            vmin = float(grid_series.min())
-            vmax = float(grid_series.max())
-            if vmin == vmax:
-                vmax = vmin + 1e-6
-            fig, ax = plt.subplots()
-            im = ax.imshow(grid_series[..., frame_indices[0]], vmin=vmin, vmax=vmax, animated=True)
-            ax.set_title("CO2 forcing progression")
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-
-            def update(idx):
-                frame = frame_indices[idx]
-                im.set_array(grid_series[..., frame])
-                ax.set_title(f"CO2 forcing progression (t={frame})")
-                return (im,)
-
-        else:
-            y_min = float(forcing_np.min())
-            y_max = float(forcing_np.max())
-            if y_min == y_max:
-                y_max = y_min + 1e-6
-            fig, ax = plt.subplots()
-            ax.set_title("CO2 forcing progression")
-            ax.set_xlabel("Grid point")
-            ax.set_ylabel("Forcing")
-            (line,) = ax.plot(np.arange(spatial_len), forcing_np[:, frame_indices[0]])
-            ax.set_ylim(y_min, y_max)
-
-            def update(idx):
-                frame = frame_indices[idx]
-                line.set_ydata(forcing_np[:, frame])
-                ax.set_title(f"CO2 forcing progression (t={frame})")
-                return (line,)
-
-        anim = animation.FuncAnimation(fig, update, frames=len(frame_indices), interval=80, blit=True)
-
-        fps_cfg = diagnostics_cfg.get("co2_animation_fps", 10)
-        try:
-            fps = int(fps_cfg)
-        except (TypeError, ValueError):
-            fps = 10
-        fps = max(1, fps)
-
-        writer = animation.PillowWriter(fps=fps)
-        anim.save(output_dir / "co2_forcing.gif", writer=writer)
-        plt.close(fig)
-
-    def _maybe_plot_aerosol_forcing(
-        self, spatial_pattern: torch.Tensor, forcing_np: np.ndarray, spatial_len: int
-    ) -> None:
-        diagnostics_cfg = (self.forcing_dict or {}).get("diagnostics", {})
-        if not diagnostics_cfg.get("aerosol_plots", True):
-            return
-
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib import animation
-        except ImportError:
-            logger.warning("matplotlib not available; skipping aerosol forcing visualisations")
-            return
-
-        output_dir = Path(
-            "/hkfs/work/workspace_haic/scratch/qa4548-climate_ws/SAVAR_DATA_TEST/aerosol_forcing_diagnostics"
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        spatial_pattern_np = spatial_pattern.detach().cpu().numpy()
-
-        fig, ax = plt.subplots()
-        ax.plot(np.arange(spatial_len), spatial_pattern_np, color="tab:blue")
-        ax.set_title("Aerosol forcing spatial pattern")
-        ax.set_xlabel("Grid point")
-        ax.set_ylabel("Relative intensity")
-        ax.grid(alpha=0.2)
-        fig.tight_layout()
-        fig.savefig(output_dir / "aerosol_forcing_spatial_pattern.png", dpi=150)
-        plt.close(fig)
-
-        fig, ax = plt.subplots()
-        im = ax.imshow(forcing_np, aspect="auto", origin="lower", interpolation="nearest")
-        ax.set_title("Aerosol forcing over space and time")
-        ax.set_xlabel("Time step")
-        ax.set_ylabel("Grid point")
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        fig.tight_layout()
-        fig.savefig(output_dir / "aerosol_forcing_heatmap.png", dpi=150)
-        plt.close(fig)
-
-        time_axis = np.arange(forcing_np.shape[1])
-        mean_intensity = forcing_np.mean(axis=0)
-        cumulative_intensity = np.cumsum(mean_intensity)
-
-        fig, ax1 = plt.subplots()
-        (line_immediate,) = ax1.plot(time_axis, mean_intensity, color="tab:purple")
-        ax1.set_xlabel("Time step")
-        ax1.set_ylabel("Average intensity")
-        ax1.grid(alpha=0.2)
-
-        ax2 = ax1.twinx()
-        (line_cumulative,) = ax2.plot(time_axis, cumulative_intensity, color="tab:orange")
-        ax2.set_ylabel("Cumulative intensity", color="tab:orange")
-        ax2.tick_params(axis="y", labelcolor="tab:orange")
-
-        ax1.set_title("Aerosol forcing timeline")
-        ax1.legend((line_immediate, line_cumulative), ("Immediate aerosol", "Cumulative aerosol"), loc="upper left")
-        fig.tight_layout()
-        fig.savefig(output_dir / "aerosol_forcing_timeline.png", dpi=150)
-        plt.close(fig)
-
-        grid_shape = None
-        if self.mode_weights is not None:
-            mw_shape = tuple(self.mode_weights.shape)
-            if len(mw_shape) >= 3:
-                grid_shape = mw_shape[-2:]
-            elif len(mw_shape) == 2:
-                grid_shape = (1, mw_shape[-1])
-        if grid_shape and np.prod(grid_shape) != spatial_len:
-            grid_shape = None
-
-        max_frames_cfg = diagnostics_cfg.get("aerosol_animation_max_frames", 120)
-        try:
-            max_frames = int(max_frames_cfg)
-        except (TypeError, ValueError):
-            max_frames = 120
-        max_frames = max(1, max_frames)
-
-        frame_stride = max(1, forcing_np.shape[1] // max_frames)
-        frame_indices = np.arange(0, forcing_np.shape[1], frame_stride, dtype=int)
-        if frame_indices.size == 0 or frame_indices[-1] != forcing_np.shape[1] - 1:
-            frame_indices = np.append(frame_indices, forcing_np.shape[1] - 1)
-
-        if grid_shape:
-            grid_series = forcing_np.reshape(*grid_shape, forcing_np.shape[1])
-            vmin = float(grid_series.min())
-            vmax = float(grid_series.max())
-            if vmin == vmax:
-                vmax = vmin + 1e-6
-            fig, ax = plt.subplots()
-            im = ax.imshow(grid_series[..., frame_indices[0]], vmin=vmin, vmax=vmax, animated=True)
-            ax.set_title("Aerosol forcing progression")
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-
-            def update(idx):
-                frame = frame_indices[idx]
-                im.set_array(grid_series[..., frame])
-                ax.set_title(f"Aerosol forcing progression (t={frame})")
-                return (im,)
-
-        else:
-            y_min = float(forcing_np.min())
-            y_max = float(forcing_np.max())
-            if y_min == y_max:
-                y_max = y_min + 1e-6
-            fig, ax = plt.subplots()
-            ax.set_title("Aerosol forcing progression")
-            ax.set_xlabel("Grid point")
-            ax.set_ylabel("Forcing")
-            (line,) = ax.plot(np.arange(spatial_len), forcing_np[:, frame_indices[0]])
-            ax.set_ylim(y_min, y_max)
-
-            def update(idx):
-                frame = frame_indices[idx]
-                line.set_ydata(forcing_np[:, frame])
-                ax.set_title(f"Aerosol forcing progression (t={frame})")
-                return (line,)
-
-        anim = animation.FuncAnimation(fig, update, frames=len(frame_indices), interval=80, blit=True)
-
-        fps_cfg = diagnostics_cfg.get("aerosol_animation_fps", 10)
-        try:
-            fps = int(fps_cfg)
-        except (TypeError, ValueError):
-            fps = 10
-        fps = max(1, fps)
-
-        writer = animation.PillowWriter(fps=fps)
-        anim.save(output_dir / "aerosol_forcing.gif", writer=writer)
-        plt.close(fig)
 
     def create_aerosol_forcing(self) -> np.ndarray:
         """
-        Create an aerosol forcing field with short-lived, regional cooling hotspots.
+        Create an aerosol forcing field with distinct temporal dynamics per region.
 
-        The pattern ramps up quickly, peaks mid-period, and tapers off as regulations take effect, while also exhibiting
-        high-frequency variability consistent with episodic aerosol emissions.
+        Each spatial region (corresponding to an aerosol latent) has a staggered temporal envelope with unique timing
+        and frequency modulation. This ensures aerosol latents are distinguishable for causal discovery.
+
+        Uses aerosol_ramp_up_time, aerosol_peak_time, and aerosol_decline_time from forcing_dict as base timing, with
+        staggered offsets per region.
         """
 
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -850,25 +664,30 @@ class SAVAR:
             raise ValueError("Spatial resolution must be positive")
 
         forcing_cfg = self.forcing_dict or {}
-        aerosol_scale = float(forcing_cfg.get("aerosol_scale", 0.2))
+        aerosol_scale = float(forcing_cfg.get("aerosol_scale", 0.03))
         aerosol_contrast = float(forcing_cfg.get("aerosol_spatial_contrast", 1.05))
         aerosol_scale = max(aerosol_scale, 0.0)
         aerosol_contrast = max(aerosol_contrast, 0.5)
 
-        # Aerosols respond quickly and decay fast: sharp rise, plateau, and decline.
+        # Get aerosol temporal parameters (base timing, independent from CO2)
+        base_ramp_up_time = int(forcing_cfg.get("aerosol_ramp_up_time", int(0.2 * self.time_length)))
+        base_peak_time = int(forcing_cfg.get("aerosol_peak_time", int(0.6 * self.time_length)))
+        base_decline_time = int(forcing_cfg.get("aerosol_decline_time", int(0.85 * self.time_length)))
+
+        # Stagger fraction: how much to spread timing across latents (default 30% of time span)
+        timing_stagger = float(forcing_cfg.get("aerosol_timing_stagger", 0.3))
+
+        # Adjust base times to include transient period
+        base_ramp_up_time += self.transient
+        base_peak_time += self.transient
+        base_decline_time += self.transient
+
+        # Time vector
         t = torch.linspace(0.0, 1.0, time_len, device=dev, dtype=dtype)
-        ramp_up = torch.sigmoid((t - 0.2) * 10.0)
-        ramp_down = torch.sigmoid((0.85 - t) * 10.0)
-        envelope = ramp_up * ramp_down
 
-        # Episodic spikes to mimic industrial cycles and volcanic-like bursts.
-        seasonal_cycle = torch.sin(2.0 * math.pi * 6.0 * t)
-        short_bursts = torch.sin(2.0 * math.pi * 18.0 * t + 0.3)
-        aerosol_trend = -aerosol_scale * envelope * (1.0 + 0.15 * seasonal_cycle + 0.05 * short_bursts)
-
-        # Spatial hotspots emphasize regions with stronger aerosol influence.
+        # Generate spatial pattern (used to modulate amplitude within each region)
         if spatial_len == 1:
-            base_pattern = torch.ones(1, device=dev, dtype=dtype)
+            spatial_pattern = torch.ones(1, device=dev, dtype=dtype)
         else:
             coords = torch.linspace(-1.0, 1.0, spatial_len, device=dev, dtype=dtype)
             num_lobes = max(3, min(8, spatial_len // 64 + 3))
@@ -879,12 +698,9 @@ class SAVAR:
 
             diff = coords.unsqueeze(0) - centers.unsqueeze(1)
             gaussians = torch.exp(-0.5 * (diff / widths.unsqueeze(1)) ** 2)
-            base_pattern = (amplitudes.unsqueeze(1) * gaussians).sum(dim=0)
-            base_pattern = base_pattern / (base_pattern.mean() + 1e-6)
+            spatial_pattern = (amplitudes.unsqueeze(1) * gaussians).sum(dim=0)
+            spatial_pattern = spatial_pattern / (spatial_pattern.mean() + 1e-6)
 
-        spatial_pattern = base_pattern
-
-        if spatial_len > 1:
             idx = torch.linspace(0.0, 2.0 * math.pi, spatial_len, device=dev, dtype=dtype)
             regional_variability = 0.6 + 0.4 * torch.sin(idx * 3.0 + 0.8)
             hemispheric_gradient = 0.8 + 0.2 * torch.cos(idx)
@@ -893,16 +709,162 @@ class SAVAR:
         spatial_pattern = spatial_pattern.pow(aerosol_contrast)
         spatial_pattern = spatial_pattern / (spatial_pattern.abs().mean() + 1e-8)
 
-        forcing = spatial_pattern.unsqueeze(1) * aerosol_trend.unsqueeze(0)
+        # Get number of aerosol latents from forcing_indices
+        n_aerosol_latents = len(self.forcing_indices.get("aerosol", [])) if self.forcing_indices else 1
+        n_aerosol_latents = max(n_aerosol_latents, 1)  # At least 1 region
+        region_size = spatial_len // n_aerosol_latents
+
+        # Create forcing with distinct temporal dynamics per region
+        forcing = torch.zeros((spatial_len, time_len), device=dev, dtype=dtype)
+
+        logger.info(
+            f"Aerosol forcing: Creating {n_aerosol_latents} distinct temporal patterns "
+            f"(base_ramp={base_ramp_up_time}, base_peak={base_peak_time}, base_decline={base_decline_time}, "
+            f"timing_stagger={timing_stagger}, scale={aerosol_scale})"
+        )
+        print(
+            f"Aerosol forcing: Creating {n_aerosol_latents} distinct temporal patterns " f"(stagger={timing_stagger})"
+        )
+
+        for i in range(n_aerosol_latents):
+            # Stagger timing for each latent to create distinct temporal patterns
+            offset_fraction = i / n_aerosol_latents
+
+            # Each latent has progressively later timing
+            latent_ramp_up = base_ramp_up_time + int(offset_fraction * timing_stagger * time_len)
+            latent_peak = base_peak_time + int(offset_fraction * timing_stagger * 0.7 * time_len)
+            latent_decline = base_decline_time + int(offset_fraction * timing_stagger * 0.5 * time_len)
+
+            # Clamp to valid range
+            latent_peak = min(latent_peak, time_len - 100)
+            latent_decline = min(latent_decline, time_len - 10)
+
+            # Normalized time positions for this latent's envelope
+            t_ramp = latent_ramp_up / time_len
+            t_peak = latent_peak / time_len
+            t_decline = latent_decline / time_len
+
+            # Create envelope: sharp rise and decline using sigmoid
+            ramp_up = torch.sigmoid((t - t_ramp) * 10.0 / (t_peak - t_ramp + 1e-6))
+            ramp_down = torch.sigmoid((t_decline - t) * 10.0 / (t_decline - t_peak + 1e-6))
+            envelope = ramp_up * ramp_down
+
+            # Add unique frequency modulation per latent (makes temporal patterns distinguishable)
+            base_freq = 3.0 + i * 2.0  # Different base frequency per latent
+            freq_mod = 1.0 + 0.2 * torch.sin(2.0 * math.pi * base_freq * t + i * 0.5)
+
+            # Episodic variations unique to each latent
+            latent_seasonal = torch.sin(2.0 * math.pi * (6.0 + i) * t)
+            latent_bursts = torch.sin(2.0 * math.pi * (18.0 + i * 3) * t + 0.3 * i)
+
+            # Combine into temporal trend for this latent
+            latent_trend = -aerosol_scale * envelope * freq_mod * (1.0 + 0.15 * latent_seasonal + 0.05 * latent_bursts)
+
+            # Apply to this region's spatial locations
+            start_idx = i * region_size
+            end_idx = start_idx + region_size if i < n_aerosol_latents - 1 else spatial_len
+            region_pattern = spatial_pattern[start_idx:end_idx]
+
+            # Each spatial location in the region gets this latent's temporal pattern
+            forcing[start_idx:end_idx] = region_pattern.unsqueeze(1) * latent_trend.unsqueeze(0)
+
+            print(
+                f"  Latent {i}: ramp_up={latent_ramp_up}, peak={latent_peak}, decline={latent_decline}, freq={base_freq}"
+            )
 
         forcing_np = forcing.detach().cpu().numpy()
 
-        self._maybe_plot_aerosol_forcing(spatial_pattern, forcing_np, spatial_len)
-
         return forcing_np
 
+    def _apply_causal_forcing(self, co2_forcing: np.ndarray, aerosol_forcing: np.ndarray) -> np.ndarray:
+        """
+        Apply forcing through the causal structure defined in links_coeffs.
+
+        Instead of uniform forcing, each climate mode receives forcing contributions
+        weighted by the causal coefficients. This creates the ground truth causal
+        relationship between forcings and climate modes.
+
+        Args:
+            co2_forcing: CO2 forcing field, shape (spatial_resolution, time_length + transient)
+            aerosol_forcing: Aerosol forcing field, same shape
+
+        Returns:
+            combined_contrib: Total forcing contribution to add to data_field
+        """
+        time_len = co2_forcing.shape[1]
+        combined_contrib = np.zeros_like(co2_forcing)
+
+        # Get mode weights for projecting back to observation space
+        mode_weights = self.mode_weights.reshape(self.n_climate_modes, -1)  # (n_modes, spatial)
+
+        # Create forcing latent trajectories
+        # CO2: Use spatial mean as the CO2 latent signal (it's meant to be global)
+        co2_latent = co2_forcing.mean(axis=0)  # shape: (time,)
+        self.co2_latent_trajectory = co2_latent
+
+        # Aerosol: Project to latent space using mode_weights
+        # Each aerosol latent corresponds to how aerosol affects each spatial region
+        # We create n_aerosol_latents trajectories by dividing space into regions
+        n_aerosol_latents = len(self.forcing_indices.get("aerosol", []))
+        if n_aerosol_latents > 0:
+            # Divide spatial domain into regions for each aerosol latent
+            region_size = self.spatial_resolution // n_aerosol_latents
+            aerosol_latents = np.zeros((n_aerosol_latents, time_len))
+            for i in range(n_aerosol_latents):
+                start_idx = i * region_size
+                end_idx = start_idx + region_size if i < n_aerosol_latents - 1 else self.spatial_resolution
+                aerosol_latents[i] = aerosol_forcing[start_idx:end_idx].mean(axis=0)
+            self.aerosol_latent_trajectory = aerosol_latents
+        else:
+            self.aerosol_latent_trajectory = None
+
+        # Apply CO2 → mode causal contributions
+        for mode_idx, links in self.forcing_coeffs["co2_to_modes"].items():
+            mode_contrib = np.zeros(time_len)
+            for forcing_idx, lag, coeff in links:
+                # Apply time lag (lag is negative in links_coeffs convention)
+                shift = abs(lag)
+                if shift < time_len:
+                    # forcing at t-shift affects mode at t
+                    mode_contrib[shift:] += coeff * co2_latent[:-shift] if shift > 0 else coeff * co2_latent
+
+            # Project mode contribution to observation space
+            mode_weight = mode_weights[mode_idx]  # (spatial,)
+            combined_contrib += np.outer(mode_weight, mode_contrib)
+
+        # Apply Aerosol → mode causal contributions
+        if self.aerosol_latent_trajectory is not None:
+            aerosol_idx_offset = self.n_climate_modes + len(self.forcing_indices.get("co2", []))
+            for mode_idx, links in self.forcing_coeffs["aerosol_to_modes"].items():
+                mode_contrib = np.zeros(time_len)
+                for forcing_idx, lag, coeff in links:
+                    # Map forcing_idx to aerosol latent index
+                    aerosol_latent_idx = forcing_idx - aerosol_idx_offset
+                    if 0 <= aerosol_latent_idx < n_aerosol_latents:
+                        shift = abs(lag)
+                        if shift < time_len:
+                            aerosol_signal = self.aerosol_latent_trajectory[aerosol_latent_idx]
+                            mode_contrib[shift:] += (
+                                coeff * aerosol_signal[:-shift] if shift > 0 else coeff * aerosol_signal
+                            )
+
+                # Project mode contribution to observation space
+                mode_weight = mode_weights[mode_idx]
+                combined_contrib += np.outer(mode_weight, mode_contrib)
+
+        # Apply seasonal interaction
+        combined_contrib = self._apply_season_forcing_interaction(combined_contrib)
+
+        return combined_contrib
+
     def _consume_radiative_forcing(self) -> None:
-        """Combine CO2 and aerosol forcing fields and inject them into the data field."""
+        """
+        Combine CO2 and aerosol forcing fields and inject them into the data field.
+
+        If causal coefficients are available (forcing_coeffs), the forcing is applied
+        through the causal structure: each climate mode receives forcing contributions
+        weighted by the causal coefficients from links_coeffs.
+        """
         if self.data_field is None:
             raise ValueError("Data field must be initialised before applying forcing")
 
@@ -915,29 +877,30 @@ class SAVAR:
             raise ValueError("Aerosol forcing shape mismatch with data field")
 
         if self.forcing_data_field is None:
-            # Keep an accumulator so diagnostics can inspect the total applied forcing.
             self.forcing_data_field = np.zeros_like(self.data_field)
         if self.co2_forcing_data_field is None:
             self.co2_forcing_data_field = np.zeros_like(self.data_field)
         if self.aerosol_forcing_data_field is None:
             self.aerosol_forcing_data_field = np.zeros_like(self.data_field)
 
-        # Store separate CO2 and aerosol forcings before combining them.
-        # This allows training code to subtract them as known exogenous drivers.
+        # Store separate CO2 and aerosol forcings (for model training)
         np.add(self.co2_forcing_data_field, co2_forcing, out=self.co2_forcing_data_field)
         np.add(self.aerosol_forcing_data_field, aerosol_forcing, out=self.aerosol_forcing_data_field)
 
-        # Merge the long-lived CO2 warming and short-lived aerosol cooling into a single field.
-        # Start from greenhouse-gas warming and add aerosol cooling to get a net radiative signal.
-        combined_contrib = co2_forcing.copy()
-        np.add(combined_contrib, aerosol_forcing, out=combined_contrib)
-        # Re-weight the combined radiative forcing by the seasonal cycle if configured
-        combined_contrib = self._apply_season_forcing_interaction(combined_contrib)
+        # If we have causal coefficients, apply forcing through the causal structure
+        if self.forcing_coeffs is not None and self.forcing_indices is not None:
+            combined_contrib = self._apply_causal_forcing(co2_forcing, aerosol_forcing)
+            print("Applied forcing through causal structure")
+        else:
+            # Legacy behavior: uniform addition
+            combined_contrib = co2_forcing.copy()
+            np.add(combined_contrib, aerosol_forcing, out=combined_contrib)
+            combined_contrib = self._apply_season_forcing_interaction(combined_contrib)
 
-        # Accumulate the forcing so any pre-existing external drivers stay accounted for.
+        # Accumulate the forcing
         np.add(self.forcing_data_field, combined_contrib, out=self.forcing_data_field)
 
-        # Feed the combined forcing into the simulator state so the autoregressive solver consumes it step by step.
+        # Feed the combined forcing into the simulator state
         np.add(self.data_field, combined_contrib, out=self.data_field)
 
         instantaneous_mean = combined_contrib.mean(axis=0)
@@ -952,9 +915,10 @@ class SAVAR:
             float(cumulative_mean.std()),
         )
 
-        plot_path = "/hkfs/work/workspace_haic/scratch/qa4548-climate_ws/SAVAR_DATA/forcing_diagnostics.png"
-        print(plot_path)
-        if plot_path:
+        # Save forcing diagnostics plot to the SAVAR dataset directory
+        if self.output_save_dir is not None:
+            plot_path = Path(self.output_save_dir) / "forcing_diagnostics.png"
+            print(f"Saving forcing diagnostics to: {plot_path}")
             self._plot_mean_forcing(instantaneous_mean, cumulative_mean, plot_path)
 
     def _plot_mean_forcing(self, instantaneous_mean: np.ndarray, cumulative_mean: np.ndarray, output_path: str) -> None:
@@ -982,7 +946,7 @@ class SAVAR:
 
     def _create_linear(self):
         """Weights N \times L data_field L \times T."""
-        weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
+        weights = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1))
         # weights_inv = np.linalg.pinv(weights)
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device=dev)
@@ -992,7 +956,9 @@ class SAVAR:
         tau_max = self.tau_max
 
         # phi = dict_to_matrix(self.links_coeffs)
-        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device=dev)
+        phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device=dev)
+        # Only use climate mode dynamics (forcing is applied separately via _apply_causal_forcing)
+        phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
         # data_field = deepcopy(self.data_field)
         data_field = torch.Tensor(self.data_field).to(device=dev)
 
@@ -1063,9 +1029,11 @@ class SAVAR:
         Can be increased in complexity if needed
         """
 
-        weights = torch.Tensor(np.linalg.pinv(self.mode_weights.reshape(self.n_vars, -1))).to("cuda")
-        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to("cuda")
-        mode_weights_tensor = torch.Tensor(self.mode_weights.reshape(self.n_vars, -1)).to("cuda")
+        weights = torch.Tensor(np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1))).to("cuda")
+        phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to("cuda")
+        # Only use climate mode dynamics (forcing is applied separately)
+        phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
+        mode_weights_tensor = torch.Tensor(self.mode_weights.reshape(self.n_climate_modes, -1)).to("cuda")
         data_field = torch.Tensor(self.data_field).to("cuda")
 
         time_len = self.time_length + self.transient
@@ -1091,8 +1059,10 @@ class SAVAR:
 
     def _create_polynomial(self):
         """Example polynomial autoregression, e.g. x^2 for poly_degree=2."""
-        w_np = np.linalg.pinv(self.mode_weights.reshape(self.n_vars, -1))
-        phi_np = dict_to_matrix(self.links_coeffs)
+        w_np = np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1))
+        phi_np_full = dict_to_matrix(self.links_coeffs)
+        # Only use climate mode dynamics (forcing is applied separately)
+        phi_np = phi_np_full[: self.n_climate_modes, : self.n_climate_modes, :]
 
         # choose GPU if available, else CPU — and use float32 everywhere
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1100,7 +1070,7 @@ class SAVAR:
         w_torch = torch.tensor(w_np, device=dev, dtype=dtype)
         phi_torch = torch.tensor(phi_np, device=dev, dtype=dtype)
         mw_torch = torch.tensor(
-            self.mode_weights.reshape(self.n_vars, -1),
+            self.mode_weights.reshape(self.n_climate_modes, -1),
             device=dev,
             dtype=dtype,
         )
@@ -1136,14 +1106,16 @@ class SAVAR:
         This is to keep the savar structure similar to the one of `self.data_field`
         """
 
-        weights = deepcopy(self.mode_weights.reshape(self.n_vars, -1))
+        weights = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1))
         # weights_inv = np.linalg.pinv(weights)
         weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
         weights = torch.Tensor(weights).to(device="cuda")
         tau = input_data.shape[1]
 
         # phi = dict_to_matrix(self.links_coeffs)
-        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        # Only use climate mode dynamics (forcing is applied separately via _apply_causal_forcing)
+        phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
         # data_field = deepcopy(self.data_field)
         next_step = torch.zeros(self.spatial_resolution).to(device="cuda")
 
