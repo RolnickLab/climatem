@@ -573,7 +573,7 @@ class TrainingLatent:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
-        # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
+        # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
         loss = nll + connect_reg + sparsity_reg
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
@@ -593,7 +593,7 @@ class TrainingLatent:
                 spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
                     y[:, k],
                     y_pred_all[:, k],
-                    take_log=self.model_params.take_log_spectra,
+                    take_log=self.optim_params.take_log_spectra,
                 )
 
         # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
@@ -1072,10 +1072,7 @@ class TrainingLatent:
 
         # this is just running the forward pass of LatentTSDCD...
         elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
-        if torch.any(torch.isnan(elbo)):
-            print("get_nlls has NaNs")
 
-        # print('what is len(self.model(arg)) with arguments', len(self.model(x, y, z, self.iteration)))
         return -elbo, recons, kl, preds
 
     def get_regularisation(self) -> float:
@@ -1096,8 +1093,6 @@ class TrainingLatent:
             h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
-        if torch.any(torch.isnan(h)):
-            print("acyclicity constraint has NaNs")
 
         return h
 
@@ -1117,8 +1112,6 @@ class TrainingLatent:
             h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
-        if torch.any(torch.isnan(h)):
-            print("ortho constraint has NaNs")
 
         return h
 
@@ -1128,15 +1121,10 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
-        if torch.any(torch.isnan(adj)):
-            print("adjacency matrix has NaNs")
-            print(f"self.sparsity_normalization {self.sparsity_normalization}")
 
         h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
         assert torch.is_tensor(h)
-        if torch.any(torch.isnan(h)):
-            print("adjacency constraint has NaNs")
-            print(f"self.sparsity_normalization {self.sparsity_normalization}")
+
         return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
@@ -1173,9 +1161,6 @@ class TrainingLatent:
             h = torch.as_tensor([0.0])
 
         assert torch.is_tensor(h)
-
-        if torch.any(torch.isnan(h)):
-            print("sparsity constraint has NaNs")
 
         return h
 
@@ -1333,9 +1318,6 @@ class TrainingLatent:
             # add together all the CRPS values and divide by the number of samples
             crps = torch.sum(crps) / y.size(0)
 
-            if torch.any(torch.isnan(crps)):
-                print("CRPS has NaNs")
-
             return crps
 
     def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
@@ -1398,9 +1380,6 @@ class TrainingLatent:
         spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
         # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
 
-        if torch.any(torch.isnan(spectral_loss)):
-            print("Spatial spectrum has NaNs")
-
         # Calculate the power spectrum
         if self.optim_params.fraction_highest_wavenumbers is not None:
             spectral_loss = spectral_loss[
@@ -1431,8 +1410,6 @@ class TrainingLatent:
         temporal_spectral_loss = torch.nan_to_num(
             torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1))), 0
         )
-        if torch.any(torch.isnan(temporal_spectral_loss)):
-            print("Spatial spectrum has NaNs")
 
         return temporal_spectral_loss
         # the shape here is (time/2 + 1, num_vars, coords)
