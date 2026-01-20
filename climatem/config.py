@@ -160,7 +160,8 @@ class modelParams:
         num_layers: int = 2,
         num_output: int = 2,  # NOT SURE
         position_embedding_dim: int = 100,  # Dimension of positional embedding
-        reduce_encoding_pos_dim: bool = False,
+        transition_param_sharing: bool = True,
+        position_embedding_transition: int = 100,
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
         fixed_output_fraction=None,  # NOT SURE, Remove this?
         tau_neigh: int = 0,  # NOT SURE
@@ -177,7 +178,8 @@ class modelParams:
         self.num_hidden_mixing = num_hidden_mixing
         self.num_layers_mixing = num_layers_mixing
         self.position_embedding_dim = position_embedding_dim
-        self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
+        self.transition_param_sharing = transition_param_sharing
+        self.position_embedding_transition = position_embedding_transition
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh

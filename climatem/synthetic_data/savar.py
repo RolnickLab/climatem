@@ -166,18 +166,18 @@ class SAVAR:
 
         # Add external forcing
         if self.forcing_dict is not None:
-            if self.verbose:
-                print("Adding external forcing")
             initial_data = self.data_field.copy()
             self._add_external_forcing()
             diff = self.data_field - initial_data
-            print(f"Max change in data field: {diff.max()}")
-            print(f"Mean change in data field: {diff.mean()}")
-            print(f"Sample values after forcing applied:\n{diff[:, :5]}")
-        else:
+            if self.verbose:
+                print("Adding external forcing")
+                print(f"Max change in data field: {diff.max()}")
+                print(f"Mean change in data field: {diff.mean()}")
+                print(f"Sample values after forcing applied:\n{diff[:, :5]}")
+        elif self.verbose:
             print("No forcing")
 
-            # Compute the data
+        # Compute the data
         if self.linearity == "linear":
             if self.verbose:
                 print("Creating linear data")
@@ -190,7 +190,8 @@ class SAVAR:
             if self.verbose:
                 print("Creating nonlinear data")
             if train_nnar:
-                print("Training NNAR model before data generation...")
+                if self.verbose:
+                    print("Training NNAR model before data generation...")
                 self.train_nnar(num_epochs=50, learning_rate=0.001, batch_size=32)
             self._create_nonlinear()
 
@@ -214,12 +215,14 @@ class SAVAR:
     def _add_noise_field(self):
 
         if self.noise_cov is None:
-            print("Generate covariance matrix")
+            if self.verbose:
+                print("Generate covariance matrix")
             self.noise_cov = self.generate_cov_noise_matrix()
             self.noise_cov += 1e-6 * np.eye(self.noise_cov.shape[0])
 
         # Generate noise from cov
-        print("Generate noise_data_field multivariate random")
+        if self.verbose:
+            print("Generate noise_data_field multivariate random")
         mean_torch = torch.Tensor(np.zeros(self.spatial_resolution)).to(device="cuda")
         cov = torch.Tensor(self.noise_cov).to(device="cuda")
         distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov)  # . to(device="cuda")
@@ -275,9 +278,6 @@ class SAVAR:
             w_f = deepcopy(self.mode_weights)
             w_f = (w_f != 0).astype(int)  # Convert non-zero elements to 1
 
-        print(self.mode_weights.shape)
-        # w_f = w_f / (w_f.max() + 1e-8)  # Normalize to range [0,1]
-
         # Merge last two dims first => shape (d_z, lat*lon)
         temp = w_f.reshape(w_f.shape[0], w_f.shape[1] * w_f.shape[2])
         # sum over dim=0 => shape (lat*lon,)
@@ -322,19 +322,18 @@ class SAVAR:
         forcing_field = (w_f_sum.reshape(1, -1) * trend.T).T
         self.forcing_data_field = forcing_field.cpu().numpy()
 
-        print(f"Using {ramp_type} ramp: f_1={f_1}, f_2={f_2}, f_time_1={f_time_1}, f_time_2={f_time_2}")
-
-        print(f"Forcing data field mean: {self.forcing_data_field.mean()}")
-
-        print(f"Before addition - Data field mean: {self.data_field.mean()}")
+        if self.verbose:
+            print(f"Using {ramp_type} ramp: f_1={f_1}, f_2={f_2}, f_time_1={f_time_1}, f_time_2={f_time_2}")
+            print(f"Forcing data field mean: {self.forcing_data_field.mean()}")
+            print(f"Before addition - Data field mean: {self.data_field.mean()}")
 
         # data_field_before = self.data_field.copy()
 
         self.data_field += self.forcing_data_field
 
         # data_field_after = self.data_field
-
-        print(f"After addition - Data field mean: {self.data_field.mean()}")
+        if self.verbose:
+            print(f"After addition - Data field mean: {self.data_field.mean()}")
 
         # # Convert tensors to numpy for plotting if necessary
         # if isinstance(w_f_sum, torch.Tensor):
@@ -392,8 +391,8 @@ class SAVAR:
         phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
         # data_field = deepcopy(self.data_field)
         data_field = torch.Tensor(self.data_field).to(device="cuda")
-
-        print("create_linear")
+        if self.verbose:
+            print("create_linear")
         for t in tqdm(range(tau_max, time_len)):
             for i in range(tau_max):
                 data_field[..., t : t + 1] += weights_inv @ phi[..., i] @ weights @ data_field[..., t - 1 - i : t - i]
@@ -490,7 +489,8 @@ class SAVAR:
             if (epoch + 1) % 5 == 0:
                 print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {sum(batch_losses)/len(batch_losses):.6f}")
 
-        print("Training of single-layer NNAR model completed.")
+        if self.verbose:
+            print("Training of single-layer NNAR model completed.")
 
     def _create_nonlinear(self):
         """
@@ -511,7 +511,8 @@ class SAVAR:
         time_len = self.time_length + self.transient
         tau_max = self.tau_max
 
-        print("create_nonlinear (single-layer net + sigmoid)")
+        if self.verbose:
+            print("create_nonlinear (single-layer net + sigmoid)")
 
         for t in tqdm(range(tau_max, time_len)):
             # Sum up influences from each lag
@@ -542,7 +543,8 @@ class SAVAR:
         time_len = self.time_length + self.transient
         tau_max = self.tau_max
 
-        print(f"create_polynomial with degrees={self.poly_degrees}")
+        if self.verbose:
+            print(f"create_polynomial with degrees={self.poly_degrees}")
 
         for t in tqdm(range(tau_max, time_len)):
             # For each time step, sum over the contributions of all lags

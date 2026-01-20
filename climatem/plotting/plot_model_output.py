@@ -368,7 +368,7 @@ class Plotter:
         if learner.plot_params.savar:
             savar_folder = learner.data_params.data_dir
             n_modes = learner.savar_params.n_per_col**2
-            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_isforced_{learner.savar_params.is_forced}_difficulty_{learner.savar_params.difficulty}_noisestrength_{learner.savar_params.noise_val}_seasonality_{learner.savar_params.seasonality}_overlap_{learner.savar_params.overlap}"
+            savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_forced_{learner.savar_params.is_forced}_dif_{learner.savar_params.difficulty}_noise_{learner.savar_params.noise_val}_season_{learner.savar_params.seasonality}_over_{learner.savar_params.overlap}_lin_{learner.savar_params.linearity}_poldeg_{learner.savar_params.poly_degrees}"
             # Get the gt mode weights
             modes_gt = np.load(f"{savar_folder}/{savar_fname}_mode_weights.npy")
             if learner.iteration == 500:
@@ -894,7 +894,6 @@ class Plotter:
     ):
 
         grid_shape = (learner.lat, learner.lon)
-        print("SAVAR plot is called")
         w_adj = w_adj[0]  # Now w_adj_mean should be (lat*lon, num_latents)
         d_z = w_adj.shape[1]
 
@@ -1129,13 +1128,10 @@ class Plotter:
 
             # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
             permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
-            print("permutation_list:", permutation_list)
 
             # Permute
             for k in range(tau):
                 mat1[k] = mat1[k][np.ix_(permutation_list, permutation_list)]
-
-            print("PERMUTED THE MATRICES")
 
             # np.save(learner.plots_path / f"adjacency_{name_suffix}_permuted.npy", mat1)
 

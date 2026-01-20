@@ -158,14 +158,14 @@ if __name__ == "__main__":
     for k in range(n_modes):
         var_names.append(rf"$X^{k}$")
 
-    savar_folder = "/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST"
+    savar_folder = Path("/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST")
     # Load gt mode weights
     savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
     # Get the gt mode weights
-    modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
+    modes_gt = np.load(savar_folder / f"{savar_fname}_mode_weights.npy")
 
     #savar_data = np.load(savar_folder / savar_fname)
-    params_file = savar_folder + f"/{savar_fname}_parameters.npy"
+    params_file = savar_folder / f"{savar_fname}_parameters.npy"
     params = np.load(params_file, allow_pickle=True).item()
     links_coeffs = params["links_coeffs"]
 
