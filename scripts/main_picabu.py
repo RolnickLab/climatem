@@ -383,13 +383,13 @@ if __name__ == "__main__":
         if savar_params.use_correct_hyperparams:
             experiment_params.d_z = int(savar_params.n_per_col**2)
             if savar_params.difficulty == "easy":
-                optim_params.sparsity_upper_threshold = 1/experiment_params.d_z #expected N out of N^2 total links
+                optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*experiment_params.tau) #expected N out of N^2*tau total links
             if savar_params.difficulty == "med_easy":
-                optim_params.sparsity_upper_threshold = 2/experiment_params.d_z #expected 2N out of N^2 total links
+                optim_params.sparsity_upper_threshold = 2/(experiment_params.d_z*experiment_params.tau) #expected 2N out of N^2*tau total links
             if savar_params.difficulty == "med_hard":
-                optim_params.sparsity_upper_threshold = 3/experiment_params.d_z #expected 3N out of N^2 total links
+                optim_params.sparsity_upper_threshold = 3/(experiment_params.d_z*experiment_params.tau) #expected 3N out of N^2*tau total links
             if savar_params.difficulty == "hard":
-                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z) #expected N((N+1)/2) out of N^2 total links (N + N*(N-1)/2)
+                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*experiment_params.tau) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
 
     else:
         plot_params.savar = False
