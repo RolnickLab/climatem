@@ -38,7 +38,10 @@ class SavarDataset(torch.utils.data.Dataset):
     ):
         super().__init__()
         self.output_save_dir = Path(output_save_dir)
-        self.savar_name = f"modes_{n_per_col**2}_tl_{time_len}_forced_{is_forced}_dif_{difficulty}_noise_{noise_val}_season_{seasonality}_over_{overlap}_lin_{linearity}_poldeg_{poly_degrees}"
+        savar_poly_deg = (
+            str(poly_degrees)[1:-1].translate({ord("'"): None}).translate({ord(","): None}).translate({ord(" "): None})
+        )
+        self.savar_name = f"modes_{n_per_col**2}_tl_{time_len}_forced_{is_forced}_dif_{difficulty}_noise_{noise_val}_season_{seasonality}_over_{overlap}_lin_{linearity}_poldeg_{savar_poly_deg}"
         self.savar_path = self.output_save_dir / f"{self.savar_name}.npy"
 
         self.global_normalization = global_normalization
