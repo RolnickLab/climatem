@@ -119,6 +119,13 @@ def main(
             seasonality=savar_params.seasonality,
             overlap=savar_params.overlap,
             is_forced=savar_params.is_forced,
+            f_1=savar_params.f_1,
+            f_2=savar_params.f_2,
+            f_time_1=savar_params.f_time_1,
+            f_time_2=savar_params.f_time_2,
+            ramp_type=savar_params.ramp_type,
+            linearity=savar_params.linearity,
+            poly_degrees=savar_params.poly_degrees,
             plot_original_data=savar_params.plot_original_data,
         )
         datamodule.setup()
@@ -143,7 +150,8 @@ def main(
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
         position_embedding_dim=model_params.position_embedding_dim,
-        reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
+        transition_param_sharing=model_params.transition_param_sharing,
+        position_embedding_transition=model_params.position_embedding_transition,
         coeff_kl=optim_params.coeff_kl,
         d=d,
         #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
@@ -179,7 +187,11 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
+    
+    if data_params.in_var_ids[0] == "savar":
+        name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
+    else:
+        name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_frachiwn_{optim_params.fraction_highest_wavenumbers}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 
@@ -196,6 +208,7 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
+    hp["savar_params"] = savar_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
@@ -208,12 +221,14 @@ def main(
     trainer = TrainingLatent(
         model,
         datamodule,
+        data_params,
         experiment_params,
         gt_params,
         model_params,
         train_params,
         optim_params,
         plot_params,
+        savar_params,
         save_path,
         plots_path,
         best_metrics,
@@ -373,13 +388,13 @@ if __name__ == "__main__":
         if savar_params.use_correct_hyperparams:
             experiment_params.d_z = int(savar_params.n_per_col**2)
             if savar_params.difficulty == "easy":
-                optim_params.sparsity_upper_threshold = 1/experiment_params.d_z #expected N out of N^2 total links
+                optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*experiment_params.tau) #expected N out of N^2*tau total links
             if savar_params.difficulty == "med_easy":
-                optim_params.sparsity_upper_threshold = 2/experiment_params.d_z #expected 2N out of N^2 total links
+                optim_params.sparsity_upper_threshold = 2/(experiment_params.d_z*experiment_params.tau) #expected 2N out of N^2*tau total links
             if savar_params.difficulty == "med_hard":
-                optim_params.sparsity_upper_threshold = 3/experiment_params.d_z #expected 3N out of N^2 total links
+                optim_params.sparsity_upper_threshold = 3/(experiment_params.d_z*experiment_params.tau) #expected 3N out of N^2*tau total links
             if savar_params.difficulty == "hard":
-                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z) #expected N((N+1)/2) out of N^2 total links (N + N*(N-1)/2)
+                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*experiment_params.tau) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
 
     else:
         plot_params.savar = False

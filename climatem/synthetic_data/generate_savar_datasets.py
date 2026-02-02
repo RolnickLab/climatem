@@ -102,35 +102,56 @@ def generate_save_savar_data(
     n_per_col=2,  # Number of components N = n_per_col**2
     difficulty="easy",
     seasonality=False,
-    overlap=False,
+    overlap=0,
     is_forced=False,
+    f_1=1,
+    f_2=2,
+    f_time_1=4000,
+    f_time_2=8000,
+    ramp_type="linear",
+    linearity="polynomial",
+    poly_degrees=[2, 3],
     plotting=True,
 ):
 
     # Setup spatial weights of underlying processes
     ny = nx = n_per_col * comp_size
     N = n_per_col**2  # Number of components
+
+    if not (0 <= overlap <= 1):
+        raise ValueError("overlap must be between 0 and 1")
+
     noise_weights = np.zeros((N, nx, ny))
     modes_weights = np.zeros((N, nx, ny))
-
-    if overlap:
-        raise ValueError("SAVAR data with overlapping modes not implemented yet")
 
     # Specify the path where you want to save the data
     npy_name = f"{name}.npy"
     save_path = save_dir_path / npy_name
 
+    # Center starting position (for fully overlapping modes)
+    center_x_start = (nx - comp_size) // 2
+    center_y_start = (ny - comp_size) // 2
+
     # Create modes weights
     for k in range(n_per_col):
         for j in range(n_per_col):
-            modes_weights[
-                k * n_per_col + j, k * comp_size : (k + 1) * comp_size, j * comp_size : (j + 1) * comp_size
-            ] = create_random_mode((comp_size, comp_size), random=True)
-    for k in range(n_per_col):
-        for j in range(n_per_col):
-            noise_weights[
-                k * n_per_col + j, k * comp_size : (k + 1) * comp_size, j * comp_size : (j + 1) * comp_size
-            ] = create_random_mode((comp_size, comp_size), random=True)
+            idx = k * n_per_col + j
+            # Original starting position (no overlap)
+            orig_x_start = k * comp_size
+            orig_y_start = j * comp_size
+            # New starting positions (interpolated between original and central)
+            new_x_start = int((1 - overlap) * orig_x_start + overlap * center_x_start)
+            new_y_start = int((1 - overlap) * orig_y_start + overlap * center_y_start)
+            new_x_end = new_x_start + comp_size
+            new_y_end = new_y_start + comp_size
+            modes_weights[idx, new_x_start:new_x_end, new_y_start:new_y_end] = create_random_mode(
+                (comp_size, comp_size), random=True
+            )
+            # for k in range(n_per_col):
+            #    for j in range(n_per_col):
+            noise_weights[idx, new_x_start:new_x_end, new_y_start:new_y_end] = create_random_mode(
+                (comp_size, comp_size), random=True
+            )
 
     # This is the probabiliity of having a link between latent k and j, with k different from j. latents always have one link with themselves at a previous time.
     if difficulty == "easy":
@@ -149,8 +170,7 @@ def generate_save_savar_data(
     check_stability(links_coeffs)
 
     if is_forced:
-        raise ValueError("SAVAR data with forcings not implemented yet")
-        f_1, f_2, f_time_1, f_time_2 = 1, 2, 4000, 8000  # turn off forcing by setting the time to the last time step
+        # turn off forcing by setting the time to the last time step
         w_f = modes_weights
         # A very simple method for adding a focring term (bias on the mean of the noise term)
         forcing_dict = {
@@ -160,6 +180,7 @@ def generate_save_savar_data(
             "f_time_1": f_time_1,  # The period one goes from t=0  to t=f_time_1
             "f_time_2": f_time_2,  # The period two goes from t= f_time_2 to the end. Between the two periods, the forcing is risen linearly
             "time_len": time_len,
+            "ramp_type": ramp_type,
         }
     if seasonality:
         raise ValueError("SAVAR data with seasonality not implemented yet")
@@ -209,11 +230,13 @@ def generate_save_savar_data(
         "T": time_len,
         "N": N,
         "links_coeffs": links_coeffs,
-        # "f_1": f_1,
-        # "f_2": f_2,
-        # "f_time_1": f_time_1,
-        # "f_time_2": f_time_2,
-        # "time_len": time_len,
+        "f_1": f_1,
+        "f_2": f_2,
+        "f_time_1": f_time_1,
+        "f_time_2": f_time_2,
+        "ramp_type": ramp_type,
+        "linearity": linearity,
+        "poly_degrees": poly_degrees,
         # "season_dict": season_dict,
         # "seasonality" : True,
     }
@@ -255,6 +278,8 @@ def generate_save_savar_data(
             noise_strength=noise_val,  # How to play with this parameter?
             # season_dict=season_dict, #turn off by commenting out
             # forcing_dict=forcing_dict #turn off by commenting out
+            linearity=linearity,
+            poly_degrees=poly_degrees,
         )
     else:
         savar_model = SAVAR(
@@ -262,11 +287,13 @@ def generate_save_savar_data(
             time_length=time_len,
             mode_weights=modes_weights,
             noise_strength=noise_val,
-            # season_dict=season_dict, #turn off by commenting out
             forcing_dict=forcing_dict,  # turn off by commenting out
+            linearity=linearity,
+            poly_degrees=poly_degrees,
         )
 
     savar_model.generate_data()  # Remember to generate data, otherwise the data field will be empty
     np.save(save_path, savar_model.data_field)
+
     print(f"{name} DONE!")
     return savar_model.data_field

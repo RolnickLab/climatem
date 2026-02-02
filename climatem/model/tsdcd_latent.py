@@ -205,7 +205,8 @@ class LatentTSDCD(nn.Module):
         num_layers_mixing: int,
         num_hidden_mixing: int,
         position_embedding_dim: int,
-        reduce_encoding_pos_dim: bool,
+        transition_param_sharing: bool,
+        position_embedding_transition: int,
         coeff_kl: float,
         distr_z0: str,
         distr_encoder: str,
@@ -274,7 +275,8 @@ class LatentTSDCD(nn.Module):
         self.num_layers_mixing = num_layers_mixing
         self.num_hidden_mixing = num_hidden_mixing
         self.position_embedding_dim = position_embedding_dim
-        self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
+        self.transition_param_sharing = transition_param_sharing
+        self.position_embedding_transition = position_embedding_transition
         self.coeff_kl = coeff_kl
 
         self.d = d
@@ -352,7 +354,6 @@ class LatentTSDCD(nn.Module):
                 use_gumbel_mask=False,
                 tied=tied_w,
                 embedding_dim=self.position_embedding_dim,
-                reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
                 gt_w=None,
             )
         else:
@@ -363,16 +364,27 @@ class LatentTSDCD(nn.Module):
         if debug_gt_w:
             self.decoder.w = gt_w
 
-        self.transition_model = TransitionModelParamSharing(
-            self.d,
-            self.d_z,
-            self.total_tau,
-            self.nonlinear_dynamics,
-            self.num_layers,
-            self.num_hidden,
-            self.num_output,
-            self.position_embedding_dim,
-        )
+        if self.transition_param_sharing:
+            self.transition_model = TransitionModelParamSharing(
+                self.d,
+                self.d_z,
+                self.total_tau,
+                self.nonlinear_dynamics,
+                self.num_layers,
+                self.num_hidden,
+                self.num_output,
+                self.position_embedding_transition,
+            )
+        else:
+            self.transition_model = TransitionModel(
+                self.d,
+                self.d_z,
+                self.total_tau,
+                self.nonlinear_dynamics,
+                self.num_layers,
+                self.num_hidden,
+                self.num_output,
+            )
 
         # print("We are setting the Mask here.")
         self.mask = Mask(
@@ -456,19 +468,13 @@ class LatentTSDCD(nn.Module):
 
         # TODO Can we remove this for loop
         for i in range(self.d):
-            pz_params = torch.zeros(b, self.d_z, 1)
-            # print("This is pz_params shape, before we fill it up with a for loop, where the 2nd dimension is filled with the result of the transition model.", pz_params.shape)
-            # for k in range(self.d_z):
-            # print("Doing the transition, and this is the k at the moment.", k)
-            # print("**************************************************")
-            # print("What is the shape of the mask?", mask.shape)
-            # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
-            # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
-            pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
 
-            # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
-            # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
-            # print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
+            if self.transition_param_sharing:
+                pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
+            else:
+                pz_params = torch.zeros(b, self.d_z, 1)
+                for k in range(self.d_z):
+                    pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
@@ -954,8 +960,6 @@ class NonLinearAutoEncoder(nn.Module):
 
 class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
-    # TODO: SURELY A BUG??? EMBEDDING DECODER/ENCODER not correctly used?
-
     def __init__(
         self,
         d,
@@ -966,19 +970,11 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         use_gumbel_mask,
         tied,
         embedding_dim,
-        reduce_encoding_pos_dim,
         gt_w=None,
     ):
         super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
-        # embedding_dim_encoding = d_z // 10
-        if not reduce_encoding_pos_dim:
-            self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
-            self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)  # embedding_dim_encoding
-        else:
-            self.embedding_encoder = nn.Embedding(d_z, embedding_dim // 10)
-            self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim // 10, 1)  # embedding_dim_encoding
-        # self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)
-        # self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
+        self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
+        self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)  # embedding_dim_encoding
 
         self.decoder = MLP(num_layer, num_hidden, d_z + embedding_dim, 1)
         self.embedding_decoder = nn.Embedding(d_x, embedding_dim)
@@ -1177,6 +1173,7 @@ class TransitionModelParamSharing(nn.Module):
             num_hidden: number of hidden units
             num_output: number of outputs
         """
+
         super().__init__()
         self.d = d  # number of variables
         self.d_z = d_z

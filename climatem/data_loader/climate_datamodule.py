@@ -72,6 +72,8 @@ class ClimateDataModule(LightningDataModule):
         seasonality: bool = False,
         overlap: bool = False,
         is_forced: bool = False,
+        linearity: str = "linear",
+        poly_degrees: List[int] = [2],
         plot_original_data: bool = True,
     ):
         """

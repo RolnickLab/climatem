@@ -17,7 +17,6 @@ module purge
 # 1. Load the required modules
 module --quiet load python/3.10
 
-
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
 source $HOME/causal_model/env_climatem/bin/activate
 # 3. Enable expandable allocator to avoid fragmentation
