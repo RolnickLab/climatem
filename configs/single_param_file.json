@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/test_debug/",
+        "exp_path": "$SCRATCH/results/test_single_path/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -16,9 +16,9 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/healpix_data_test", 
-        "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6/CMIP/NCC", 
-        "reload_climate_set_data": true,
+        "data_dir": "$SCRATCH/data/healpix_data_test_single_path", 
+        "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6/CMIP/NCC/NorESM2-LM/piControl/r1i1p1f1/Amon", 
+        "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_lonlat_mapping.npy",
         "in_var_ids": ["tas"],
         "out_var_ids": ["tas"],
@@ -45,12 +45,6 @@
         "num_months_aggregated": [1],
         "train_val_interval_length": 40
         }, 
-    "gt_params": {
-        "no_gt": true,
-        "debug_gt_z": false,
-        "debug_gt_w": false,
-        "debug_gt_graph": false
-    },    
     "train_params": {
         "ratio_train": 0.9,
         "lr": 0.0001,
