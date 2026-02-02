@@ -17,6 +17,8 @@ from climatem.model.train_model import TrainingLatent
 from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.utils import parse_args, update_config_withparse
 
+from climatem.synthetic_data.utils import permute_matrices
+
 torch.set_warn_always(False)
 
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -243,8 +245,45 @@ def main(
 
     valid_loss = trainer.train_with_QPM()
 
-    # save final results, (MSE)
-    metrics = {"shd": 0.0, "precision": 0.0, "recall": 0.0, "train_mse": 0.0, "val_mse": 0.0, "mcc": 0.0}
+    if data_params.in_var_ids[0] == "savar": 
+
+        # save final results, (MSE)
+        metrics = {}
+            
+        adj = trainer.model.get_adj().cpu().detach().numpy()
+        modes_inferred = trainer.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_gt = datamodule.savar_gt_adj
+
+        modes_gt = np.load(f"{data_params.data_dir}/{datamodule.savar_name}_mode_weights.npy")
+        
+        adj_permuted = permute_matrices(
+            experiment_params.lat,
+            experiment_params.lon, 
+            modes_inferred,
+            modes_gt,
+            adj,
+            tau,
+        )
+
+        metrics["shd"] = str(shd(adj_permuted, adj_gt))
+        precision, recall = precision_recall(adj_permuted, adj_gt)
+        metrics["precision"], metrics["recall"] = str(precision), str(recall)
+        errors = edge_errors(adj_permuted, adj_gt)
+        metrics["tp"] = str(errors["tp"])
+        metrics["fp"] = str(errors["fp"])
+        metrics["tn"] = str(errors["tn"])
+        metrics["fn"] = str(errors["fn"])
+        metrics["f1_score"] = str((precision * recall)/(precision + recall))
+        metrics["n_edge_adj_gt"] = str(np.sum(adj_gt))
+        metrics["n_edge_adj_permuted"] = str(np.sum(adj_permuted))
+        metrics["execution_time"] = str(time.time() - t0)
+
+        for key, val in valid_loss.items():
+            metrics[key] = str(val)
+
+        with open(exp_path / "result_metrics.json", "w") as file:
+            json.dump(metrics, file, indent=4)
+
     # if we have the GT, also compute (SHD, Pr, Re, MCC)
     # if not gt_params.no_gt:
     #     # Here can remove this ---
@@ -275,8 +314,8 @@ def main(
     #     metrics["n_edge_learned_graph"] = np.sum(learned_graph)
     #     metrics["execution_time"] = time.time() - t0
 
-    #     for key, val in valid_loss.items():
-    #         metrics[key] = val
+        # for key, val in valid_loss.items():
+        #     metrics[key] = val
 
     # assert that trainer.model is in eval mode
     if trainer.model.training:
@@ -285,20 +324,20 @@ def main(
         print("Model is in eval mode")
 
     # NOTE: just dummies here for now
-    train_mse, train_smape, val_mse, val_smape = 10.0, 10.0, 10.0, 10.0
+    # train_mse, train_smape, val_mse, val_smape = 10.0, 10.0, 10.0, 10.0
+
+    # # save the metrics
+    # metrics["train_mse"] = train_mse
+    # metrics["train_smape"] = train_smape
+    # metrics["val_mse"] = val_mse
+    # metrics["val_smape"] = val_smape
 
     # save the metrics
-    metrics["train_mse"] = train_mse
-    metrics["train_smape"] = train_smape
-    metrics["val_mse"] = val_mse
-    metrics["val_smape"] = val_smape
-
-    # save the metrics
-    with open(os.path.join(experiment_params.exp_path, "results.json"), "w") as file:
-        json.dump(metrics, file, indent=4)
+    # with open(os.path.join(experiment_params.exp_path, "result_metrics.json"), "w") as file:
+    #     json.dump(metrics, file, indent=4)
 
     # finally, save the model
-    torch.save(trainer.model.state_dict(), os.path.join(experiment_params.exp_path, "model.pth"))
+    torch.save(trainer.model.state_dict(), exp_path / "model.pth")
 
 
 def assert_args(

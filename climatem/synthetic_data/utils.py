@@ -264,3 +264,30 @@ def create_graph(links_coeffs, return_lag=True):
         return np.asarray(graph), max_lag
     else:
         return np.asarray(graph)
+
+
+def permute_matrices(
+    lat,
+    lon,
+    modes_inferred,
+    modes_gt,
+    mat_transition,
+    tau,
+):
+    modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
+
+    idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)  # shape: (n_modes,)
+    idx_inferred_flat = np.argmax(modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1)  # shape: (n_modes,)
+
+    # Convert flat indices to 2D coordinates (row, col)
+    idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])  # shape: (n_modes, 2)
+    idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
+
+    # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
+    permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+
+    # Permute
+    for k in range(tau):
+        mat_transition[k] = mat_transition[k][np.ix_(permutation_list, permutation_list)]
+
+    return mat_transition

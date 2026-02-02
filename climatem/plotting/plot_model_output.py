@@ -11,6 +11,8 @@ import seaborn as sns
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from climatem.synthetic_data.utils import permute_matrices
+
 # from climatem.model.metrics import mcc_latent
 
 
@@ -1115,27 +1117,15 @@ class Plotter:
         tau = mat1.shape[0]
 
         if savar and modes_gt is not None and modes_inferred is not None:
-            # Find the permutation
-            modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
 
-            # Get the flat index of the maximum for each mode
-            idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)  # shape: (n_modes,)
-            idx_inferred_flat = np.argmax(
-                modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1
-            )  # shape: (n_modes,)
-
-            # Convert flat indices to 2D coordinates (row, col)
-            idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])  # shape: (n_modes, 2)
-            idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
-
-            # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
-            permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
-
-            # Permute
-            for k in range(tau):
-                mat1[k] = mat1[k][np.ix_(permutation_list, permutation_list)]
-
-            # np.save(learner.plots_path / f"adjacency_{name_suffix}_permuted.npy", mat1)
+            mat1 = permute_matrices(
+                lat,
+                lon,
+                modes_inferred,
+                modes_gt,
+                mat1,
+                tau,
+            )
 
         subfig_names = [
             f"Learned, latent dimensions = {mat1.shape[1], mat1.shape[2]}",
