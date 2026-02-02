@@ -15,8 +15,7 @@
 module purge
 
 # 1. Load the required modules
-module load compiler/intel/2021.4.0
-module load devel/python/3.10.5_intel_2021.4.0
+module --quiet load python/3.10
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
 source $HOME/causal_model/env_climatem/bin/activate
