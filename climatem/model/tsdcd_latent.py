@@ -220,12 +220,12 @@ class LatentTSDCD(nn.Module):
         nonlinear_mixing: bool,
         nonlinear_dynamics: bool,
         hard_gumbel: bool,
-        no_gt: bool,
-        debug_gt_graph: bool,
-        debug_gt_z: bool,
-        debug_gt_w: bool,
-        gt_graph: torch.tensor = None,
-        gt_w: torch.tensor = None,
+        # no_gt: bool,
+        # debug_gt_graph: bool,
+        # debug_gt_z: bool,
+        # debug_gt_w: bool,
+        # gt_graph: torch.tensor = None,
+        # gt_w: torch.tensor = None,
         tied_w: bool = False,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
@@ -287,10 +287,10 @@ class LatentTSDCD(nn.Module):
         self.nonlinear_mixing = nonlinear_mixing
         self.nonlinear_dynamics = nonlinear_dynamics
         self.hard_gumbel = hard_gumbel
-        self.no_gt = no_gt
-        self.debug_gt_graph = debug_gt_graph
-        self.debug_gt_z = debug_gt_z
-        self.debug_gt_w = debug_gt_w
+        # self.no_gt = no_gt
+        # self.debug_gt_graph = debug_gt_graph
+        # self.debug_gt_z = debug_gt_z
+        # self.debug_gt_w = debug_gt_w
         self.tied_w = tied_w
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
@@ -301,12 +301,12 @@ class LatentTSDCD(nn.Module):
         else:
             self.total_tau = tau
 
-        if self.no_gt:
-            self.gt_w = None
-            self.gt_graph = None
-        else:
-            self.gt_w = torch.as_tensor(gt_w).double()
-            self.gt_graph = torch.as_tensor(gt_graph).double()
+        # if self.no_gt:
+        #     self.gt_w = None
+        #     self.gt_graph = None
+        # else:
+        #     self.gt_w = torch.as_tensor(gt_w).double()
+        #     self.gt_graph = torch.as_tensor(gt_graph).double()
 
         if distr_z0 == "gaussian":
             self.distr_z0 = torch.normal
@@ -361,8 +361,8 @@ class LatentTSDCD(nn.Module):
             print("LINEAR MIXING")
             self.autoencoder = LinearAutoEncoder(d, d_x, d_z, tied=tied_w)
 
-        if debug_gt_w:
-            self.decoder.w = gt_w
+        # if debug_gt_w:
+        #     self.decoder.w = gt_w
 
         if self.transition_param_sharing:
             self.transition_model = TransitionModelParamSharing(
@@ -397,11 +397,11 @@ class LatentTSDCD(nn.Module):
             fixed=fixed,
             fixed_output_fraction=fixed_output_fraction,
         )
-        if self.debug_gt_graph:
-            if self.instantaneous:
-                self.mask.fix(self.gt_graph)
-            else:
-                self.mask.fix(self.gt_graph[:-1])
+        # if self.debug_gt_graph:
+        #     if self.instantaneous:
+        #         self.mask.fix(self.gt_graph)
+        #     else:
+        #         self.mask.fix(self.gt_graph[:-1])
 
     def get_adj(self):
         """
@@ -506,8 +506,8 @@ class LatentTSDCD(nn.Module):
 
         # sample Zs (based on X)
         z, q_mu_y, q_std_y = self.encode(x, y)
-        if self.debug_gt_z:
-            z = gt_z
+        # if self.debug_gt_z:
+        #     z = gt_z
 
         # get params of the transition model p(z^t | z^{<t})
         mask = self.mask(b)

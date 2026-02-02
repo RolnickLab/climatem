@@ -53,12 +53,6 @@
         ],
         "train_val_interval_length": 40
     },
-    "gt_params": {
-        "no_gt": true,
-        "debug_gt_z": false,
-        "debug_gt_w": false,
-        "debug_gt_graph": false
-    },
     "train_params": {
         "ratio_train": 0.9,
         "lr": 0.0005,

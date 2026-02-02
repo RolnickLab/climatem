@@ -24,7 +24,7 @@ class TrainingLatent:
         datamodule,
         data_params,
         exp_params,
-        gt_params,
+        # gt_params,
         model_params,
         train_params,
         optim_params,
@@ -65,8 +65,8 @@ class TrainingLatent:
         self.wandbname = wandbname
 
         self.latent = exp_params.latent
-        self.no_gt = gt_params.no_gt
-        self.debug_gt_z = gt_params.debug_gt_z
+        # self.no_gt = gt_params.no_gt
+        # self.debug_gt_z = gt_params.debug_gt_z
         self.d_z = exp_params.d_z
         self.no_w_constraint = model_params.no_w_constraint
 
@@ -143,33 +143,33 @@ class TrainingLatent:
         #     self.model = DDP(self.model)
 
         # I think this is just initialising a tensor of zeroes to store results in
-        if not self.no_gt:
-            self.adj_w_tt = torch.zeros(
-                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
-            )
-            if self.instantaneous:
-                self.adj_tt = torch.zeros(
-                    [
-                        int(self.train_params.max_iteration / self.train_params.valid_freq),
-                        self.tau + 1,
-                        self.d * self.d_z,
-                        self.d * self.d_z,
-                    ]
-                )
-            else:
-                self.adj_tt = torch.zeros(
-                    [
-                        int(self.train_params.max_iteration / self.train_params.valid_freq),
-                        self.tau,
-                        self.d * self.d_z,
-                        self.d * self.d_z,
-                    ]
-                )
+        # if not self.no_gt:
+        # self.adj_w_tt = torch.zeros(
+        #     [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
+        # )
+        # if self.instantaneous:
+        #     self.adj_tt = torch.zeros(
+        #         [
+        #             int(self.train_params.max_iteration / self.train_params.valid_freq),
+        #             self.tau + 1,
+        #             self.d * self.d_z,
+        #             self.d * self.d_z,
+        #         ]
+        #     )
+        # else:
+        #     self.adj_tt = torch.zeros(
+        #         [
+        #             int(self.train_params.max_iteration / self.train_params.valid_freq),
+        #             self.tau,
+        #             self.d * self.d_z,
+        #             self.d * self.d_z,
+        #         ]
+        #     )
+        # self.model.mask.fix(self.gt_dag)
+
         self.logvar_encoder_tt = []
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
-
-        # self.model.mask.fix(self.gt_dag)
 
         # optimizer
         if self.optim_params.optimizer == "sgd":
@@ -1035,10 +1035,10 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        if not self.no_gt:
-            w = self.model.autoencoder.get_w_decoder()
-            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w.item()
-            self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
+        # if not self.no_gt:
+        # w = self.model.autoencoder.get_w_decoder()
+        # self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w.item()
+        # self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
         self.logvar_decoder_tt.append(self.model.autoencoder.logvar_decoder[0].item())

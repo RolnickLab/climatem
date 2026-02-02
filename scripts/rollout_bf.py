@@ -36,7 +36,7 @@ def sample_from_tensor_reproducibly(tensor1, tensor2, num_samples, seed=5):
 def main(
     experiment_params, 
     data_params, 
-    gt_params, 
+    # gt_params, 
     train_params, 
     model_params, 
     optim_params, 
@@ -144,10 +144,10 @@ def main(
         nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,
-        no_gt=gt_params.no_gt,
-        debug_gt_graph=gt_params.debug_gt_graph,
-        debug_gt_z=gt_params.debug_gt_z,
-        debug_gt_w=gt_params.debug_gt_w,
+        # no_gt=gt_params.no_gt,
+        # debug_gt_graph=gt_params.debug_gt_graph,
+        # debug_gt_z=gt_params.debug_gt_z,
+        # debug_gt_w=gt_params.debug_gt_w,
         # gt_w=data_loader.gt_w,
         # gt_graph=data_loader.gt_graph,
         tied_w=model_params.tied_w,
@@ -290,7 +290,7 @@ if __name__ == "__main__":
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
-    gt_params = gtParams(**params["gt_params"])
+    # gt_params = gtParams(**params["gt_params"])
     train_params = trainParams(**params["train_params"])
     model_params = modelParams(**params["model_params"])
     optim_params = optimParams(**params["optim_params"])
@@ -307,5 +307,5 @@ if __name__ == "__main__":
     else:
         plot_params.savar = False
 
-    final_picontrol_particles = main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params)
+    final_picontrol_particles = main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params)
 

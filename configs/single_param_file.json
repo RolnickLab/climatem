@@ -131,18 +131,26 @@
     "plot_params": {
         "plot_freq": 20000,
         "plot_through_time": true,
-        "print_freq": 100
+        "print_freq": 500
     },
     "savar_params": {
+        "n_per_col": 2,
         "time_len": 10000,
         "comp_size": 10,
         "noise_val": 0.2,
-        "n_per_col": 2,
         "difficulty": "easy",
         "seasonality": false,
-        "overlap": false,
+        "overlap": 0,
         "is_forced": false,
-        "plot_original_data": true
+        "f_1": 0,
+        "f_2": 3,
+        "f_time_1": 3000,
+        "f_time_2": 8000,
+        "ramp_type": "linear",
+        "linearity": "linear",
+        "poly_degrees": [2,3],
+        "plot_original_data": true,
+        "use_correct_hyperparams": true
     },
     "rollout_params": {
         "final_30_years_of_ssps": false,

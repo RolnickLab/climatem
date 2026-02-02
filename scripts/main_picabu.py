@@ -39,7 +39,7 @@ class Bunch:
 
 
 def main(
-    experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params
+    experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params
 ):
     """
     :param hp: object containing hyperparameter values
@@ -166,10 +166,10 @@ def main(
         nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
         hard_gumbel=model_params.hard_gumbel,
-        no_gt=gt_params.no_gt,
-        debug_gt_graph=gt_params.debug_gt_graph,
-        debug_gt_z=gt_params.debug_gt_z,
-        debug_gt_w=gt_params.debug_gt_w,
+        # no_gt=gt_params.no_gt,
+        # debug_gt_graph=gt_params.debug_gt_graph,
+        # debug_gt_z=gt_params.debug_gt_z,
+        # debug_gt_w=gt_params.debug_gt_w,
         # gt_w=data_loader.gt_w,
         # gt_graph=data_loader.gt_graph,
         tied_w=model_params.tied_w,
@@ -204,7 +204,7 @@ def main(
     hp = {}
     hp["exp_params"] = experiment_params.__dict__
     hp["data_params"] = data_params.__dict__
-    hp["gt_params"] = gt_params.__dict__
+    # hp["gt_params"] = gt_params.__dict__
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
@@ -223,7 +223,7 @@ def main(
         datamodule,
         data_params,
         experiment_params,
-        gt_params,
+        # gt_params,
         model_params,
         train_params,
         optim_params,
@@ -246,37 +246,37 @@ def main(
     # save final results, (MSE)
     metrics = {"shd": 0.0, "precision": 0.0, "recall": 0.0, "train_mse": 0.0, "val_mse": 0.0, "mcc": 0.0}
     # if we have the GT, also compute (SHD, Pr, Re, MCC)
-    if not gt_params.no_gt:
-        # Here can remove this ---
-        if model_params.instantaneous:
-            gt_graph = trainer.gt_dag
-        else:
-            gt_graph = trainer.gt_dag[:-1]  # remove the graph G_t
+    # if not gt_params.no_gt:
+    #     # Here can remove this ---
+    #     if model_params.instantaneous:
+    #         gt_graph = trainer.gt_dag
+    #     else:
+    #         gt_graph = trainer.gt_dag[:-1]  # remove the graph G_t
 
-        learned_graph = trainer.model.get_adj().detach().numpy().reshape(gt_graph.shape[0], gt_graph.shape[1], -1)
+    #     learned_graph = trainer.model.get_adj().detach().numpy().reshape(gt_graph.shape[0], gt_graph.shape[1], -1)
 
-        score, cc_program_perm, assignments, z, z_hat, _ = mcc_latent(trainer.model, trainer.data)
-        permutation = np.zeros((gt_graph.shape[1], gt_graph.shape[1]))
-        permutation[np.arange(gt_graph.shape[1]), assignments[1]] = 1
-        gt_graph = permutation.T @ gt_graph @ permutation
+    #     score, cc_program_perm, assignments, z, z_hat, _ = mcc_latent(trainer.model, trainer.data)
+    #     permutation = np.zeros((gt_graph.shape[1], gt_graph.shape[1]))
+    #     permutation[np.arange(gt_graph.shape[1]), assignments[1]] = 1
+    #     gt_graph = permutation.T @ gt_graph @ permutation
 
-        metrics["mcc"] = score
-        metrics["w_mse"] = w_mae(
-            trainer.model.autoencoder.get_w_decoder().detach().numpy()[:, :, assignments[1]], datamodule.gt_w
-        )
-        metrics["shd"] = shd(learned_graph, gt_graph)
-        metrics["precision"], metrics["recall"] = precision_recall(learned_graph, gt_graph)
-        errors = edge_errors(learned_graph, gt_graph)
-        metrics["tp"] = errors["tp"]
-        metrics["fp"] = errors["fp"]
-        metrics["tn"] = errors["tn"]
-        metrics["fn"] = errors["fn"]
-        metrics["n_edge_gt_graph"] = np.sum(gt_graph)
-        metrics["n_edge_learned_graph"] = np.sum(learned_graph)
-        metrics["execution_time"] = time.time() - t0
+    #     metrics["mcc"] = score
+    #     metrics["w_mse"] = w_mae(
+    #         trainer.model.autoencoder.get_w_decoder().detach().numpy()[:, :, assignments[1]], datamodule.gt_w
+    #     )
+    #     metrics["shd"] = shd(learned_graph, gt_graph)
+    #     metrics["precision"], metrics["recall"] = precision_recall(learned_graph, gt_graph)
+    #     errors = edge_errors(learned_graph, gt_graph)
+    #     metrics["tp"] = errors["tp"]
+    #     metrics["fp"] = errors["fp"]
+    #     metrics["tn"] = errors["tn"]
+    #     metrics["fn"] = errors["fn"]
+    #     metrics["n_edge_gt_graph"] = np.sum(gt_graph)
+    #     metrics["n_edge_learned_graph"] = np.sum(learned_graph)
+    #     metrics["execution_time"] = time.time() - t0
 
-        for key, val in valid_loss.items():
-            metrics[key] = val
+    #     for key, val in valid_loss.items():
+    #         metrics[key] = val
 
     # assert that trainer.model is in eval mode
     if trainer.model.training:
@@ -304,13 +304,13 @@ def main(
 def assert_args(
     experiment_params,
     data_params,
-    gt_params,
+    # gt_params,
     optim_params,
 ):
     """Raise errors or warnings if some args should not take some combination of values."""
     # raise errors if some args should not take some combination of values
-    if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
-        raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
+    # if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
+    #     raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
 
     if experiment_params.latent and (
         experiment_params.d_z is None
@@ -370,7 +370,7 @@ if __name__ == "__main__":
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
-    gt_params = gtParams(**params["gt_params"])
+    # gt_params = gtParams(**params["gt_params"])
     train_params = trainParams(**params["train_params"])
     model_params = modelParams(**params["model_params"])
     optim_params = optimParams(**params["optim_params"])
@@ -402,9 +402,9 @@ if __name__ == "__main__":
     assert_args(
         experiment_params,
         data_params,
-        gt_params,
+        # gt_params,
         optim_params,
     )
 
-    main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
+    main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params)
 

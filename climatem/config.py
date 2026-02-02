@@ -107,19 +107,19 @@ class dataParams:
         self.num_months_aggregated = num_months_aggregated
 
 
-# This class is only for debugging and for setting some params to the true aprams when training picabu
-class gtParams:
-    def __init__(
-        self,
-        no_gt: bool = True,  # do we have GT to compare? If synthetic data, will be True and overwritten
-        debug_gt_z: bool = False,  # below params help debugging the code when we have ground truth
-        debug_gt_w: bool = False,
-        debug_gt_graph: bool = False,
-    ):
-        self.no_gt = no_gt
-        self.debug_gt_z = debug_gt_z
-        self.debug_gt_w = debug_gt_w
-        self.debug_gt_graph = debug_gt_graph
+# # This class is only for debugging and for setting some params to the true aprams when training picabu
+# class gtParams:
+#     def __init__(
+#         self,
+#         no_gt: bool = True,  # do we have GT to compare? If synthetic data, will be True and overwritten
+#         debug_gt_z: bool = False,  # below params help debugging the code when we have ground truth
+#         debug_gt_w: bool = False,
+#         debug_gt_graph: bool = False,
+#     ):
+#         self.no_gt = no_gt
+#         self.debug_gt_z = debug_gt_z
+#         self.debug_gt_w = debug_gt_w
+#         self.debug_gt_graph = debug_gt_graph
 
 
 class trainParams:
