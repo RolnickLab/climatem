@@ -295,7 +295,7 @@ class savarParams:
         n_per_col: int = 2,  # square grid, equivalent of lat/lon
         difficulty: str = "easy",  # easy, med_easy, med_hard, hard: difficulty of the graph
         seasonality: bool = False,  # Seasonality in synthetic data
-        overlap: bool = False,  # Modes overlap
+        overlap: float = 0,  # Modes overlap between 0 and 1
         is_forced: bool = False,  # Forcings in synthetic data
         f_1: int = 1,
         f_2: int = 2,
