@@ -275,7 +275,7 @@ def main(
         metrics["fp"] = str(errors["fp"])
         metrics["tn"] = str(errors["tn"])
         metrics["fn"] = str(errors["fn"])
-        metrics["f1_score"] = str((precision * recall)/(precision + recall))
+        metrics["f1_score"] = str((2 * precision * recall)/(precision + recall))
         metrics["n_edge_adj_gt"] = str(np.sum(adj_gt))
         metrics["n_edge_adj_permuted"] = str(np.sum(adj_permuted))
         metrics["execution_time"] = str(time.time() - t0)
