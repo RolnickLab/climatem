@@ -263,6 +263,8 @@ class CMIP6Dataset(ClimateDataset):
                 print("remapping to healpix")
                 self.raw_data, latitudes_new, longitudes_new = remap_reg_to_healpix(self.raw_data, lon, lat)
                 self.coordinates = np.c_[longitudes_new, latitudes_new]
+            else:
+                self.coordinates = np.c_[lon, lat]
 
             if self.mode in ["train", "train+val"]:
                 print("creating stats fname")

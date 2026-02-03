@@ -1,7 +1,7 @@
 # import glob
-# import os
 # from datetime import datetime, timedelta
 import itertools
+import os
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Union  # Tuple
@@ -76,6 +76,9 @@ class ClimateDataset(torch.utils.data.Dataset):
         super().__init__()
         self.test_dir = output_save_dir
         self.output_save_dir = Path(output_save_dir)
+
+        os.makedirs(self.output_save_dir, exist_ok=True)
+
         self.reload_climate_set_data = reload_climate_set_data
         # Here need to propagate argument data_params.reload_climate_set_data
 
@@ -143,14 +146,14 @@ class ClimateDataset(torch.utils.data.Dataset):
         array_list = []
 
         for vlist in paths:
-            if vlist[0][-3:] == ".nc":
+            if str(vlist[0]).endswith(".nc"):
                 temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
                 temp_data = temp_data.drop_dims("bnds", errors="ignore")
 
-            elif vlist[0].endswith(".grib"):
+            elif str(vlist[0]).endswith(".grib"):
                 temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
             # TODO : handle gribs together
-            elif vlist[0].endswith(".grib2"):
+            elif str(vlist[0]).endswith(".grib2"):
                 # TODO: not all data will have this name to remove leap days + we should remove feb 29?
                 filtered_vlist = list(itertools.chain(*vlist))
                 filtered_vlist = [item for item in vlist if "000366.grib2" not in item]
@@ -170,11 +173,11 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         print(f"temp_data shape {temp_data.shape}")
 
-        if paths[0][0].endswith(".grib"):
+        if str(paths[0][0]).endswith(".grib"):
             years = len(paths[0])
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
-        elif paths[0][0].endswith(".grib2"):
+        elif str(paths[0][0]).endswith(".grib2"):
             # Use self.seq_len = 365 (post-leap-day-removal)
             filtered_vlist = [f for f in vlist if int(f[-10:-6]) <= 365]
             vlist = filtered_vlist
@@ -192,7 +195,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         if channels_last:
             temp_data = temp_data.transpose((1, 2, 3, 4, 0))
-        elif paths[0][0][-5:] in [".grib", "grib2"]:
+        elif str(paths[0][0])[-5:] in [".grib", "grib2"]:
             temp_data = temp_data.transpose((1, 2, 0, 3))
         else:
             temp_data = temp_data.transpose((1, 2, 0, 3, 4))
@@ -217,11 +220,11 @@ class ClimateDataset(torch.utils.data.Dataset):
         """
         print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
         print("length paths", len(paths))
-        if paths[0][0][-5:] == ".grib":
+        if str(paths[0][0])[-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.load(self.icosahedral_coordinates_path)
             return coordinates[:, 0], coordinates[:, 1]
-        elif paths[0][0][-5:] == "grib2":
+        elif str(paths[0][0])[-5:] == "grib2":
             coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
             return coordinates[:, 0], coordinates[:, 1]
         else:

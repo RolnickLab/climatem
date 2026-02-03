@@ -1,0 +1,42 @@
+#!/bin/bash
+
+#SBATCH --job-name=run_viz                               # Set name of job
+#SBATCH --output=run_viz_output.txt                                  # Set location of output file
+#SBATCH --error=run_viz_error.txt                                    # Set location of error file
+#SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
+#SBATCH --cpus-per-task=5                                               # Ask for 4 CPUs
+#SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
+#SBATCH --nodes=1                                                       # Ask for 4 CPUs
+#SBATCH --mem=48G                                                       # Ask for 256 GB of RAM
+#SBATCH --time=4:00:00                                                 # The job will run for 2 hours
+#SBATCH --partition=main                                                # Ask for long partition
+
+# 0. Clear the environment
+module purge
+
+# 1. Load the required modules
+module --quiet load python/3.10
+
+# 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
+source $HOME/causal_model/env_climatem/bin/activate
+
+# 3. Get a unique port for this job based on the job ID
+export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
+export MASTER_ADDR="127.0.0.1"
+
+
+export TORCH_DISTRIBUTED_DEBUG=INFO
+export TORCH_CPP_LOG_LEVEL=INFO
+
+echo "=== calling accelerate"
+
+# Make sure to change program file path to correct dir
+accelerate launch \
+    --machine_rank=$SLURM_NODEID \
+    --num_cpu_threads_per_process=8 \
+    --main_process_ip=$MASTER_ADDR \
+    --main_process_port=$MASTER_PORT \
+    --num_processes=1 \
+    --num_machines=1 \
+    --gpu_ids='all' \
+    $HOME/causal_model/climatem/scripts/create_data_vids.py --config-path single_param_file_savar.json

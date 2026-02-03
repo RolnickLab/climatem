@@ -376,8 +376,6 @@ def assert_args(
         )
 
     # warnings, strange choice of args combination
-    if not experiment_params.latent and gt_params.debug_gt_z:
-        warnings.warn("Are you sure you want to use gt_z even if you don't have latents")
     if experiment_params.latent and (experiment_params.d_z > experiment_params.d_x):
         warnings.warn("Are you sure you want to have a higher dimension for d_z than d_x")
 

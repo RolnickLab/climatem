@@ -1,16 +1,17 @@
 # NOTE: as of 14th Oct, I am also trying to get this to work for multiple variables.
 
-import glob
 import os
-import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
+
+import numpy as np
 
 from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
     CMIP6_NOM_RES,
     CMIP6_TEMP_RES,
     NO_OPENBURNING_VARS,
 )
+from climatem.data_loader.healpix_remapping import remap_reg_to_healpix
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
@@ -24,6 +25,7 @@ log = get_logger()
 # input4mips data set: same per model
 # from datamodule create one of these per train/test/val
 
+
 class Input4MipsDataset(ClimateDataset):
     """
     Loads all scenarios for a given var / for all vars.
@@ -31,7 +33,7 @@ class Input4MipsDataset(ClimateDataset):
     TODO: Are coordinates correct here? Rather than reloading, should use the vertez mapping .npy file
     """
 
-    def __init__(  # inherits all the stuff from Base
+    def __init__(  # noqa: C901
         self,
         years: Union[int, str],
         historical_years: Union[int, str],
@@ -39,7 +41,7 @@ class Input4MipsDataset(ClimateDataset):
         variables: List[str] = ["BC_sum"],
         scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
         channels_last: bool = False,
-        openburning_specs: Tuple[str] = ("no_fires", "no_fires"),
+        openburning_specs: Tuple[str] = ("no-fires", "no-fires"),
         mode: str = "train",
         output_save_dir: str = "",
         reload_climate_set_data: bool = True,
@@ -49,9 +51,10 @@ class Input4MipsDataset(ClimateDataset):
         lat: int = 96,
         lon: int = 144,
         icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
+        map_to_healpix: bool = True,
         *args,
         **kwargs,
-    ):
+    ):  # noqa: C901
 
         self.channels_last = channels_last
 
@@ -68,6 +71,7 @@ class Input4MipsDataset(ClimateDataset):
         self.lon = lon
         self.lat = lat
         self.icosahedral_coordinates_path = icosahedral_coordinates_path
+        self.map_to_healpix = map_to_healpix
 
         if len(historical_years) == 0:
             historical_years_str = "no_historical"
@@ -75,6 +79,23 @@ class Input4MipsDataset(ClimateDataset):
             historical_years_str = f"{historical_years[0]}"
         else:
             historical_years_str = f"{historical_years[0]}-{historical_years[-1]}"
+
+        if isinstance(years, int):
+            self.years = years
+        else:
+            self.years = self.get_years_list(
+                years, give_list=True
+            )  # Can use this to split data into train/val eg. 2015-2080 train. 2080-2100 val.
+
+        if historical_years is None:
+            self.historical_years = []
+        elif isinstance(historical_years, int):
+            self.historical_years = historical_years
+        else:
+            self.historical_years = self.get_years_list(
+                historical_years, give_list=True
+            )  # Can use this to split data into train/val eg. 2015-2080 train. 2080-2100 val.
+        self.n_years = len(self.years) + len(self.historical_years)
 
         fname_kwargs = dict(
             years=f"{years[0]}-{years[-1]}",
@@ -97,9 +118,9 @@ class Input4MipsDataset(ClimateDataset):
         # if it does, use self._reload data(path)
 
         if (
-            os.path.isfile(output_save_dir / fname) and self.reload_climate_set_data
+            os.path.isfile(self.output_save_dir / fname) and self.reload_climate_set_data
         ):  # we first need to get the name here to test that...
-            self.data_path = output_save_dir / fname
+            self.data_path = self.output_save_dir / fname
             # print("path exists, reloading")
             self.raw_data = self._reload_data(self.data_path)
             self.coordinates = self.load_dataset_coordinates(coordinates_fname, mode=self.mode, mips="input4mips")
@@ -128,23 +149,23 @@ class Input4MipsDataset(ClimateDataset):
                     # print("exp", exp)
                     if var in NO_OPENBURNING_VARS and exp == "historical":
                         # print("I am in var in no_openburningvars and historical in input4mips")
-                        filter_path_by = ""
-                        get_years = historical_years
+                        filter_path_by = "_"
+                        get_years = self.historical_years
                     elif var in NO_OPENBURNING_VARS:
-                        filter_path_by = ""
-                        get_years = years
+                        filter_path_by = "_"
+                        get_years = self.years
                     elif exp == "historical":
                         # print("I am in historical in input4mips")
                         filter_path_by = historical_openburning
-                        get_years = historical_years
+                        get_years = self.historical_years
                     else:
                         # print("I am in else in INPUT4MIPS")
                         filter_path_by = ssp_openburning
-                        get_years = years
-
+                        get_years = self.years
                     for y in get_years:
                         # print('Input4mips y:', y )
                         var_dir = self.root_dir / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+
                         files = list(var_dir.rglob(f"*{filter_path_by}*.nc"))
                         # print('files in input4mips', files)
                         output_nc_files += files
@@ -153,7 +174,15 @@ class Input4MipsDataset(ClimateDataset):
             self.raw_data = self.load_into_mem(
                 files_per_var, num_vars=len(variables), channels_last=self.channels_last, seq_to_seq=True
             )  # we always want the full sequence for input4mips
-            self.coordinates = self.load_coordinates_into_mem(files_per_var)
+
+            if self.map_to_healpix:
+                print("remapping to healpix")
+                self.raw_data, latitudes_new, longitudes_new = remap_reg_to_healpix(self.raw_data, lon, lat)
+                self.coordinates = np.c_[longitudes_new, latitudes_new]
+            else:
+                self.coordinates = self.load_coordinates_into_mem(files_per_var)
+                self.coordinates = np.meshgrid(self.coordinates[0], self.coordinates[1])
+                self.coordinates = np.c_[self.coordinates[1].flatten(), self.coordinates[0].flatten()]
 
             if self.mode == "train" or self.mode == "train+val":
                 stats_fname, coordinates_fname = self.get_save_name_from_kwargs(
