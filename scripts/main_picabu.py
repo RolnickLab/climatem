@@ -263,7 +263,7 @@ def main(
             modes_gt,
             adj,
             tau,
-        )
+        )[::-1]
 
         metrics["shd"] = str(shd(adj_permuted, adj_gt))
         precision, recall = precision_recall(adj_permuted, adj_gt)
