@@ -265,6 +265,8 @@ def main(
             tau,
         )
 
+        adj_permuted = adj_permuted[::-1]
+
         metrics["shd"] = str(shd(adj_permuted, adj_gt))
         precision, recall = precision_recall(adj_permuted, adj_gt)
         metrics["precision"], metrics["recall"] = str(precision), str(recall)
