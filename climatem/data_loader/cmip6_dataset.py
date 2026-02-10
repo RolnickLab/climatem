@@ -7,6 +7,9 @@ from typing import List, Optional, Union
 
 import numpy as np
 
+from climatem.constants import AERMON_VARIABLES, GM_VARIABLES, MODEL_DB_MAPPING
+from climatem.data_loader.climate_dataset import ClimateDataset
+
 # from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
 #     CMIP6_NOM_RES,
 #     CMIP6_TEMP_RES,
@@ -15,8 +18,6 @@ from climatem.data_loader.healpix_remapping import remap_reg_to_healpix
 
 # from climatem.plotting.plot_data import plot_species, plot_species_anomaly
 from climatem.utils import get_logger
-
-from .climate_dataset import ClimateDataset
 
 log = get_logger()
 
@@ -97,59 +98,69 @@ class CMIP6Dataset(ClimateDataset):
 
         # print("IN CMIP6!!!")
 
-        if isinstance(climate_model, str):
-            self.root_dir = self.root_dir / climate_model
+        if isinstance(climate_model, str) and climate_model == "NorESM2-LM":
+            database = MODEL_DB_MAPPING[climate_model]
+        elif isinstance(climate_model, str):
+            log.warn("Data loader only implemented for NorESM2-LM yet.")
+            raise NotImplementedError
         else:
             # Logic for multiple climate models, not sure how to load/create dataset yet
             log.warn("Data loader not yet implemented for multiple climate models.")
             raise NotImplementedError
 
         if len(scenarios) == 1:
-            self.root_dir = self.root_dir / scenarios[0]
+            if scenarios[0] in ["historical", "piControl"]:
+                id_scen = "CMIP"
+            else:
+                id_scen = "ScenarioMIP"
         else:
             # Logic for multiple scenarios, not sure how to load/create dataset yet
             log.warn("Data loader not yet implemented for multiple scenarios.")
             raise NotImplementedError
 
+        self.root_dir = self.root_dir / f"{id_scen}/{database}/{climate_model}/{scenarios[0]}"
+
         # I am actually going to make this a list to be compatible with the rest of the code
         if num_ensembles == 1:
             ensemble = os.listdir(self.root_dir)
+            self.ensemble_dirs = self.root_dir / ensemble[0]
             # if there is only one element in the ensemble list, we can just take the first element
-            if len(ensemble) == 1:
-                # print("ensemble:", ensemble)
-                # print("This often makes a mistake because it does not know if it wants to be a list or not")
-                self.ensemble_dirs = [self.root_dir / ensemble[0]]
-            else:  # we are just going to select the first ensemble member here
-                self.ensemble_dirs = [
-                    self.root_dir / ensemble[0]
-                ]  # THIS USED TO BE THE CASE: Taking specific ensemble member (#TODO: only this ensemble member has historical data...)
+            # if len(ensemble) == 1:
+            #     self.ensemble_dirs = self.root_dir / ensemble[0]
+            # else:  # we are just going to select the first ensemble member here
+            #     self.ensemble_dirs = [
+            #         self.root_dir / ensemble[0]
+            #     ]  # THIS USED TO BE THE CASE: Taking specific ensemble member (#TODO: only this ensemble member has historical data...)
         else:
             # TODO elif self.reload_climate_set_data
             log.warn(
                 "Data loader not properly yet implemented for multiple ensemble members, but we are trying something here."
             )
-            # here I want to make the dataloader work for all ensemble members:
-            # I need to loop through all the ensemble members and load the data
-            ensembles = os.listdir(self.root_dir)
-            # print("Ensemble members present for this model:", ensembles)
-            # Now make a list, which consists of the paths to the ensemble members
-            self.ensemble_dirs = [self.root_dir / ensemble for ensemble in ensembles]
+            raise NotImplementedError
+            # ensembles = os.listdir(self.root_dir)
+            # self.ensemble_dirs = [self.root_dir / ensemble for ensemble in ensembles]
 
             # print("Ensemble directories:", self.ensemble_dirs)
             # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
 
         if self.temp_res == "mon":
-            self.ensemble_dirs = [ensemble_dir / "Amon" for ensemble_dir in self.ensemble_dirs]
+            res_map = []
+            spatial_res = []
+            for var in self.in_variables:
+                res_map.append("AERmon" if var in AERMON_VARIABLES else "Amon")
+                spatial_res.append("gm" if var in GM_VARIABLES else "gn")
+
+            self.ensemble_dirs = [
+                self.ensemble_dirs / f"{res}/{var}/{spatialres}"
+                for var, res, spatialres in zip(self.in_variables, res_map, spatial_res)
+            ]
         else:
             # Logic for multiple scenarios, not sure how to load/create dataset yet
             log.warn("Data loader not yet implemented for multiple scenarios.")
             raise NotImplementedError
 
-        self.ensemble_dirs = [ensemble_dir / var for ensemble_dir, var in zip(self.ensemble_dirs, self.in_variables)]
-        self.ensemble_dirs = [ensemble_dir / "gn" for ensemble_dir in self.ensemble_dirs]
-
         # TODO: Need to implement version + grid for better path control BOTTOM IS HARDCODED
-        # self.ensemble_dirs = [ensemble_dir / "v20210118" for ensemble_dir in self.ensemble_dirs]
+        # self.ensemble_dirs = [ensemble_dir / "v20210118" for ensemble_dir in self.ensemble_dirs] #v20190815
 
         fname, coordinates_fname = self.get_save_name_from_kwargs(mode=mode, file="target", kwargs=self.fname_kwargs)
         print(f"coordinates_fname {coordinates_fname}")
@@ -188,73 +199,78 @@ class CMIP6Dataset(ClimateDataset):
 
             # List of output files
             files_per_var = []
-            for var in variables:
+            # for var in variables:
 
-                for exp in scenarios:
-                    # if exp == "historical":
-                    #     get_years = historical_years
-                    # else:
-                    #     get_years = years
-                    # print("ensemble_dirs")
-                    # print(self.ensemble_dirs)
+            #     for exp in scenarios:
+            # if exp == "historical":
+            #     get_years = historical_years
+            # else:
+            #     get_years = years
+            # print("ensemble_dirs")
+            # print(self.ensemble_dirs)
 
-                    all_ensemble_output_nc_files = []
+            # all_ensemble_output_nc_files = []
 
-                    # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
+            # print("What is the type of self.ensemble_dirs:", type(self.ensemble_dirs))
 
-                    # assert that self.ensemble_dirs is a list
-                    if isinstance(self.ensemble_dirs, list):
-                        print("self.ensemble_dirs is a list")
-                    else:
-                        # print("self.ensemble_dirs is not a list")
-                        # print("self.ensemble_dirs is:", self.ensemble_dirs)
-                        raise ValueError("self.ensemble_dirs is not a list")
+            # assert that self.ensemble_dirs is a list
+            if isinstance(self.ensemble_dirs, list):
+                print("self.ensemble_dirs is a list")
+            else:
+                # print("self.ensemble_dirs is not a list")
+                # print("self.ensemble_dirs is:", self.ensemble_dirs)
+                raise ValueError("self.ensemble_dirs is not a list")
 
-                    for ensemble_dir in self.ensemble_dirs:
-                        print("*****************LOOPING THROUGH ENSEMBLE MEMBERS*****************")
-                        print("ensemble member path:", ensemble_dir)
+            print("*****************LOOPING THROUGH VARIABLES *****************")
+            for ensemble_dir, var in zip(self.ensemble_dirs, self.in_variables):
 
-                        # I am now identing this:
-                        output_nc_files = []
+                print("ensemble member path:", ensemble_dir)
 
-                        # for y in get_years:
-                        # for y in self.get_years_list(get_years, give_list=True):
-                        # print('y is this:', y)
-                        # print('here is exp:', exp)
-                        # var_dir = ensemble_dir # TODO: This should be rewritten according to ESMValTools / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
-                        print(f"ALL FILES DIRECTORY: {ensemble_dir}")
-                        files = glob.glob(f"{ensemble_dir}/**/*.nc", recursive=True)
-                        print(f"NC FILES: {files}")
-                        if len(files) == 0:
-                            # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
-                            files = glob.glob(f"{ensemble_dir}/*.grib", recursive=True)
-                            print(f"Grib FILES: {files}")
-                        # print('files here:', files)
-                        # loads all years! implement splitting
-                        output_nc_files += files
+                # I am now identing this:
+                # output_nc_files = []
 
-                        # print("Here the final var_dir be:", var_dir)
-                        # print('files here after looping through all the years:', output_nc_files)
-                        # print(
-                        #     "length of output_nc_files. after looping through years for 1 of the ensemble members:",
-                        #     len(output_nc_files),
-                        # )
+                # for y in get_years:
+                # for y in self.get_years_list(get_years, give_list=True):
+                # print('y is this:', y)
+                # print('here is exp:', exp)
+                # var_dir = ensemble_dir # TODO: This should be rewritten according to ESMValTools / f"{exp}/{var}/{CMIP6_NOM_RES}/{CMIP6_TEMP_RES}/{y}"
+                # print(f"ALL FILES DIRECTORY: {ensemble_dir}")
+                files = glob.glob(f"{ensemble_dir}/**/*.nc", recursive=True)
+                if len(files) == 0:
+                    # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
+                    files = glob.glob(f"{ensemble_dir}/*.grib", recursive=True)
+                files = sorted(files)
+                # print('files here:', files)
+                # loads all years! implement splitting
+                # output_nc_files += files
 
-                        all_ensemble_output_nc_files += output_nc_files
+                # print("Here the final var_dir be:", var_dir)
+                # print('files here after looping through all the years:', output_nc_files)
+                # print(
+                #     "length of output_nc_files. after looping through years for 1 of the ensemble members:",
+                #     len(output_nc_files),
+                # )
 
-                    # print("Here the final var_dir be:", var_dir)
-                    # print(
-                    #     "length of all_ensemble_output_nc_files after looping through all ensemble members:",
-                    #     len(all_ensemble_output_nc_files),
-                    # )
-                    # print('files here after looping through all the ensembles and the years:', all_ensemble_output_nc_files)
-                files_per_var.append(all_ensemble_output_nc_files)
+                # all_ensemble_output_nc_files.append(files)
+
+                # print("Here the final var_dir be:", var_dir)
+                # print(
+                #     "length of all_ensemble_output_nc_files after looping through all ensemble members:",
+                #     len(all_ensemble_output_nc_files),
+                # )
+                # print('files here after looping through all the ensembles and the years:', all_ensemble_output_nc_files)
+                files_per_var.append(files)
+            # files_per_var.append(all_ensemble_output_nc_files)
             # print("length of files_per_var after looping!:", len(files_per_var))
             # print('files_per_var:', files_per_var)
 
             # self.raw_data_input = self.load_data_into_mem(self.input_nc_files) #currently don't have input paths etc
             self.raw_data = self.load_into_mem(
-                files_per_var, num_vars=len(variables), channels_last=channels_last, seq_to_seq=seq_to_seq
+                files_per_var,
+                num_vars=len(variables),
+                channels_last=channels_last,
+                seq_to_seq=seq_to_seq,
+                variables=self.in_variables,
             )
 
             lon, lat = self.load_coordinates_into_mem(files_per_var)
@@ -264,7 +280,9 @@ class CMIP6Dataset(ClimateDataset):
                 self.raw_data, latitudes_new, longitudes_new = remap_reg_to_healpix(self.raw_data, lon, lat)
                 self.coordinates = np.c_[longitudes_new, latitudes_new]
             else:
-                self.coordinates = np.c_[lon, lat]
+                self.coordinates = self.load_coordinates_into_mem(files_per_var)
+                self.coordinates = np.meshgrid(self.coordinates[0], self.coordinates[1])
+                self.coordinates = np.c_[self.coordinates[1].flatten(), self.coordinates[0].flatten()]
 
             if self.mode in ["train", "train+val"]:
                 print("creating stats fname")

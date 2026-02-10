@@ -132,6 +132,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         channels_last=True,
         seq_to_seq=True,
         get_years=None,
+        variables=None,
     ):
         """
         Take a file structure of netcdf or grib files and load them into memory.
@@ -145,10 +146,24 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         array_list = []
 
-        for vlist in paths:
+        print("paths for loop")
+        for v, vlist in enumerate(paths):
+            print(vlist)
             if str(vlist[0]).endswith(".nc"):
-                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
+                temp_data = xr.open_mfdataset(vlist, chunks={"time": 120})
+                print("opened dataset")
                 temp_data = temp_data.drop_dims("bnds", errors="ignore")
+                print("dropped dims")
+                list_keys = list(temp_data.sizes)
+                print(f"list of keys {list_keys}")
+                if "plev" in list_keys:
+                    temp_data = temp_data.mean("plev")
+                    print("took mean")
+                elif "lev" in list_keys:
+                    temp_data = temp_data.mean("lev")
+                    print("took mean")
+                temp_data = temp_data.compute()
+                print("computed")
 
             elif str(vlist[0]).endswith(".grib"):
                 temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
@@ -165,8 +180,15 @@ class ClimateDataset(torch.utils.data.Dataset):
                 print("File extension not recognized, please use either .nc or .grib")
                 continue
 
-            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, time, lat, lon)
+            if variables is None:
+                temp_data = temp_data.to_array().to_numpy()
+            else:
+                temp_data = temp_data[
+                    variables[v]
+                ].to_numpy()  # Should be of shape (vars, time, lat, lon) or (vars, time, lvls, lat, lon)
+
             array_list.append(temp_data)
+            # Here we do this for all variables, then we shouldn't concatenate for axis = 0 or reshape later OK
 
         temp_data = np.concatenate(array_list, axis=0)
         # (1, 4812, 96, 144)
@@ -219,7 +241,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             np.ndarray: coordinates
         """
         print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
-        print("length paths", len(paths))
+        # print("length paths", len(paths))
         if str(paths[0][0])[-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.load(self.icosahedral_coordinates_path)

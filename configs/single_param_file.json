@@ -30,7 +30,7 @@
         "train_scenarios": ["piControl"],
         "test_scenarios": ["piControl"],
         "train_models":  "NorESM2-LM",
-        "num_ensembles": 2,    
+        "num_ensembles": 1,    
         "seq_to_seq": true, 
         "data_format": "numpy",
         "ishdf5": false,
