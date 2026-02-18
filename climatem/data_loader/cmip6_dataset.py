@@ -43,7 +43,7 @@ class CMIP6Dataset(ClimateDataset):
         data_dir: Optional[str] = "Climateset_DATA",
         climate_model: str = "NorESM2-LM",
         num_ensembles: int = 1,  # 1 for first ensemble, -1 for all
-        scenarios: List[str] = ["ssp126", "ssp370", "ssp585"],
+        scenarios: List[str] = ["ssp245"],  # Right now only one scenario is supported
         variables: List[str] = ["pr"],
         mode: str = "train",
         output_save_dir: str = "",
@@ -187,7 +187,6 @@ class CMIP6Dataset(ClimateDataset):
             if self.seasonality_removal:
                 self.Data = self.remove_seasonality(self.Data)
             self.Data = self.Data.astype("float32")
-
             # print("In CMIP6Dataset, just finished removing the seasonality.")
 
         else:

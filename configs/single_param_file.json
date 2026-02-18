@@ -17,11 +17,11 @@
     },
     "data_params": {
         "data_dir": "$SCRATCH/data/healpix_data_test", 
-        "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6/CMIP/NCC", 
+        "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6", 
         "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_lonlat_mapping.npy",
-        "in_var_ids": ["tas"],
-        "out_var_ids": ["tas"],
+        "in_var_ids": ["ts"],
+        "out_var_ids": ["ts"],
         "num_levels": 1,
         "temp_res": "mon",
         "train_historical_years": "1894-2000", 
@@ -117,6 +117,7 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
+        
         "sparsity_upper_threshold": 0.5,
 
         "acyclic_mu_init": 1,
@@ -131,7 +132,7 @@
     "plot_params": {
         "plot_freq": 20000,
         "plot_through_time": true,
-        "print_freq": 500
+        "print_freq": 20000
     },
     "savar_params": {
         "n_per_col": 2,
