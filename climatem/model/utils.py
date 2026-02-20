@@ -15,6 +15,7 @@ class ALM:
         h_threshold: float,
         min_iter_convergence: int,
         dim_gamma=(1,),
+        valid_freq: int = 100,
     ):
         self.gamma = torch.zeros(*dim_gamma)
         self.delta_gamma = -np.inf
@@ -24,7 +25,7 @@ class ALM:
         self.omega_mu = omega_mu
         self.omega_gamma = omega_gamma
         self.mu_mult_factor = mu_mult_factor
-        self.stop_crit_window = 100  # This is actually the rate of update of the ALM
+        self.stop_crit_window = valid_freq  # This is actually the rate of update of the ALM
         self.constraint_violation = []
         self.has_converged = False
         self.dim_gamma = dim_gamma

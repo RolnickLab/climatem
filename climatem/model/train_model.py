@@ -257,6 +257,7 @@ class TrainingLatent:
             self.optim_params.ortho_h_threshold,
             self.optim_params.ortho_min_iter_convergence,
             dim_gamma=(self.d_z, self.d_z),
+            valid_freq=self.train_params.valid_freq,
         )
 
         self.ALM_sparsity = ALM(
@@ -267,6 +268,7 @@ class TrainingLatent:
             self.optim_params.sparsity_h_threshold,
             self.optim_params.sparsity_min_iter_convergence,
             # dim_gamma=(1,),
+            valid_freq=self.train_params.valid_freq,
         )
 
         if self.instantaneous:
@@ -279,6 +281,7 @@ class TrainingLatent:
                 self.optim_params.acyclic_h_threshold,
                 self.optim_params.acyclic_min_iter_convergence,
                 # dim_gamma=(1,),
+                valid_freq=self.train_params.valid_freq,
             )
 
         if self.profiler:
