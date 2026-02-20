@@ -24,7 +24,7 @@ class ALM:
         self.omega_mu = omega_mu
         self.omega_gamma = omega_gamma
         self.mu_mult_factor = mu_mult_factor
-        self.stop_crit_window = 100
+        self.stop_crit_window = 100  # This is actually the rate of update of the ALM
         self.constraint_violation = []
         self.has_converged = False
         self.dim_gamma = dim_gamma

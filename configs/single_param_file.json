@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/test_debug/",
+        "exp_path": "$SCRATCH/results/test_folder/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -20,8 +20,8 @@
         "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6/CMIP/NCC", 
         "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_lonlat_mapping.npy",
-        "in_var_ids": ["tas"],
-        "out_var_ids": ["tas"],
+        "in_var_ids": ["ts"],
+        "out_var_ids": ["ts"],
         "num_levels": 1,
         "temp_res": "mon",
         "train_historical_years": "1894-2000", 
@@ -59,7 +59,7 @@
         "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 5
+        "valid_freq": 100
     },
     "model_params": {
         "instantaneous": false,
@@ -131,7 +131,7 @@
     "plot_params": {
         "plot_freq": 20000,
         "plot_through_time": true,
-        "print_freq": 500
+        "print_freq": 2000
     },
     "savar_params": {
         "n_per_col": 2,
