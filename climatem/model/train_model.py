@@ -789,8 +789,6 @@ class TrainingLatent:
 
         if len(self.data_loader_val) == 0:
             print("Validation dataloader is empty !!!!")
-        else:
-            print(f"Validation dataloader length {len(self.data_loader_val)} !!!!")
 
         with torch.no_grad():
             # sample data
