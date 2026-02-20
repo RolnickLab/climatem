@@ -32,6 +32,8 @@ This link points you to additional references for setting up your environment co
 
 4. Install `pre-commit` hooks using `pre-commit install`.
 
+5. INstall netcdf4 with pip. After activating your environment, run `pip install netcdf4`. This package cannot be installed with poetry because of dependencies. 
+
 ### 3. Downloading input data
 
 For running the model on real cliamte data, please download monthly climate model data and regrid it to an icosahedral grid using ClimateSet https://github.com/RolnickLab/ClimateSet. 
