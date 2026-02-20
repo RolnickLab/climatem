@@ -53,7 +53,7 @@
         "max_iteration": 500,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 5
+        "valid_freq": 100
     },
     "model_params": {
         "instantaneous": false,
