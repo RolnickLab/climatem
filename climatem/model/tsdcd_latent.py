@@ -212,10 +212,10 @@ class LatentTSDCD(nn.Module):
         distr_encoder: str,
         distr_transition: str,
         distr_decoder: str,
-        d: int,
-        d_x: int,
-        d_z: int,
-        tau: int,
+        d: int,  # Number of variables
+        d_x: int,  # Dimension of observations
+        d_z: int,  # Dimension of latent space
+        tau: int,  # Number of timesteps as input
         instantaneous: bool,
         nonlinear_mixing: bool,
         nonlinear_dynamics: bool,
@@ -470,11 +470,15 @@ class LatentTSDCD(nn.Module):
         for i in range(self.d):
 
             if self.transition_param_sharing:
-                pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
+                pz_params = self.transition_model(
+                    z[:, :, i][:, :, :, None], mask[:, :, i * self.d_z : (i + 1) * self.d_z], i
+                )
             else:
                 pz_params = torch.zeros(b, self.d_z, 1)
                 for k in range(self.d_z):
-                    pz_params[:, k] = self.transition_model(z, mask[:, :, i * self.d_z + k], i, k)
+                    pz_params[:, k] = self.transition_model(
+                        z[:, :, i][:, :, :, None], mask[:, :, i * self.d_z + k], i, k
+                    )
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 

@@ -309,7 +309,6 @@ class TrainingLatent:
         while self.iteration < self.train_params.max_iteration and not self.ended:
 
             # train and valid step
-            # HERE MODIFY train_step()
             self.train_step()
             self.scheduler.step()
             if self.profiler:
@@ -787,6 +786,9 @@ class TrainingLatent:
     # Validation step here.
     def valid_step(self):
         self.model.eval()
+
+        if len(self.data_loader_val) == 0:
+            print("Validation dataloader is empty !!!!")
 
         with torch.no_grad():
             # sample data

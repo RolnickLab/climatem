@@ -26,40 +26,67 @@ from climatem.constants import (  # INPUT4MIPS_NOM_RES,; INPUT4MIPS_TEMP_RES,
 )
 
 from climatem.data_loader.input4mip_dataset import Input4MipsDataset
+from climatem.data_loader.cmip6_dataset import CMIP6Dataset
 from climatem.plotting.plot_data import plot_species
 
 if __name__ == "__main__":
 
-    input4mips_data = Input4MipsDataset(
+    # input4mips_data = Input4MipsDataset(
+    #     years = "2015-2100",
+    #     historical_years = "1850-2015",
+    #     data_dir = "/home/mila/j/julien.boussard/scratch/Climateset_DATA/huggingface_data/",
+    #     variables = ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"],
+    #     scenarios = ["historical", "ssp126", "ssp245"],
+    #     output_save_dir = "/home/mila/j/julien.boussard/scratch/Climateset_DATA/input4mips_numpy",
+    #     reload_climate_set_data = False,
+    #     global_normalization = False,
+    #     seasonality_removal = False,
+    #     map_to_healpix = False,
+    # )
+
+    cmip6_dataset = CMIP6Dataset(
         years = "2015-2100",
         historical_years = "1850-2015",
-        data_dir = "/home/mila/j/julien.boussard/scratch/Climateset_DATA/huggingface_data/",
-        variables = ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"],
-        scenarios = ["historical", "ssp126", "ssp245"],
-        output_save_dir = "/home/mila/j/julien.boussard/scratch/Climateset_DATA/input4mips_numpy",
+        data_dir = "/home/mila/j/julien.boussard/scratch/ESMValTool/climate_data/CMIP6",
+        variables = ["mmrbc", "co2", "so2", "ts"],
+        scenarios = ["ssp245"],
+        output_save_dir = "/home/mila/j/julien.boussard/scratch/ESMValTool/climate_data_numpy",
         reload_climate_set_data = False,
         global_normalization = False,
         seasonality_removal = False,
         map_to_healpix = False,
+        channels_last = False,
     )
 
     out_dir = "/home/mila/j/julien.boussard/scratch/Climateset_DATA/input4mips_numpy"
-    list_var = ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"]
 
-    name_video = "historical_data"
-    plot_species(input4mips_data.raw_data[:165], 
-                input4mips_data.coordinates,
-                list_var, 
-                out_dir, 
-                name_video,
-                year_range = 165,
-                start_year = 1850,
-                cmap = 'Reds'
-                )
+    list_var = ["BC", "CO2", "SO2", "TS"]
 
-    name_video = "ssp126"
-    plot_species(input4mips_data.raw_data[165:251], 
-                input4mips_data.coordinates,
+    # name_video = "historical_data"
+    # plot_species(cmip6_dataset.raw_data[:165], 
+    #             cmip6_dataset.coordinates,
+    #             list_var, 
+    #             out_dir, 
+    #             name_video,
+    #             year_range = 165,
+    #             start_year = 1850,
+    #             cmap = 'Reds'
+    #             )
+
+    # name_video = "ssp126_concentrations"
+    # plot_species(cmip6_dataset.raw_data, 
+    #             cmip6_dataset.coordinates,
+    #             list_var, 
+    #             out_dir, 
+    #             name_video,
+    #             year_range = 86,
+    #             start_year = 2015,
+    #             cmap = 'Reds'
+    #             )
+
+    name_video = "ssp245_concentrations"
+    plot_species(cmip6_dataset.raw_data, 
+                cmip6_dataset.coordinates,
                 list_var, 
                 out_dir, 
                 name_video,
@@ -68,9 +95,23 @@ if __name__ == "__main__":
                 cmap = 'Reds'
                 )
 
-    name_video = "ssp245"
-    plot_species(input4mips_data.raw_data[251:], 
-                input4mips_data.coordinates,
+    cmip6_dataset = CMIP6Dataset(
+        years = "2015-2100",
+        historical_years = "1850-2015",
+        data_dir = "/home/mila/j/julien.boussard/scratch/ESMValTool/climate_data/CMIP6",
+        variables = ["mmrbc", "co2", "so2", "ts"],
+        scenarios = ["ssp370"],
+        output_save_dir = "/home/mila/j/julien.boussard/scratch/ESMValTool/climate_data_numpy",
+        reload_climate_set_data = False,
+        global_normalization = False,
+        seasonality_removal = False,
+        map_to_healpix = False,
+        channels_last = False,
+    )
+
+    name_video = "ssp370_concentrations"
+    plot_species(cmip6_dataset.raw_data, 
+                cmip6_dataset.coordinates,
                 list_var, 
                 out_dir, 
                 name_video,

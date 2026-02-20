@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/test_folder/",
+        "exp_path": "$SCRATCH/results/forcings_ts/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -16,19 +16,19 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/healpix_data_test", 
+        "data_dir": "$SCRATCH/data/forcings_ts_data", 
         "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6", 
         "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_lonlat_mapping.npy",
-        "in_var_ids": ["ts"],
-        "out_var_ids": ["ts"],
+        "in_var_ids": ["ts", "co2"],
+        "out_var_ids": ["ts", "co2"],
         "num_levels": 1,
         "temp_res": "mon",
         "train_historical_years": "1894-2000", 
-        "test_years": "1100-1150",
-        "train_years": "1600-2100",    
-        "train_scenarios": ["piControl"],
-        "test_scenarios": ["piControl"],
+        "test_years": "2015-2100",
+        "train_years": "2015-2100",    
+        "train_scenarios": ["ssp245"],
+        "test_scenarios": ["ssp245"],
         "train_models":  "NorESM2-LM",
         "num_ensembles": 1,    
         "seq_to_seq": true, 
@@ -43,7 +43,7 @@
         "load_train_into_mem": true,
         "load_test_into_mem": true,
         "num_months_aggregated": [1],
-        "train_val_interval_length": 40
+        "train_val_interval_length": 50
         }, 
     "gt_params": {
         "no_gt": true,
@@ -52,14 +52,14 @@
         "debug_gt_graph": false
     },    
     "train_params": {
-        "ratio_train": 0.9,
+        "ratio_train": 0.8,
         "lr": 0.0001,
         "lr_scheduler_epochs": [10000, 25000, 50000],
         "lr_scheduler_gamma": 1,    
         "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 100
+        "valid_freq": 5
     },
     "model_params": {
         "instantaneous": false,
@@ -117,7 +117,6 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
-        
         "sparsity_upper_threshold": 0.5,
 
         "acyclic_mu_init": 1,
