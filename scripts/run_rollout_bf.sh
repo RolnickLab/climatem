@@ -40,4 +40,5 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json
+    $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "var_ts_scen_piControl_nlinmix_True_nlindyn_True_tau_5_z_90_futt_1_ldec_1_lr_0.0001_bs_128_ormuin_100000.0_spmuin_1_spth_0.5_nens_2_inst_False_crpscoef_1_sspcoef_1000_tspcoef_2000_frachiwn_0.5_nummix_hid_16_2_16_2_embdim_100_trparamsh_True_posembdimtr_100"
+    
