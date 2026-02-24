@@ -274,8 +274,7 @@ if __name__ == "__main__":
     cwd = Path.cwd()
     root_path = cwd.parent
     # config_path = root_path / f"configs"
-    exp_id = "var_tas_scen_piControl_nlinmix_True_nlindyn_True_tau_5_z_90_futt_1_ldec_1_lr_0.0001_bs_128_ormuin_100000.0_spmuin_1_spth_0.5_nens_1_inst_False_crpscoef_1_sspcoef_1000_tspcoef_2000_frachiwn_0.5_nummix_hid_16_2_16_2_embdim_100_trparamsh_True_posembdimtr_100"
-    
+    exp_id = args.exp_id
     config_path = Path("/home/mila/s/shanz/scratch/results/test_debug") / exp_id
     json_path = config_path / args.config_path
     
@@ -294,7 +293,10 @@ if __name__ == "__main__":
     # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
     params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path.absolute().as_posix())
     print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
-
+    
+    params["data_params"]["reload_climate_set_data"] = True
+    # print ("new reload_climate_set_data:", params["data_params"]["reload_climate_set_data"])
+    # params["data_params"]["num_ensembles"] = 2
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
     # gt_params = gtParams(**params["gt_params"])
