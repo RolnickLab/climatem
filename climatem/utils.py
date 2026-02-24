@@ -194,6 +194,12 @@ def parse_args():
         default="configs/param_file.json",
         help="Path to a json file with values for all parameters",
     )
+    parser.add_argument(
+        "--exp-id",
+        type=str,
+        default="var_ts",
+        help="experiment name for rollout",
+    )
     # Add an argument for nested keys, this will be handled dynamically later
     parser.add_argument("--hp", action="append", metavar="KEY=VALUE", help="Cmd line arguments")
     return parser.parse_args()
