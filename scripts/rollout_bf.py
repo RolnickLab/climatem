@@ -43,6 +43,7 @@ def main(
     plot_params, 
     savar_params,
     rollout_params,
+    exp_id,
 ):
     """
     :param hp: object containing hyperparameter values
@@ -159,6 +160,8 @@ def main(
     # read paths 
     coordinates = np.load(data_params.icosahedral_coordinates_path)
 
+    
+
     exp_path = Path(experiment_params.exp_path)
     if not os.path.exists(exp_path): 
         raise ValueError(f"Results path {exp_path} doesn't exist. Model should be saved in this folder")
@@ -169,10 +172,11 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    
-    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_frachiwn_{optim_params.fraction_highest_wavenumbers}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
+    name = exp_id
+    # name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_frachiwn_{optim_params.fraction_highest_wavenumbers}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
 #     name = f"var_{data_var_ids_str}_scenarios_{data_params.train_scenarios[0]}_nonlinear_{model_params.nonlinear_mixing}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_spreg_{optim_params.reg_coeff}_ormuinit_{optim_params.ortho_mu_init}_spmuinit_{optim_params.sparsity_mu_init}_spthres_{optim_params.sparsity_upper_threshold}_fixed_{model_params.fixed}_num_ensembles_{data_params.num_ensembles}_instantaneous_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_spcoef_{optim_params.spectral_coeff}_tempspcoef_{optim_params.temporal_spectral_coeff}"
     exp_path = exp_path / name
+    print("exp_path experiment_params.exp_path:", exp_path)
     if not os.path.exists(exp_path): 
         raise ValueError(f"Results path {exp_path} does not exist. Are you using the same parameters?")
 
@@ -269,7 +273,10 @@ if __name__ == "__main__":
     
     cwd = Path.cwd()
     root_path = cwd.parent
-    config_path = root_path / f"configs"
+    # config_path = root_path / f"configs"
+    exp_id = "var_tas_scen_piControl_nlinmix_True_nlindyn_True_tau_5_z_90_futt_1_ldec_1_lr_0.0001_bs_128_ormuin_100000.0_spmuin_1_spth_0.5_nens_1_inst_False_crpscoef_1_sspcoef_1000_tspcoef_2000_frachiwn_0.5_nummix_hid_16_2_16_2_embdim_100_trparamsh_True_posembdimtr_100"
+    
+    config_path = Path("/home/mila/s/shanz/scratch/results/test_debug") / exp_id
     json_path = config_path / args.config_path
     
     with open(json_path, "r") as f:
@@ -307,5 +314,5 @@ if __name__ == "__main__":
     else:
         plot_params.savar = False
 
-    final_picontrol_particles = main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params)
+    final_picontrol_particles = main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params, exp_id)
 

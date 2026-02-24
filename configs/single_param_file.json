@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/test_folder/",
+        "exp_path": "$SCRATCH/results/test_debug/", 
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -18,10 +18,10 @@
     "data_params": {
         "data_dir": "$SCRATCH/data/healpix_data_test", 
         "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6", 
-        "reload_climate_set_data": true,
+        "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_lonlat_mapping.npy",
-        "in_var_ids": ["ts"],
-        "out_var_ids": ["ts"],
+        "in_var_ids": ["tas"],
+        "out_var_ids": ["tas"],
         "num_levels": 1,
         "temp_res": "mon",
         "train_historical_years": "1894-2000", 

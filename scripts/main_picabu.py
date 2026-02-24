@@ -1,4 +1,5 @@
 # Here we have a quick main where we are testing data loading with different ensemble members and ideally with different climate models.
+from datetime import datetime
 import json
 import os
 import time
@@ -41,7 +42,7 @@ class Bunch:
 
 
 def main(
-    experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params
+    experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params
 ):
     """
     :param hp: object containing hyperparameter values
@@ -191,11 +192,17 @@ def main(
     )
     
     if data_params.in_var_ids[0] == "savar":
-        name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
+        name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}"
     else:
-        name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_frachiwn_{optim_params.fraction_highest_wavenumbers}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
+        name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}"
+
     exp_path = exp_path / name
-    os.makedirs(exp_path, exist_ok=True)
+
+    if exp_path.exists():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        exp_path = exp_path.parent / f"{exp_path.name}_{timestamp}"
+
+    os.makedirs(exp_path, exist_ok=False)
 
     # create path to exp and save hyperparameters
     save_path = exp_path / "training_results"
@@ -210,7 +217,9 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
+    hp["plot_params"] = plot_params.__dict__
     hp["savar_params"] = savar_params.__dict__
+    hp["rollout_params"] = rollout_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
@@ -415,7 +424,7 @@ if __name__ == "__main__":
     optim_params = optimParams(**params["optim_params"])
     plot_params = plotParams(**params["plot_params"])
     savar_params = savarParams(**params["savar_params"])
-
+    rollout_params = rolloutParams(**params["rollout_params"])
     #Overwrite arguments if using savar
     if "savar" in data_params.in_var_ids:
         experiment_params.lat = int(savar_params.comp_size * savar_params.n_per_col)
@@ -445,5 +454,5 @@ if __name__ == "__main__":
         optim_params,
     )
 
-    main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params)
+    main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params)
 

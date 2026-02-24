@@ -17,8 +17,8 @@
     },
     "data_params": {
         "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
-        "climateset_data": "$SCRATCH/data/icml_processed_data/picontrol/24_ni", 
-        "reload_climate_set_data": false,
+        "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni", 
+        "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["savar"],
         "out_var_ids": ["savar"],
@@ -52,7 +52,7 @@
         "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 100
+        "valid_freq": 1
     },
     "model_params": {
         "instantaneous": false,
@@ -124,7 +124,7 @@
         "print_freq": 5000
     },
     "savar_params": {
-        "n_per_col": 2,
+        "n_per_col": 3,
         "time_len": 10000,
         "comp_size": 10,
         "noise_val": 0.2,
