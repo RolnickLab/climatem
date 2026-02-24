@@ -295,8 +295,8 @@ if __name__ == "__main__":
     print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
     
     params["data_params"]["reload_climate_set_data"] = True
-    # print ("new reload_climate_set_data:", params["data_params"]["reload_climate_set_data"])
-    # params["data_params"]["num_ensembles"] = 2
+    print ("new reload_climate_set_data:", params["data_params"]["reload_climate_set_data"])
+
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
     # gt_params = gtParams(**params["gt_params"])
