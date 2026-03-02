@@ -641,6 +641,7 @@ class TrainingLatent:
         else:
             coef = 0
             for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
+                coef = 0
                 if self.iteration >= iter_schedule:
                     coef = new_coef
                 if self.iteration == iter_schedule:
@@ -648,6 +649,7 @@ class TrainingLatent:
                         f"Scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}"
                     )
                     print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
+
             loss = (
                 loss
                 + self.optim_params.crps_coeff * crps
