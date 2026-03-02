@@ -294,6 +294,7 @@ if __name__ == "__main__":
     params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path.absolute().as_posix())
     print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
     
+    # For rollout, most cases we already have the climate dataset during training
     params["data_params"]["reload_climate_set_data"] = True
     print ("new reload_climate_set_data:", params["data_params"]["reload_climate_set_data"])
 

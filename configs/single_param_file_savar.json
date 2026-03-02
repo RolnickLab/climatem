@@ -52,7 +52,7 @@
         "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 1
+        "valid_freq": 100
     },
     "model_params": {
         "instantaneous": false,
@@ -140,7 +140,7 @@
         "linearity": "linear",
         "poly_degrees": [2,3],
         "plot_original_data": true,
-        "use_correct_hyperparams": true
+        "use_correct_hyperparams": false
     },
     "rollout_params": {
         "final_30_years_of_ssps": false,
