@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/savar_data_new",
+        "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST_True",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 4,
@@ -57,7 +57,7 @@
     "model_params": {
         "instantaneous": false,
         "no_w_constraint": false,
-        "tied_w": false,
+        "tied_w": true,
         "nonlinear_mixing": false,
         "num_hidden_mixing": 8,
         "num_layers_mixing": 2,    
@@ -106,7 +106,7 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 0.1,
+        "sparsity_upper_threshold": 0.05,
 
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,
@@ -126,7 +126,7 @@
         "print_freq": 1000
     },
     "savar_params": {
-        "n_per_col": 3,
+        "n_per_col": 2,
         "time_len": 10000,
         "comp_size": 10,
         "noise_val": 0.2,
@@ -142,7 +142,7 @@
         "linearity": "linear",
         "poly_degrees": [2,3],
         "plot_original_data": true,
-        "use_correct_hyperparams": false
+        "use_correct_hyperparams": true
     },
     "rollout_params": {
         "final_30_years_of_ssps": false,
