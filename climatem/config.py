@@ -71,6 +71,7 @@ class dataParams:
         num_months_aggregated: List[int] = [
             1
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
+        **kwargs,  # accept any new keys in the parameter configs (e.g returned by the class)
     ):
         self.data_dir = data_dir
         self.climateset_data = climateset_data
@@ -134,6 +135,7 @@ class trainParams:
         patience_post_thresh: int = 50,  # NOT SURE: if mapping converges before patience, and for patience_post_thresh it's stable, then optimize everything
         valid_freq: int = 5,  # get validation metrics every valid_freq iteration
         # here valid_freq is critical for updating the parameters of the ALM method as they get updated every valid_freq
+        **kwargs,  # accept any new keys in the parameter configs
     ):
         self.ratio_train = ratio_train
         self.ratio_valid = 1 - self.ratio_train

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=run_single                                           # Set name of job
-#SBATCH --output=run_single_output.txt                                  # Set location of output file
-#SBATCH --error=run_single_error.txt                                    # Set location of error file
+#SBATCH --output=srun_outs_ft/rs_%j.out                                  # Set location of output file
+#SBATCH --error=srun_outs_ft/rs_%j.err                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
@@ -18,7 +18,7 @@ module purge
 module --quiet load python/3.10
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/causal_model/env_climatem/bin/activate
+source $HOME/envs/env_emulator_climatem/bin/activate
 # 3. Enable expandable allocator to avoid fragmentation
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
@@ -41,4 +41,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/causal_model/climatem/scripts/main_picabu.py --config-path single_param_file.json
+    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_savar.json

@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST",
+        "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST_True",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 4,
@@ -17,8 +17,8 @@
     },
     "data_params": {
         "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
-        "climateset_data": "$SCRATCH/data/icml_processed_data/picontrol/24_ni", 
-        "reload_climate_set_data": false,
+        "climateset_data": "/network/scratch/j/julien.boussard/data/icml_processed_data/picontrol/24_ni", 
+        "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["savar"],
         "out_var_ids": ["savar"],
@@ -57,7 +57,7 @@
     "model_params": {
         "instantaneous": false,
         "no_w_constraint": false,
-        "tied_w": false,
+        "tied_w": true,
         "nonlinear_mixing": false,
         "num_hidden_mixing": 8,
         "num_layers_mixing": 2,    
@@ -67,7 +67,7 @@
         "num_output": 2,
         "position_embedding_dim": 10,
         "transition_param_sharing": true,
-        "position_embedding_transition": 10,
+        "position_embedding_transition": 4,
         "fixed": false,
         "fixed_output_fraction": null,
         "tau_neigh": 0,
@@ -107,7 +107,7 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
-        "sparsity_upper_threshold": 0.1,
+        "sparsity_upper_threshold": 0.05,
 
         "acyclic_mu_init": 1,
         "acyclic_mu_mult_factor": 2,

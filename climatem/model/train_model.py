@@ -536,6 +536,7 @@ class TrainingLatent:
         # we have to take care here to make sure that we have the right tensors with requires_grad
         for k in range(self.future_timesteps):
             nll_bis, recons_bis, kl_bis, y_pred_recons = self.get_nll(x_bis, y[:, k], z)
+            # sz: nll_bis (positive): -elbo (elbo is negative, -elbo is positive) we want to minimize, recons_bis (negative number): construction we want to maximize,
             nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
@@ -556,6 +557,7 @@ class TrainingLatent:
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
+            # sz: upper_threshold = 0.5: half of the edges are connected
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
                 print("Now binarizing!!")
@@ -578,6 +580,7 @@ class TrainingLatent:
 
         # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
         loss = nll + connect_reg + sparsity_reg
+
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
@@ -615,6 +618,7 @@ class TrainingLatent:
             )
         else:
             for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
+                coef = 0
                 if self.iteration >= iter_schedule:
                     coef = new_coef
                 if self.iteration == iter_schedule:
@@ -622,6 +626,7 @@ class TrainingLatent:
                         f"Scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}"
                     )
                     print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
+
             loss = (
                 loss
                 + self.optim_params.crps_coeff * crps
@@ -993,7 +998,9 @@ class TrainingLatent:
         """Append in lists values of the losses and more."""
         # train
         self.train_loss_list.append(-self.train_loss)
+        # sz: train_loss is positive number we want to minimize, -train_loss is negative
         self.train_recons_list.append(self.train_recons)
+        #  train_recons is negative number (logp)
         self.train_kl_list.append(self.train_kl)
 
         # here note that train_ortho_cons_list is a torch.sum...
@@ -1078,6 +1085,7 @@ class TrainingLatent:
 
         # this is just running the forward pass of LatentTSDCD...
         elbo, recons, kl, preds = self.model(x, y, z, self.iteration)
+        # elbo=reconstrction-kl, maximize elbo-> minimize -elbo
 
         return -elbo, recons, kl, preds
 
@@ -1111,6 +1119,9 @@ class TrainingLatent:
             #     constraint = constraint + torch.norm(w[i].T @ w[i] - torch.eye(k), p=2)
             i = 0
             # constraint = torch.norm(w[i].T @ w[i] - torch.eye(k), p=2, dim=1)
+            # col_norms = torch.linalg.norm(w[i], axis=0)
+            # w_normalized = w[i] / col_norms
+            # constraint = w_normalized.T @ w_normalized - torch.eye(k)
             constraint = w[i].T @ w[i] - torch.eye(k)
             # print('What is the ortho constraint shape:', constraint.shape)
             h = constraint / self.ortho_normalization
