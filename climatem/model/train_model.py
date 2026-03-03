@@ -580,7 +580,7 @@ class TrainingLatent:
 
         # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
         loss = nll + connect_reg + sparsity_reg
-        # sz: loss: -elbo + regularzation ->(loss is postive number)
+
         if not self.no_w_constraint:
             loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
         if self.instantaneous:
@@ -1119,6 +1119,9 @@ class TrainingLatent:
             #     constraint = constraint + torch.norm(w[i].T @ w[i] - torch.eye(k), p=2)
             i = 0
             # constraint = torch.norm(w[i].T @ w[i] - torch.eye(k), p=2, dim=1)
+            # col_norms = torch.linalg.norm(w[i], axis=0)
+            # w_normalized = w[i] / col_norms
+            # constraint = w_normalized.T @ w_normalized - torch.eye(k)
             constraint = w[i].T @ w[i] - torch.eye(k)
             # print('What is the ortho constraint shape:', constraint.shape)
             h = constraint / self.ortho_normalization
