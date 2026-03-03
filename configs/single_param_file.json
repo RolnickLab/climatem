@@ -86,8 +86,8 @@
         "use_sparsity_constraint": true,
         "binarize_transition": true,
         "crps_coeff": 1,
-        "spectral_coeff": 1000,
-        "temporal_spectral_coeff": 2000,
+        "spectral_coeff": 100,
+        "temporal_spectral_coeff": 200,
         "coeff_kl": 1,
 
         "loss_decay_future_timesteps": 1,
