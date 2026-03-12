@@ -142,10 +142,7 @@ def gumbel_sigmoid(log_alpha, uniform, bs, tau=1):
     shape = tuple([bs] + list(log_alpha.size()))
     logistic_noise = sample_logistic(shape, uniform)
 
-    y_soft = torch.sigmoid((log_alpha + logistic_noise) / tau)
-
-    y = y_soft
-    return y
+    return torch.sigmoid((log_alpha + logistic_noise) / tau)
 
 
 class MLP(nn.Module):
@@ -820,7 +817,6 @@ class LinearAutoEncoder(nn.Module):
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
-        self.use_grad_project = True
         unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
         self.w = nn.Parameter(unif / torch.as_tensor(d_z))
         if not tied:
@@ -864,7 +860,6 @@ class LinearAutoEncoder(nn.Module):
 class NonLinearAutoEncoder(nn.Module):
     def __init__(self, d, d_x, d_z, num_hidden, num_layer, tied, gt_w=None):
         super().__init__()
-        self.use_grad_project = True
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
@@ -883,29 +878,24 @@ class NonLinearAutoEncoder(nn.Module):
     def get_w_encoder(self):
         if self.tied:
             return torch.transpose(self.w, 1, 2)
-            # return self.w
-        else:
-            return self.w_encoder
+        return self.w_encoder
 
     def get_w_decoder(self):
         return self.w
 
-    def get_encode_mask(self, bs_size: int):
+    def get_encode_mask(self):
         if self.tied:
             return torch.transpose(self.w, 1, 2)
-        else:
-            return self.w_encoder
-        # return sampled_mask
+        return self.w_encoder
 
     def select_encoder_mask(self, mask, i, j):
         return mask
 
-    def get_decode_mask(self, bs_size: int):
+    def get_decode_mask(self):
         return self.w
 
     def select_decoder_mask(self, mask, i, j):
-        mask = mask[i, j]
-        return mask
+        return mask[i, j]
 
 
 class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):

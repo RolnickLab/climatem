@@ -370,8 +370,6 @@ class Plotter:
         # Load gt mode weights
         if learner.plot_params.savar:
             savar_folder = learner.data_params.data_dir
-            # n_modes = learner.savar_params.n_per_col**2
-            # savar_fname = f"modes_{n_modes}_tl_{learner.savar_params.time_len}_forced_{learner.savar_params.is_forced}_dif_{learner.savar_params.difficulty}_noise_{learner.savar_params.noise_val}_season_{learner.savar_params.seasonality}_over_{learner.savar_params.overlap}_lin_{learner.savar_params.linearity}_poldeg_{learner.savar_params.poly_degrees}"
             # Get the gt mode weights
             modes_gt = np.load(f"{savar_folder}/{learner.datamodule.savar_name}_mode_weights.npy")
             if learner.iteration == 500:
