@@ -141,13 +141,13 @@ class Plotter:
                 {"name": "tr ELBO", "data": learner.train_elbo_list, "s": "-."},
                 {"name": "val ELBO", "data": learner.valid_elbo_list, "s": "-."},
             ]
-            self.plot_learning_curves2(
-                losses=losses,
-                iteration=learner.iteration,
-                plot_through_time=learner.plot_params.plot_through_time,
-                path=learner.plots_path,
-                fname="losses",
-            )
+            # self.plot_learning_curves2(
+            #     losses=losses,
+            #     iteration=learner.iteration,
+            #     plot_through_time=learner.plot_params.plot_through_time,
+            #     path=learner.plots_path,
+            #     fname="losses",
+            # )
             logvar = [
                 {"name": "logvar encoder", "data": learner.logvar_encoder_tt, "s": "-"},
                 {"name": "logvar decoder", "data": learner.logvar_decoder_tt, "s": "-"},

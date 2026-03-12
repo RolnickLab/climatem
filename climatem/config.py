@@ -163,9 +163,8 @@ class modelParams:
         transition_param_sharing: bool = True,
         position_embedding_transition: int = 100,
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
-        fixed_output_fraction=None,  # NOT SURE, Remove this?
-        tau_neigh: int = 0,  # NOT SURE
-        hard_gumbel: bool = False,  # NOT SURE
+        fixed_output_fraction=None,  # This is used if we fix the mask, and want to get a fix number of 0 and 1
+        constraint_func: str = "trace",  # This is used for the constraint - trace is the correct one here
     ):
         self.instantaneous = instantaneous
         self.no_w_constraint = no_w_constraint
@@ -182,8 +181,7 @@ class modelParams:
         self.position_embedding_transition = position_embedding_transition
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
-        self.tau_neigh = tau_neigh
-        self.hard_gumbel = hard_gumbel
+        self.constraint_func = constraint_func
 
 
 class optimParams:
@@ -229,7 +227,10 @@ class optimParams:
         acyclic_min_iter_convergence: float = 1_000,
         mu_acyclic_init: float = 0,
         h_acyclic_threshold: float = 0,
+        udpate_ALM_using_valid: bool = True,  # If False use training loss convergence if True uses valid loss convergence
+        udpate_ALM_using_nll: bool = True,  # If False use augmented loss convergence if True uses NLL convergence
     ):
+
         self.optimizer = optimizer
         self.use_sparsity_constraint = use_sparsity_constraint
         self.binarize_transition = binarize_transition
@@ -273,6 +274,9 @@ class optimParams:
         self.acyclic_min_iter_convergence = acyclic_min_iter_convergence
         self.mu_acyclic_init = mu_acyclic_init
         self.h_acyclic_threshold = h_acyclic_threshold
+
+        self.udpate_ALM_using_valid = udpate_ALM_using_valid
+        self.udpate_ALM_using_nll = udpate_ALM_using_nll
 
 
 class plotParams:

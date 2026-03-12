@@ -19,7 +19,6 @@ class Mask(nn.Module):
         tau: int,
         latent: bool,
         instantaneous: bool,
-        drawhard: bool,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
         nodiag: bool = False,
@@ -31,7 +30,6 @@ class Mask(nn.Module):
         self.tau = tau
         self.latent = latent
         self.instantaneous = instantaneous
-        self.drawhard = drawhard
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         # Here we can just set what we want the output to be.
@@ -73,7 +71,7 @@ class Mask(nn.Module):
         """
 
         if not self.fixed:
-            adj = gumbel_sigmoid(self.param, self.uniform, b, tau=tau, hard=self.drawhard)
+            adj = gumbel_sigmoid(self.param, self.uniform, b, tau=tau)
             adj = adj * self.fixed_mask
             return adj
         else:
@@ -131,7 +129,7 @@ class MixingMask(nn.Module):
 
     def forward(self, batch_size):
         param = self.param.unsqueeze(0).repeat(batch_size, 1, 1, 1)
-        mask = nn.functional.gumbel_softmax(param, tau=1, hard=False)
+        mask = nn.functional.gumbel_softmax(param, tau=1)
         return mask
 
 
@@ -140,22 +138,13 @@ def sample_logistic(shape, uniform):
     return torch.log(u) - torch.log(1 - u)
 
 
-def gumbel_sigmoid(log_alpha, uniform, bs, tau=1, hard=False):
+def gumbel_sigmoid(log_alpha, uniform, bs, tau=1):
     shape = tuple([bs] + list(log_alpha.size()))
     logistic_noise = sample_logistic(shape, uniform)
 
     y_soft = torch.sigmoid((log_alpha + logistic_noise) / tau)
 
-    if hard:
-        y_hard = (y_soft > 0.5).type(torch.Tensor)
-
-        # This weird line does two things:
-        #   1) at forward, we get a hard sample.
-        #   2) at backward, we differentiate the gumbel sigmoid
-        y = y_hard.detach() - y_soft.detach() + y_soft
-
-    else:
-        y = y_soft
+    y = y_soft
     return y
 
 
@@ -219,7 +208,6 @@ class LatentTSDCD(nn.Module):
         instantaneous: bool,
         nonlinear_mixing: bool,
         nonlinear_dynamics: bool,
-        hard_gumbel: bool,
         # no_gt: bool,
         # debug_gt_graph: bool,
         # debug_gt_z: bool,
@@ -251,7 +239,6 @@ class LatentTSDCD(nn.Module):
             d_z: number of latent variables
             tau: size of the timewindow
             instantaneous: if True, models instantaneous connections
-            hard_gumbel: if True, use hard sampling for the masks
 
             no_gt: if True, do not use any ground-truth data (useful with realworld dataset)
             debug_gt_graph: if True, set the masks to the ground-truth graphes (gt_graph)
@@ -286,7 +273,6 @@ class LatentTSDCD(nn.Module):
         self.instantaneous = instantaneous
         self.nonlinear_mixing = nonlinear_mixing
         self.nonlinear_dynamics = nonlinear_dynamics
-        self.hard_gumbel = hard_gumbel
         # self.no_gt = no_gt
         # self.debug_gt_graph = debug_gt_graph
         # self.debug_gt_z = debug_gt_z
@@ -351,7 +337,6 @@ class LatentTSDCD(nn.Module):
                 d_z,
                 self.num_hidden_mixing,
                 self.num_layers_mixing,
-                use_gumbel_mask=False,
                 tied=tied_w,
                 embedding_dim=self.position_embedding_dim,
                 gt_w=None,
@@ -393,7 +378,6 @@ class LatentTSDCD(nn.Module):
             self.total_tau,
             instantaneous=instantaneous,
             latent=True,
-            drawhard=hard_gumbel,
             fixed=fixed,
             fixed_output_fraction=fixed_output_fraction,
         )
@@ -878,27 +862,18 @@ class LinearAutoEncoder(nn.Module):
 
 
 class NonLinearAutoEncoder(nn.Module):
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w=None):
+    def __init__(self, d, d_x, d_z, num_hidden, num_layer, tied, gt_w=None):
         super().__init__()
-        if use_gumbel_mask:
-            self.use_grad_project = False
-        else:
-            self.use_grad_project = True
+        self.use_grad_project = True
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
-        self.use_gumbel_mask = use_gumbel_mask
 
-        if self.use_gumbel_mask:
-            self.mask = MixingMask(d, d_x, d_z, gt_w)
-            if not tied:
-                self.mask_encoder = MixingMask(d, d_x, d_z, gt_w)
-        else:
-            unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-            self.w = nn.Parameter(unif / torch.as_tensor(d_z))
-            if not tied:
-                unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-                self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
+        unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
+        self.w = nn.Parameter(unif / torch.as_tensor(d_z))
+        if not tied:
+            unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
+            self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
@@ -906,59 +881,30 @@ class NonLinearAutoEncoder(nn.Module):
         self.logvar_decoder = nn.Parameter(torch.ones(d_x) * -1)
 
     def get_w_encoder(self):
-        if self.use_gumbel_mask:
-            if self.tied:
-                return torch.transpose(self.mask.param, 1, 2)
-            else:
-                return torch.transpose(self.mask_encoder.param, 1, 2)
+        if self.tied:
+            return torch.transpose(self.w, 1, 2)
+            # return self.w
         else:
-            if self.tied:
-                return torch.transpose(self.w, 1, 2)
-                # return self.w
-            else:
-                return self.w_encoder
+            return self.w_encoder
 
     def get_w_decoder(self):
-        if self.use_gumbel_mask:
-            return self.mask.param
-        else:
-            return self.w
+        return self.w
 
     def get_encode_mask(self, bs_size: int):
-        if self.use_gumbel_mask:
-            if self.tied:
-                sampled_mask = self.mask(bs_size)
-            else:
-                sampled_mask = self.mask_encoder(bs_size)
+        if self.tied:
+            return torch.transpose(self.w, 1, 2)
         else:
-            if self.tied:
-                return torch.transpose(self.w, 1, 2)
-            else:
-                return self.w_encoder
-        return sampled_mask
+            return self.w_encoder
+        # return sampled_mask
 
     def select_encoder_mask(self, mask, i, j):
-        if self.use_gumbel_mask:
-            mask = mask[:, i, :, j]
-        else:
-            mask = mask[i, j]
         return mask
 
     def get_decode_mask(self, bs_size: int):
-        if self.use_gumbel_mask:
-            sampled_mask = self.mask(bs_size)
-            # size: bs, dx, dz, 1
-        else:
-            sampled_mask = self.w
-            # size: dx, dz, 1
-
-        return sampled_mask
+        return self.w
 
     def select_decoder_mask(self, mask, i, j):
-        if self.use_gumbel_mask:
-            mask = mask[:, i, j]
-        else:
-            mask = mask[i, j]
+        mask = mask[i, j]
         return mask
 
 
@@ -971,12 +917,11 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         d_z,
         num_hidden,
         num_layer,
-        use_gumbel_mask,
         tied,
         embedding_dim,
         gt_w=None,
     ):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
+        super().__init__(d, d_x, d_z, num_hidden, num_layer, tied, gt_w)
         self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
         self.encoder = MLP(num_layer, num_hidden, d_x + embedding_dim, 1)  # embedding_dim_encoding
 
