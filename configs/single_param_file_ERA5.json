@@ -77,9 +77,7 @@
         "num_hidden_mixing": 16,
         "num_layers_mixing": 2,
         "fixed": false,
-        "fixed_output_fraction": null,
-        "tau_neigh": 0,
-        "hard_gumbel": false
+        "fixed_output_fraction": null
     },
     "optim_params": {
         "optimizer": "rmsprop",

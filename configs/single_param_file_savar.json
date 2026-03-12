@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/SAVAR_DATA_TEST",
+        "exp_path": "$SCRATCH/results/savar_data_new",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 4,
@@ -49,7 +49,7 @@
         "lr": 0.001,
         "lr_scheduler_epochs": [10000, 20000],
         "lr_scheduler_gamma": 1,    
-        "max_iteration": 200000,
+        "max_iteration": 100000,
         "patience": 5000,
         "patience_post_thresh": 50,
         "valid_freq": 100
@@ -66,12 +66,11 @@
         "num_layers": 2,
         "num_output": 2,
         "position_embedding_dim": 10,
-        "transition_param_sharing": true,
+        "transition_param_sharing": false,
         "position_embedding_transition": 10,
         "fixed": false,
         "fixed_output_fraction": null,
-        "tau_neigh": 0,
-        "hard_gumbel": false
+        "constraint_func": "trace"
     },
     "optim_params": {
         "optimizer": "rmsprop",
@@ -94,11 +93,11 @@
         "schedule_ortho": 0,
         "schedule_sparsity": 0,    
 
-        "ortho_mu_init": 100.0,
+        "ortho_mu_init": 10000.0,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
-        "ortho_h_threshold": 0.01,
+        "ortho_h_threshold": 1e-4,
         "ortho_min_iter_convergence": 1000,
 
         "sparsity_mu_init": 0.0001,
@@ -116,12 +115,15 @@
         "acyclic_h_threshold": 1e-08,
         "acyclic_min_iter_convergence": 1000,
         "mu_acyclic_init": null,
-        "h_acyclic_threshold": null
+        "h_acyclic_threshold": null,
+
+        "udpate_ALM_using_valid": false,
+        "udpate_ALM_using_nll": false
     },
     "plot_params": {
         "plot_freq": 10000,
         "plot_through_time": true,
-        "print_freq": 5000
+        "print_freq": 1000
     },
     "savar_params": {
         "n_per_col": 2,
@@ -154,5 +156,3 @@
         "batch_memory": true
     }
 }
-
-

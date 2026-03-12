@@ -4,10 +4,10 @@
 #SBATCH --output=run_pf_output.txt                                  # Set location of output file
 #SBATCH --error=run_pf_error.txt                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
-#SBATCH --cpus-per-task=16                                               # Ask for 4 CPUs
+#SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
-#SBATCH --mem=256G                                                       # Ask for 32 GB of RAM
+#SBATCH --mem=128G                                                       # Ask for 32 GB of RAM
 #SBATCH --time=02:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 

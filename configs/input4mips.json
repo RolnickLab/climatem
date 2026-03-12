@@ -76,9 +76,7 @@
         "transition_param_sharing": true,
         "position_embedding_transition": 100,
         "fixed": false,
-        "fixed_output_fraction": null,
-        "tau_neigh": 0,
-        "hard_gumbel": false
+        "fixed_output_fraction": null
     },
     "optim_params": {
         "optimizer": "rmsprop",

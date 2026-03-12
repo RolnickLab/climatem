@@ -8,7 +8,7 @@ def remap_reg_to_healpix(
     arr,
     coords_lon,
     coords_lat,
-    res_down=2,
+    res_down=4,
 ):
 
     n_lon = len(coords_lon)

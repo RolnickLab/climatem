@@ -293,6 +293,8 @@ class CMIP6Dataset(ClimateDataset):
                 print(stats_fname)
                 print(coordinates_fname)
 
+                np.save(self.icosahedral_coordinates_path, self.coordinates)
+
                 if os.path.isfile(self.output_save_dir / stats_fname) and self.global_normalization:
                     print("Stats file already exists! Loading from memory.")
                     stats = self.load_dataset_statistics(stats_fname, mode=self.mode, mips="cmip6")
