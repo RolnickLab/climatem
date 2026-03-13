@@ -123,11 +123,8 @@
     "plot_params": {
         "plot_freq": 50000,
         "plot_through_time": true,
-<<<<<<< HEAD
         "print_freq": 1000
-=======
-        "print_freq": 50000
->>>>>>> 295679e (check ortho: trace and threshold)
+
     },
     "savar_params": {
         "n_per_col": 2,
