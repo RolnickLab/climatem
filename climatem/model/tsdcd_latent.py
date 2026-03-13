@@ -152,6 +152,7 @@ class MLP(nn.Module):
         self.num_hidden = num_hidden
         self.num_input = num_input
         self.num_output = num_output
+        self.use_grad_project = True
 
         module_dict = OrderedDict()
 
@@ -863,11 +864,12 @@ class NonLinearAutoEncoder(nn.Module):
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
+        self.use_grad_project = True
 
         unif = (1 - 0.4) * torch.rand(size=(d, d_x, d_z)) + 0.2
         self.w = nn.Parameter(unif / torch.as_tensor(d_z))
         if not tied:
-            unif = (1 - 0.4) * torch.rand(size=(d, d_x, d_z)) + 0.2
+            unif = (1 - 0.4) * torch.rand(size=(d, d_z, d_x)) + 0.2
             self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
@@ -889,7 +891,7 @@ class NonLinearAutoEncoder(nn.Module):
         return self.w_encoder
 
     def select_encoder_mask(self, mask, i, j):
-        return mask
+        return mask[i, j]
 
     def get_decode_mask(self):
         return self.w
