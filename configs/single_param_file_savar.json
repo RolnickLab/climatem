@@ -52,12 +52,12 @@
         "max_iteration": 100000,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 100
+        "valid_freq": 200
     },
     "model_params": {
         "instantaneous": false,
         "no_w_constraint": false,
-        "tied_w": true,
+        "tied_w": false,
         "nonlinear_mixing": false,
         "num_hidden_mixing": 8,
         "num_layers_mixing": 2,    
@@ -121,9 +121,13 @@
         "udpate_ALM_using_nll": false
     },
     "plot_params": {
-        "plot_freq": 10000,
+        "plot_freq": 50000,
         "plot_through_time": true,
+<<<<<<< HEAD
         "print_freq": 1000
+=======
+        "print_freq": 50000
+>>>>>>> 295679e (check ortho: trace and threshold)
     },
     "savar_params": {
         "n_per_col": 2,

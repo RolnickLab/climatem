@@ -205,6 +205,7 @@ def main(
         exp_path = exp_path.parent / f"{exp_path.name}_{timestamp}"
 
     os.makedirs(exp_path, exist_ok=False)
+    print(f"The experiment name is {exp_path}")
 
     # create path to exp and save hyperparameters
     save_path = exp_path / "training_results"
@@ -275,8 +276,8 @@ def main(
             adj,
             tau,
         )
-
-        adj_permuted = adj_permuted[::-1]
+        #  Verified: this one has to be commneted
+        # adj_permuted = adj_permuted[::-1]
 
         metrics["shd"] = str(shd(adj_permuted, adj_gt))
         precision, recall = precision_recall(adj_permuted, adj_gt)

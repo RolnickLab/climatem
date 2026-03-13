@@ -200,6 +200,12 @@ def parse_args():
         default="var_ts",
         help="experiment name for rollout",
     )
+    parser.add_argument(
+        "--iter-id",
+        type=int,
+        default=200000,
+        help="model saving epoch",
+    )
     # Add an argument for nested keys, this will be handled dynamically later
     parser.add_argument("--hp", action="append", metavar="KEY=VALUE", help="Cmd line arguments")
     return parser.parse_args()

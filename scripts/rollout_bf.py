@@ -44,6 +44,7 @@ def main(
     savar_params,
     rollout_params,
     exp_id,
+    iter_id,
 ):
     """
     :param hp: object containing hyperparameter values
@@ -186,8 +187,9 @@ def main(
     os.makedirs(save_path, exist_ok=True)
 
     # seed = 1
-    save_path = save_path / f"bs_{rollout_params.batch_size}_np_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_t_{rollout_params.num_timesteps}_sc_{rollout_params.score}_temp_{rollout_params.tempering}"
+    save_path = save_path / f"bs_{rollout_params.batch_size}_np_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_t_{rollout_params.num_timesteps}_sc_{rollout_params.score}_temp_{rollout_params.tempering}_iter{iter_id}"
     os.makedirs(save_path, exist_ok=True)
+
     
 
     model_path = exp_path #/ "training_results"
@@ -214,8 +216,11 @@ def main(
     y = y.to(device)
 
     # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
+    # model_file = f"model_{iter_id}.pth"
+    # model_path = exp_path
+    model_file = "model.pth"
     state_dict_vae_final = torch.load(
-        model_path / "model.pth", 
+        model_path / model_file, 
         map_location=device
     )
     model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
@@ -267,7 +272,10 @@ if __name__ == "__main__":
     root_path = cwd.parent
     # config_path = root_path / f"configs"
     exp_id = args.exp_id
-    config_path = Path("/home/mila/s/shanz/scratch/results/test_debug") / exp_id
+    iter_id = args.iter_id
+    folder = exp_id.split("/")[0] 
+    exp_id = exp_id.split("/")[-1]
+    config_path = Path("/home/mila/s/shanz/scratch/results") / folder / exp_id
     json_path = config_path / args.config_path
     
     with open(json_path, "r") as f:
@@ -309,5 +317,5 @@ if __name__ == "__main__":
     else:
         plot_params.savar = False
 
-    final_picontrol_particles = main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params, exp_id)
+    final_picontrol_particles = main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params, exp_id, iter_id)
 

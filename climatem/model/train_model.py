@@ -406,7 +406,9 @@ class TrainingLatent:
                 # Todo propagate the path!
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
+
                 torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
+
 
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
@@ -597,6 +599,7 @@ class TrainingLatent:
         loss = nll + connect_reg + sparsity_reg
 
         if not self.no_w_constraint:
+
             if self.constraint_func == "sum":
                 loss = (
                     loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
@@ -605,6 +608,7 @@ class TrainingLatent:
                 loss = (
                     loss + torch.sum(self.ALM_ortho.gamma * h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
                 )
+
         if self.instantaneous:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
@@ -641,7 +645,6 @@ class TrainingLatent:
         else:
             coef = 0
             for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
-                coef = 0
                 if self.iteration >= iter_schedule:
                     coef = new_coef
                 if self.iteration == iter_schedule:
@@ -1239,6 +1242,9 @@ class TrainingLatent:
             constraint = w[i].T @ w[i] - torch.eye(k)
             # print('What is the ortho constraint shape:', constraint.shape)
             h = constraint / self.ortho_normalization
+
+            # mask = ~torch.eye(k, dtype=bool, device=w.device)
+            # h = h*mask
         else:
             h = torch.as_tensor([0.0])
 
