@@ -569,13 +569,17 @@ class TrainingLatent:
         assert y.shape == y_pred_all.shape
 
         # compute regularisations constraints/penalties (sparsity and connectivity)
+        h_transition_var = self.adj_transition_variance()
         if self.optim_params.use_sparsity_constraint:
             h_sparsity = self.get_sparsity_violation(
                 lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
             )
-            sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
-                h_sparsity = self.adj_transition_variance()
+                # h_sparsity = self.adj_transition_variance()
+                sparsity_reg = (
+                    self.ALM_sparsity.gamma * h_transition_var + 0.5 * self.ALM_sparsity.mu * h_transition_var**2
+                )
+            else:
                 sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
 
         else:
@@ -684,7 +688,7 @@ class TrainingLatent:
 
         # adding the sparsity constraint to the logs
         self.train_sparsity_cons = h_sparsity.item()  # .detach()
-        self.train_transition_var = self.adj_transition_variance().item()
+        self.train_transition_var = h_transition_var.item()
 
         # adding the crps loss to the logs
         self.train_crps_loss = crps.item()
@@ -857,9 +861,12 @@ class TrainingLatent:
                 h_sparsity = self.get_sparsity_violation(
                     lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
                 )
-                sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
                 if self.optim_params.binarize_transition and h_sparsity == 0:
-                    h_sparsity = self.adj_transition_variance()
+                    # h_sparsity = self.adj_transition_variance()
+                    sparsity_reg = (
+                        self.ALM_sparsity.gamma * h_transition_var + 0.5 * self.ALM_sparsity.mu * h_transition_var**2
+                    )
+                else:
                     sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
 
             else:
@@ -978,7 +985,7 @@ class TrainingLatent:
 
         if self.iteration % self.plot_params.print_freq == 0:
 
-            print(f"Iteration {self.iteration}, Ortho constraint {h_ortho}")
+            # print(f"Iteration {self.iteration}, Ortho constraint {h_ortho}")
             np.save(
                 self.save_path / f"decoder_mat_{self.iteration}.npy",
                 self.model.autoencoder.get_w_decoder().cpu().detach().numpy(),
@@ -1241,10 +1248,8 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
-
-        h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
-        assert torch.is_tensor(h)
-
+        h = torch.sum(torch.minimum(adj, adj - 1)) / self.sparsity_normalization
+        # assert torch.is_tensor(h)
         return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:

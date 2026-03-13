@@ -40,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/causal_model/climatem/scripts/rollout_bf.py --config-path single_param_file.json
+    $HOME/causal_model/climatem/scripts/rollout_bf.py --config-path single_param_file_new.json
