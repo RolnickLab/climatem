@@ -192,7 +192,7 @@ def main(
 
     
 
-    model_path = exp_path #/ "training_results"
+    model_path = exp_path / "training_results"
 
     y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, accelerator)
     print("y_true_fft_mean shape:", y_true_fft_mean.shape)
@@ -216,9 +216,9 @@ def main(
     y = y.to(device)
 
     # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
-    # model_file = f"model_{iter_id}.pth"
+    model_file = f"model_{iter_id}.pth"
     # model_path = exp_path
-    model_file = "model.pth"
+    # model_file = "model.pth"
     state_dict_vae_final = torch.load(
         model_path / model_file, 
         map_location=device
