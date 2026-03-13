@@ -12,7 +12,6 @@ import pandas as pd
 import seaborn as sns
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.basemap import Basemap
 from numpy import asarray, diag, dot, eye, sum
 from numpy.linalg import svd
 from scipy.stats import multivariate_normal

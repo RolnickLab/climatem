@@ -441,7 +441,7 @@ def generate_save_savar_data(
     f_time_1=2000,
     f_time_2=8000,
     ramp_type="linear",
-    linearity="linear",
+    linearity="polynomial",
     poly_degrees=[2, 3],
     plotting=True,
     aerosol_scale=0.02,
@@ -623,6 +623,8 @@ def generate_save_savar_data(
             modes_weights[idx, new_x_start:new_x_end, new_y_start:new_y_end] = create_random_mode(
                 (comp_size, comp_size), random=True
             )
+            # for k in range(n_per_col):
+            #    for j in range(n_per_col):
             noise_weights[idx, new_x_start:new_x_end, new_y_start:new_y_end] = create_random_mode(
                 (comp_size, comp_size), random=True
             )
@@ -630,14 +632,13 @@ def generate_save_savar_data(
     # Probability of having a link between latent k and j (k != j).
     # Latents always have one autoregressive link with themselves at a previous time.
     if difficulty == "easy":
-        prob = 0
+        prob = 0  # expected N out of N^2 total links
     if difficulty == "med_easy":
-        prob = 1 / (N - 1)
+        prob = 1 / (N - 1)  # expected 2N out of N^2 total links
     if difficulty == "med_hard":
-        prob = 2 / (N - 1)
+        prob = 2 / (N - 1)  # expected 3N out of N^2 total links
     if difficulty == "hard":
-        # 50% edge probability -- dense graph, hardest discovery setting
-        prob = 1 / 2
+        prob = 1 / 2  # (N + 2*N / 2)/N^2
 
     # Create climate mode links (N x N)
     climate_links_coeffs = create_links_coeffs(N, prob_edge=prob, tau=tau, difficulty=difficulty)

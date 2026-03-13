@@ -9,6 +9,7 @@ generation process
 import itertools as it
 import math
 from copy import deepcopy
+from math import sqrt
 from typing import List
 
 import numpy as np
@@ -279,6 +280,7 @@ class SAVAR:
             self.n_vars = self.n_climate_modes
         self.tau_max = max(abs(lag) for (_, lag), _ in it.chain.from_iterable(self.links_coeffs.values()))
         self.spatial_resolution = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1).shape[1])
+        print("spatial-resolution done")
 
         # Extract forcing → mode coefficients if forcing is used
         self.forcing_coeffs = self._extract_forcing_coefficients() if forcing_indices else None
@@ -405,6 +407,7 @@ class SAVAR:
 
     def _apply_dynamics(self, train_nnar):
         """Compute data using the configured linearity model."""
+        # Compute the data
         if self.linearity == "linear":
             logger.debug("Creating linear data")
             self._create_linear()
@@ -468,17 +471,19 @@ class SAVAR:
         (_create_linear, etc.) following:  S_t = W^{-1}·P·W·S_{t-τ} + N_t
         """
         logger.info("Generate noise_data_field with covariance s·W^+·(W^+)^T")
-        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        dtype = torch.float32
 
         if self.noise_cov is None:
-            logger.debug("Generate covariance matrix")
+            if self.verbose:
+                print("Generate covariance matrix")
             self.noise_cov = self.generate_cov_noise_matrix()
             self.noise_cov += 1e-6 * np.eye(self.noise_cov.shape[0])
 
-        mean_torch = torch.zeros(self.spatial_resolution, device=dev, dtype=dtype)
-        cov_torch = torch.tensor(self.noise_cov, device=dev, dtype=dtype)
-        distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov_torch)
+        # Generate noise from cov
+        if self.verbose:
+            print("Generate noise_data_field multivariate random")
+        mean_torch = torch.Tensor(np.zeros(self.spatial_resolution)).to(device="cuda")
+        cov = torch.Tensor(self.noise_cov).to(device="cuda")
+        distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov)  # . to(device="cuda")
         noise_data_field = distrib.sample(sample_shape=torch.Size([self.time_length + self.transient]))
         self.noise_data_field = noise_data_field.detach().cpu().numpy().transpose()
 
@@ -508,6 +513,9 @@ class SAVAR:
                 inter-annual variability of each harmonic.
             season_weight (ndarray|None): per-gridpoint multiplier (latitude-dependent
                 seasonality strength), shape (spatial_resolution,).
+        Adds external forcing to the data field using PyTorch tensors for GPU acceleration.
+
+        Allows for both linear and nonlinear ramps.
         """
         periods = self.season_dict["periods"]  # e.g. [12, 6, 3] for year, half-year, quarter-year
         amplitudes = self.season_dict["amplitudes"]  # same length as periods
@@ -686,7 +694,7 @@ class SAVAR:
         f_time_1 += self.transient
         f_time_2 += self.transient
 
-        # Generate the forcing trend using the specified ramp type
+        # Generate the forcing trend using torch tensors
         if ramp_type == "linear":
             ramp = torch.linspace(f_1, f_2, f_time_2 - f_time_1, dtype=dtype, device=dev)
         elif ramp_type == "quadratic":
@@ -703,17 +711,17 @@ class SAVAR:
             ramp = f_1 + (f_2 - f_1) * (0.5 * (1 - torch.cos(t)))
         else:
             raise ValueError(
-                f"Unsupported ramp type '{ramp_type}'. Choose from 'linear', 'quadratic', 'exponential', 'sigmoid', or 'sinusoidal'."
+                "Unsupported ramp type. Choose from 'linear', 'quadratic', 'exponential', 'sigmoid', or 'sinusoidal'."
             )
 
-        # Construct the full temporal trend
-        co2_trend = torch.cat(
+        # Generate the forcing trend using torch tensors
+        trend = torch.cat(
             [
                 torch.full((f_time_1,), f_1, dtype=dtype, device=dev),
                 ramp,
                 torch.full((time_len - f_time_2,), f_2, dtype=dtype, device=dev),
             ]
-        )
+        ).reshape(1, time_len)
 
         logger.info(
             f"CO2 forcing: Using {ramp_type} ramp from f_1={f_1} to f_2={f_2} "
@@ -747,11 +755,21 @@ class SAVAR:
         if spatial_len > 1:
             idx = torch.linspace(0.0, 2.0 * math.pi, spatial_len, device=dev, dtype=dtype)
             spatial_pattern = spatial_pattern * (1.0 + 0.1 * torch.sin(idx))
+        if self.verbose:
+            print(f"Using {ramp_type} ramp: f_1={f_1}, f_2={f_2}, f_time_1={f_time_1}, f_time_2={f_time_2}")
+            print(f"Forcing data field mean: {self.forcing_data_field.mean()}")
+            print(f"Before addition - Data field mean: {self.data_field.mean()}")
+
+        # data_field_before = self.data_field.copy()
 
         spatial_pattern = torch.clamp(spatial_pattern, min=0.05)
-        forcing = spatial_pattern.unsqueeze(1) * co2_trend.unsqueeze(0)
+        forcing = spatial_pattern.unsqueeze(1) * trend
 
         forcing_np = forcing.detach().cpu().numpy()
+
+        # data_field_after = self.data_field
+        if self.verbose:
+            print(f"After addition - Data field mean: {self.data_field.mean()}")
 
         return forcing_np
 
@@ -1176,6 +1194,10 @@ class SAVAR:
         else:
             logger.info("create_linear (no forcing: S_t = W^{-1}·P·W·S)")
 
+        # data_field = deepcopy(self.data_field)
+        data_field = torch.Tensor(self.data_field).to(device="cuda")
+        if self.verbose:
+            print("create_linear")
         for t in tqdm(range(tau_max, time_len)):
             # Climate-to-climate AR contribution: W^{-1} · P_climate · W · S_{t-τ:t-1}
             ar_contribution = torch.zeros(self.spatial_resolution, 1, device=dev, dtype=dtype)
@@ -1205,6 +1227,47 @@ class SAVAR:
             data_field[..., t : t + 1] += ar_contribution
 
         self.data_field = data_field[..., self.transient :].detach().cpu().numpy()
+
+    def _create_intervened_nextstep(self, input_data, intervened_mode=None, intervention_value=None, intervened_t=None):
+        """
+        Not tested yet!!! see causal_graph_comparison for a proper function.
+
+        input_data are the tau timesteps that get intervened on
+        at mode intervened_mode, with value +intervention_value, at timestep intervened_t
+
+        input_data is here of shape `self.spatial_resolution * self.time_length`.
+        This is to keep the savar structure similar to the one of `self.data_field`
+        """
+
+        weights = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1))
+        # weights_inv = np.linalg.pinv(weights)
+        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
+        weights = torch.Tensor(weights).to(device="cuda")
+        tau = input_data.shape[1]
+
+        phi = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
+        next_step = torch.zeros(self.spatial_resolution).to(device="cuda")
+
+        change_indices = []
+
+        quadrant_row = intervened_mode // int(sqrt(self.n_vars))
+        quadrant_col = intervened_mode % int(sqrt(self.n_vars))
+
+        start_row = quadrant_row * self.spatial_resolution
+        start_col = quadrant_col * self.spatial_resolution
+
+        for i in range(self.spatial_resolution):
+            for j in range(self.spatial_resolution):
+                change_idx = (start_row + i) * int(sqrt(self.n_vars) * self.spatial_resolution) + (start_col + j)
+                change_indices.append(change_idx)
+
+        # perform intervention
+        input_data[change_indices, intervened_t] += intervention_value
+
+        for i in range(tau):
+            next_step += weights_inv @ phi[..., i] @ weights @ input_data[:, -i]
+
+        return next_step
 
     def train_nnar(self, num_epochs=50, learning_rate=0.001, batch_size=32):
         """
@@ -1252,11 +1315,14 @@ class SAVAR:
             if (epoch + 1) % 5 == 0:
                 logger.info(f"Epoch [{epoch+1}/{num_epochs}], Loss: {sum(batch_losses)/len(batch_losses):.6f}")
 
-        logger.info("Training of single-layer NNAR model completed.")
+        if self.verbose:
+            print("Training of single-layer NNAR model completed.")
 
     def _create_nonlinear(self):
         """
-        Generates nonlinear SAVAR data with forcing in the dynamics equation:
+        Generates nonlinear data by applying a (trained or simple) nonlinearity at each time step. This method uses the
+        same logic as _create_linear to step forward in time and adds the nonlinearity (sigmoid) before adding to
+        data_field.
 
         z_j(t) = tanh(sum_{k,τ} P_climate[j,k,τ] · z_k(t-τ)) + sum_{f,τ} P_forcing[j,f,τ] · forcing_f(t-τ) + N_j(t)
         S_t = W^{-1} · z(t)
@@ -1322,7 +1388,7 @@ class SAVAR:
                 lincombo = (
                     weights_inv @ phi_climate[..., i] @ mode_weights_tensor @ data_field[..., (t - 1 - i) : (t - i)]
                 )
-                lincombo_nl = torch.tanh(lincombo)
+                lincombo_nl = torch.sigmoid(lincombo)
                 nonlinear_contrib += lincombo_nl.squeeze(-1)
 
             # Forcing contribution (linear, exogenous)
@@ -1345,7 +1411,8 @@ class SAVAR:
 
     def _create_polynomial(self):
         """
-        Polynomial SAVAR dynamics with forcing in the dynamics equation:
+        Example polynomial autoregression, e.g. x^2 for poly_degree=2. w_np =
+        np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1)) phi_np = dict_to_matrix(self.links_coeffs)
 
         z_j(t) = sum_deg (sum_{k,τ} P_climate[j,k,τ] · z_k(t-τ))^deg + sum_{f,τ} P_forcing[j,f,τ] · forcing_f(t-τ) + N_j(t)
         S_t = W^{-1} · z(t)
@@ -1418,7 +1485,7 @@ class SAVAR:
 
                 # For each requested polynomial degree, add its effect
                 for deg in self.poly_degrees:
-                    poly_contrib += (lincombo**deg).squeeze(-1)
+                    poly_contrib += lincombo**deg
 
             # Forcing contribution (linear, exogenous)
             if has_forcing:
@@ -1437,37 +1504,3 @@ class SAVAR:
             data_field[:, t] += poly_contrib
 
         self.data_field = data_field[:, self.transient :].detach().cpu().numpy()
-
-    def _create_intervened_nextstep(self, input_data, intervened_mode=None, intervention_value=None, intervened_t=None):
-        """
-        Not tested yet!!!
-
-        input_data are the tau timesteps that get intervened on
-        at mode intervened_mode, with value +intervention_value, at timestep intervened_t
-
-        input_data is here of shape `self.spatial_resolution * self.time_length`.
-        This is to keep the savar structure similar to the one of `self.data_field`
-        """
-
-        weights = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1))
-        # weights_inv = np.linalg.pinv(weights)
-        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device="cuda")
-        weights = torch.Tensor(weights).to(device="cuda")
-        tau = input_data.shape[1]
-
-        # phi = dict_to_matrix(self.links_coeffs)
-        phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
-        # Only use climate mode dynamics (forcing latents handled separately)
-        phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
-        # data_field = deepcopy(self.data_field)
-        next_step = torch.zeros(self.spatial_resolution).to(device="cuda")
-
-        # perform intervention
-        input_data[
-            intervened_mode * self.spatial_resolution : (intervened_mode + 1) * self.spatial_resolution, intervened_t
-        ] += intervention_value
-
-        for i in range(tau):
-            next_step += weights_inv @ phi[..., i] @ weights @ input_data[..., tau - 1 - i : tau - i]
-
-        return next_step

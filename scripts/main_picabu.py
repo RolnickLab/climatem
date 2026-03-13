@@ -33,15 +33,16 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     force=True,
 )
+logger = logging.getLogger(__name__)
 
 from climatem.config import *
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.train_model import TrainingLatent
 from climatem.model.tsdcd_latent import LatentTSDCD
-from climatem.utils import get_logger, parse_args, update_config_withparse
+from climatem.utils import parse_args, update_config_withparse
 
-logger = get_logger(__name__)
+from climatem.synthetic_data.utils import permute_matrices
 
 torch.set_warn_always(False)
 
@@ -59,7 +60,7 @@ class Bunch:
 
 
 def main(
-    experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params
+    experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params
 ):
     """Build the datamodule, model, and trainer, then run the full training loop.
 
@@ -127,6 +128,7 @@ def main(
             train_scenarios=data_params.train_scenarios,
             test_scenarios=data_params.test_scenarios,
             train_models=data_params.train_models,
+            temp_res=data_params.temp_res,
             # test_models = data_params.test_models,
             batch_size=data_params.batch_size,
             eval_batch_size=data_params.eval_batch_size,
@@ -202,9 +204,9 @@ def main(
     # With instantaneous connections we include the current time step (tau + 1);
     # the neighbourhood spans tau_neigh steps on each side plus the centre (2*tau_neigh + 1).
     if model_params.instantaneous:
-        num_input = d * (experiment_params.tau + 1) * (model_params.tau_neigh * 2 + 1)
+        num_input = d * (experiment_params.tau + 1) 
     else:
-        num_input = d * (experiment_params.tau) * (model_params.tau_neigh * 2 + 1)
+        num_input = d * (experiment_params.tau) 
 
     # set the model
         model = LatentTSDCD(
@@ -216,6 +218,8 @@ def main(
         num_hidden_mixing=model_params.num_hidden_mixing,
         position_embedding_dim=model_params.position_embedding_dim,
         reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
+        transition_param_sharing=model_params.transition_param_sharing,
+        position_embedding_transition=model_params.position_embedding_transition,
         coeff_kl=optim_params.coeff_kl,
         d=d,
         #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
@@ -229,11 +233,10 @@ def main(
         instantaneous=model_params.instantaneous,
         nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
-        hard_gumbel=model_params.hard_gumbel,
-        no_gt=gt_params.no_gt,
-        debug_gt_graph=gt_params.debug_gt_graph,
-        debug_gt_z=gt_params.debug_gt_z,
-        debug_gt_w=gt_params.debug_gt_w,
+        # no_gt=gt_params.no_gt,
+        # debug_gt_graph=gt_params.debug_gt_graph,
+        # debug_gt_z=gt_params.debug_gt_z,
+        # debug_gt_w=gt_params.debug_gt_w,
         # gt_w=data_loader.gt_w,
         # gt_graph=data_loader.gt_graph,
         tied_w=model_params.tied_w,
@@ -258,7 +261,14 @@ def main(
         .translate({ord(","): None})
         .translate({ord(" "): None})
     )
-    name = f"var_{data_var_ids_str}_scen_{data_params.train_scenarios[0]}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nens_{data_params.num_ensembles}_inst_{model_params.instantaneous}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_fracnhiwn_{optim_params.fraction_highest_wavenumbers}_nummix_{model_params.num_hidden_mixing}_numhid_{model_params.num_hidden}_embdim_{model_params.position_embedding_dim}"
+
+    start_name = "VALID" if optim_params.udpate_ALM_using_valid else "FALSE"
+    second_name_name = "NLL" if optim_params.udpate_ALM_using_nll else "AUG"
+    
+    if data_params.in_var_ids[0] == "savar":
+        name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
+    else:
+        name = f"{start_name}_{second_name_name}_{train_params.valid_freq}_var_{data_var_ids_str}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_frachiwn_{optim_params.fraction_highest_wavenumbers}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
     exp_path = exp_path / name
     os.makedirs(exp_path, exist_ok=True)
 
@@ -271,7 +281,7 @@ def main(
     hp = {}
     hp["exp_params"] = experiment_params.__dict__
     hp["data_params"] = data_params.__dict__
-    hp["gt_params"] = gt_params.__dict__
+    # hp["gt_params"] = gt_params.__dict__
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
@@ -289,7 +299,7 @@ def main(
         datamodule,
         data_params,
         experiment_params,
-        gt_params,
+        # gt_params,
         model_params,
         train_params,
         optim_params,
@@ -310,40 +320,79 @@ def main(
 
     valid_loss = trainer.train_with_QPM()
 
-    # save final results, (MSE)
-    metrics = {"shd": 0.0, "precision": 0.0, "recall": 0.0, "train_mse": 0.0, "val_mse": 0.0, "mcc": 0.0}
-    # if we have the GT, also compute (SHD, Pr, Re, MCC)
-    if not gt_params.no_gt:
-        # Here can remove this ---
-        if model_params.instantaneous:
-            gt_graph = trainer.gt_dag
-        else:
-            gt_graph = trainer.gt_dag[:-1]  # remove the graph G_t
+    if data_params.in_var_ids[0] == "savar": 
 
-        learned_graph = trainer.model.get_adj().detach().numpy().reshape(gt_graph.shape[0], gt_graph.shape[1], -1)
+        # save final results, (MSE)
+        metrics = {}
+            
+        adj = trainer.model.get_adj().cpu().detach().numpy()
+        modes_inferred = trainer.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_gt = datamodule.savar_gt_adj
 
-        score, cc_program_perm, assignments, z, z_hat, _ = mcc_latent(trainer.model, trainer.data)
-        permutation = np.zeros((gt_graph.shape[1], gt_graph.shape[1]))
-        permutation[np.arange(gt_graph.shape[1]), assignments[1]] = 1
-        gt_graph = permutation.T @ gt_graph @ permutation
-
-        metrics["mcc"] = score
-        metrics["w_mse"] = w_mae(
-            trainer.model.autoencoder.get_w_decoder().detach().numpy()[:, :, assignments[1]], datamodule.gt_w
+        modes_gt = np.load(f"{data_params.data_dir}/{datamodule.savar_name}_mode_weights.npy")
+        
+        adj_permuted = permute_matrices(
+            experiment_params.lat,
+            experiment_params.lon, 
+            modes_inferred,
+            modes_gt,
+            adj,
+            tau,
         )
-        metrics["shd"] = shd(learned_graph, gt_graph)
-        metrics["precision"], metrics["recall"] = precision_recall(learned_graph, gt_graph)
-        errors = edge_errors(learned_graph, gt_graph)
-        metrics["tp"] = errors["tp"]
-        metrics["fp"] = errors["fp"]
-        metrics["tn"] = errors["tn"]
-        metrics["fn"] = errors["fn"]
-        metrics["n_edge_gt_graph"] = np.sum(gt_graph)
-        metrics["n_edge_learned_graph"] = np.sum(learned_graph)
-        metrics["execution_time"] = time.time() - t0
+
+        # adj_permuted = adj_permuted[::-1]
+
+        metrics["shd"] = str(shd(adj_permuted, adj_gt))
+        precision, recall = precision_recall(adj_permuted, adj_gt)
+        metrics["precision"], metrics["recall"] = str(precision), str(recall)
+        errors = edge_errors(adj_permuted, adj_gt)
+        metrics["tp"] = str(errors["tp"])
+        metrics["fp"] = str(errors["fp"])
+        metrics["tn"] = str(errors["tn"])
+        metrics["fn"] = str(errors["fn"])
+        metrics["f1_score"] = str((2 * precision * recall)/(precision + recall))
+        metrics["n_edge_adj_gt"] = str(np.sum(adj_gt))
+        metrics["n_edge_adj_permuted"] = str(np.sum(adj_permuted))
+        metrics["execution_time"] = str(time.time() - t0)
 
         for key, val in valid_loss.items():
-            metrics[key] = val
+            metrics[key] = str(val)
+
+        with open(exp_path / "result_metrics.json", "w") as file:
+            json.dump(metrics, file, indent=4)
+
+    # if we have the GT, also compute (SHD, Pr, Re, MCC)
+    # if not gt_params.no_gt:
+    #     # Here can remove this ---
+    #     if model_params.instantaneous:
+    #         gt_graph = trainer.gt_dag
+    #     else:
+    #         gt_graph = trainer.gt_dag[:-1]  # remove the graph G_t
+
+    #     learned_graph = trainer.model.get_adj().detach().numpy().reshape(gt_graph.shape[0], gt_graph.shape[1], -1)
+
+    #     score, cc_program_perm, assignments, z, z_hat, _ = mcc_latent(trainer.model, trainer.data)
+    #     permutation = np.zeros((gt_graph.shape[1], gt_graph.shape[1]))
+    #     permutation[np.arange(gt_graph.shape[1]), assignments[1]] = 1
+    #     gt_graph = permutation.T @ gt_graph @ permutation
+
+    #     metrics["mcc"] = score
+    #     metrics["w_mse"] = w_mae(
+    #         trainer.model.autoencoder.get_w_decoder().detach().numpy()[:, :, assignments[1]], datamodule.gt_w
+    #     )
+    #     metrics["shd"] = shd(learned_graph, gt_graph)
+    #     metrics["precision"], metrics["recall"] = precision_recall(learned_graph, gt_graph)
+    #     errors = edge_errors(learned_graph, gt_graph)
+    #     metrics["tp"] = errors["tp"]
+    #     metrics["fp"] = errors["fp"]
+    #     metrics["tn"] = errors["tn"]
+    #     metrics["fn"] = errors["fn"]
+    #     metrics["n_edge_gt_graph"] = np.sum(gt_graph)
+    #     metrics["n_edge_learned_graph"] = np.sum(learned_graph)
+    #     metrics["execution_time"] = time.time() - t0
+
+        # for key, val in valid_loss.items():
+        #     metrics[key] = val
 
     # assert that trainer.model is in eval mode
     if trainer.model.training:
@@ -352,32 +401,32 @@ def main(
         logger.info("Model is in eval mode")
 
     # NOTE: just dummies here for now
-    train_mse, train_smape, val_mse, val_smape = 10.0, 10.0, 10.0, 10.0
+    # train_mse, train_smape, val_mse, val_smape = 10.0, 10.0, 10.0, 10.0
+
+    # # save the metrics
+    # metrics["train_mse"] = train_mse
+    # metrics["train_smape"] = train_smape
+    # metrics["val_mse"] = val_mse
+    # metrics["val_smape"] = val_smape
 
     # save the metrics
-    metrics["train_mse"] = train_mse
-    metrics["train_smape"] = train_smape
-    metrics["val_mse"] = val_mse
-    metrics["val_smape"] = val_smape
-
-    # save the metrics
-    with open(os.path.join(experiment_params.exp_path, "results.json"), "w") as file:
-        json.dump(metrics, file, indent=4)
+    # with open(os.path.join(experiment_params.exp_path, "result_metrics.json"), "w") as file:
+    #     json.dump(metrics, file, indent=4)
 
     # finally, save the model
-    torch.save(trainer.model.state_dict(), os.path.join(experiment_params.exp_path, "model.pth"))
+    torch.save(trainer.model.state_dict(), exp_path / "model.pth")
 
 
 def assert_args(
     experiment_params,
     data_params,
-    gt_params,
+    # gt_params,
     optim_params,
 ):
     """Raise errors or warnings if some args should not take some combination of values."""
     # raise errors if some args should not take some combination of values
-    if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
-        raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
+    # if gt_params.no_gt and (gt_params.debug_gt_graph or gt_params.debug_gt_z or gt_params.debug_gt_w):
+    #     raise ValueError("Since no_gt==True, all other args should not use ground-truth values")
 
     if experiment_params.latent and (
         experiment_params.d_z is None
@@ -402,8 +451,6 @@ def assert_args(
         )
 
     # warnings, strange choice of args combination
-    if not experiment_params.latent and gt_params.debug_gt_z:
-        warnings.warn("Are you sure you want to use gt_z even if you don't have latents")
     if experiment_params.latent and (experiment_params.d_z > experiment_params.d_x):
         warnings.warn("Are you sure you want to have a higher dimension for d_z than d_x")
 
@@ -437,7 +484,7 @@ if __name__ == "__main__":
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
-    gt_params = gtParams(**params["gt_params"])
+    # gt_params = gtParams(**params["gt_params"])
     train_params = trainParams(**params["train_params"])
     model_params = modelParams(**params["model_params"])
     optim_params = optimParams(**params["optim_params"])
@@ -450,14 +497,33 @@ if __name__ == "__main__":
         experiment_params.lon = int(savar_params.comp_size * savar_params.n_per_col)
         experiment_params.d_x = int(experiment_params.lat * experiment_params.lon)
         plot_params.savar = True
+
+        #Below is coherent with savar data generation 
+        if savar_params.use_correct_hyperparams:
+            n_climate_latents = int(savar_params.n_per_col**2)
+            if model_params.use_forced_latents:
+                experiment_params.d_z = n_climate_latents + model_params.n_forced_latents_co2 + model_params.n_forced_latents_aerosol
+            else:
+                experiment_params.d_z = n_climate_latents
+            if not savar_params.is_forced:
+                model_params.use_exogenous = False
+            if savar_params.difficulty == "easy":
+                optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*experiment_params.tau) #expected N out of N^2*tau total links
+            if savar_params.difficulty == "med_easy":
+                optim_params.sparsity_upper_threshold = 2/(experiment_params.d_z*experiment_params.tau) #expected 2N out of N^2*tau total links
+            if savar_params.difficulty == "med_hard":
+                optim_params.sparsity_upper_threshold = 3/(experiment_params.d_z*experiment_params.tau) #expected 3N out of N^2*tau total links
+            if savar_params.difficulty == "hard":
+                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*experiment_params.tau) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
+
     else:
         plot_params.savar = False
 
     assert_args(
         experiment_params,
         data_params,
-        gt_params,
+        # gt_params,
         optim_params,
     )
 
-    main(experiment_params, data_params, gt_params, train_params, model_params, optim_params, plot_params, savar_params)
+    main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params)

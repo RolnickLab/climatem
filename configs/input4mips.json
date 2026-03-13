@@ -1,10 +1,10 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/ortho_run_lowerdim/",
+        "exp_path": "$SCRATCH/results/test_debug/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
-        "d_x": 3072,
+        "d_x": 6912,
         "lon": 144, 
         "lat": 96,    
         "tau": 5,
@@ -16,21 +16,21 @@
         "verbose": true
     },
     "data_params": {
-        "data_dir": "$SCRATCH/data/healpix_data_reducedim_4", 
-        "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6", 
-        "reload_climate_set_data": true,
-        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_resdown4_lonlat_mapping.npy",
-        "in_var_ids": ["ts"],
-        "out_var_ids": ["ts"],
+        "data_dir": "$SCRATCH/data/healpix_data_test", 
+        "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6/CMIP/NCC", 
+        "reload_climate_set_data": false,
+        "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_lonlat_mapping.npy",
+        "in_var_ids": ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"],
+        "out_var_ids": ["BC_sum", "SO2_sum", "CH4_sum", "CO2_sum"],
         "num_levels": 1,
         "temp_res": "mon",
-        "train_historical_years": "1894-2000", 
-        "test_years": "1100-1150",
-        "train_years": "1600-2100",    
-        "train_scenarios": ["piControl"],
-        "test_scenarios": ["piControl"],
+        "train_historical_years": "1850-2014", 
+        "test_years": "2015-2100",
+        "train_years": "2015-2100",    
+        "train_scenarios": ["historical", "ssp126", "ssp245"],
+        "test_scenarios": ["historical", "ssp126", "ssp245"],
         "train_models":  "NorESM2-LM",
-        "num_ensembles": 1,    
+        "num_ensembles": 2,    
         "seq_to_seq": true, 
         "data_format": "numpy",
         "ishdf5": false,
@@ -76,8 +76,7 @@
         "transition_param_sharing": true,
         "position_embedding_transition": 100,
         "fixed": false,
-        "fixed_output_fraction": null,
-        "constraint_func": "trace"
+        "fixed_output_fraction": null
     },
     "optim_params": {
         "optimizer": "rmsprop",
@@ -103,11 +102,11 @@
         "schedule_ortho": 0,
         "schedule_sparsity": 0,    
 
-        "ortho_mu_init": 10000.0,
+        "ortho_mu_init": 100000.0,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
-        "ortho_h_threshold": 1e-4,
+        "ortho_h_threshold": 0.01,
         "ortho_min_iter_convergence": 1000,
 
         "sparsity_mu_init": 1,
@@ -116,7 +115,6 @@
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
         "sparsity_min_iter_convergence": 1000,
-        
         "sparsity_upper_threshold": 0.5,
 
         "acyclic_mu_init": 1,
@@ -126,15 +124,12 @@
         "acyclic_h_threshold": 1e-08,
         "acyclic_min_iter_convergence": 1000,
         "mu_acyclic_init": null,
-        "h_acyclic_threshold": null,
-
-        "udpate_ALM_using_valid": true,
-        "udpate_ALM_using_nll": true
+        "h_acyclic_threshold": null
     },
     "plot_params": {
         "plot_freq": 20000,
         "plot_through_time": true,
-        "print_freq": 1000
+        "print_freq": 500
     },
     "savar_params": {
         "n_per_col": 2,

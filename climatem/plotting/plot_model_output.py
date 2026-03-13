@@ -11,6 +11,7 @@ import torch
 from matplotlib.patches import Patch
 
 from climatem.model.metrics import mcc_latent
+from climatem.synthetic_data.utils import permute_matrices
 from climatem.utils import get_logger
 
 logger = get_logger(__name__)
@@ -54,14 +55,14 @@ class Plotter:
 
         if learner.latent:
             # save matrix W of the decoder and encoder
-            logger.info("Saving the decoder, encoder and graphs.")
-            w_decoder = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+            print("Saving the decoder, encoder and graphs.")
+            w_decoder = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_decoder.npy", w_decoder)
-            w_encoder = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+            w_encoder = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
             np.save(learner.plots_path / "w_encoder.npy", w_encoder)
 
             # save the graphs G
-            adj = learner.model.module.get_adj().cpu().detach().numpy()
+            adj = learner.model.get_adj().cpu().detach().numpy()
             np.save(learner.plots_path / "graphs.npy", adj)
 
     def load(self, exp_path, data_loader):
@@ -146,13 +147,13 @@ class Plotter:
                 {"name": "tr ELBO", "data": learner.train_elbo_list, "s": "-."},
                 {"name": "val ELBO", "data": learner.valid_elbo_list, "s": "-."},
             ]
-            self.plot_learning_curves2(
-                losses=losses,
-                iteration=learner.iteration,
-                plot_through_time=learner.plot_params.plot_through_time,
-                path=learner.plots_path,
-                fname="losses",
-            )
+            # self.plot_learning_curves2(
+            #     losses=losses,
+            #     iteration=learner.iteration,
+            #     plot_through_time=learner.plot_params.plot_through_time,
+            #     path=learner.plots_path,
+            #     fname="losses",
+            # )
             logvar = [
                 {"name": "logvar encoder", "data": learner.logvar_encoder_tt, "s": "-"},
                 {"name": "logvar decoder", "data": learner.logvar_decoder_tt, "s": "-"},
@@ -175,79 +176,96 @@ class Plotter:
             )
 
         # plot the adjacency matrix (learned vs ground-truth)
-        adj = learner.model.module.get_adj().cpu().detach().numpy()
-        if not learner.no_gt:
-            if learner.latent:
-                # for latent models, find the right permutation of the latent
-                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
-                # variables using MCC
-                if learner.debug_gt_z:
-                    gt_dag = learner.gt_dag
-                    gt_w = learner.gt_w
-                    self.mcc.append(1.0)
-                    self.assignments.append(np.arange(learner.gt_dag.shape[1]))
-                else:
-                    score, cc_program_perm, assignments, z, z_hat, x = mcc_latent(learner.model, learner.data)
-                    permutation = np.zeros((learner.gt_dag.shape[1], learner.gt_dag.shape[1]))
-                    permutation[np.arange(learner.gt_dag.shape[1]), assignments[1]] = 1
-                    self.mcc.append(score.item())
-                    self.assignments.append(assignments[1])
+        adj = learner.model.get_adj().cpu().detach().numpy()
+        # if not learner.no_gt:
+        #     if learner.latent:
+        #         # for latent models, find the right permutation of the latent
+        #         adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        #         adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+        #         # variables using MCC
+        #         if learner.debug_gt_z:
+        #             gt_dag = learner.gt_dag
+        #             gt_w = learner.gt_w
+        #             self.mcc.append(1.0)
+        #             self.assignments.append(np.arange(learner.gt_dag.shape[1]))
+        #         else:
+        #             score, cc_program_perm, assignments, z, z_hat, x = mcc_latent(learner.model, learner.data)
+        #             permutation = np.zeros((learner.gt_dag.shape[1], learner.gt_dag.shape[1]))
+        #             permutation[np.arange(learner.gt_dag.shape[1]), assignments[1]] = 1
+        #             self.mcc.append(score.item())
+        #             self.assignments.append(assignments[1])
 
-                    gt_dag = permutation.T @ learner.gt_dag @ permutation
-                    gt_w = learner.gt_w
-                    # Permutation of decoder/encoder columns disabled: alignment is
-                    # now handled by spatial-centroid matching in SavarPlotter.
-                    # adj_w = adj_w[:, :, assignments[1]]
-                    # adj_w2 = adj_w2[:, assignments[1], :]
-                    adj_w2 = np.swapaxes(adj_w2, 1, 2)
-                self.save_mcc_and_assignement(learner.plots_path)
+        #             gt_dag = permutation.T @ learner.gt_dag @ permutation
+        #             gt_w = learner.gt_w
+        #             # TODO: put back
+        #             # adj_w = adj_w[:, :, assignments[1]]
+        #             # adj_w2 = adj_w2[:, assignments[1], :]
+        #             adj_w2 = np.swapaxes(adj_w2, 1, 2)
+        #         self.save_mcc_and_assignement(learner.plots_path)
 
-                # draw learned mixing fct vs GT
-                if learner.model_params.nonlinear_mixing:
-                    self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
+        #         # draw learned mixing fct vs GT
+        #         if learner.model_params.nonlinear_mixing:
+        #             self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
 
-            else:
-                gt_dag = learner.gt_dag
+        #     else:
+        #         gt_dag = learner.gt_dag
 
-            self.plot_adjacency_through_time(
-                learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
+        #     self.plot_adjacency_through_time(
+        #         learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
+        #     )
+        # else:
+        gt_dag = None
+        gt_w = None
+
+        # for latent models, find the right permutation of the latent
+        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+
+        # this is where this was before, but I have now added the argument names for myself
+        no_gt = not learner.plot_params.savar
+        if not no_gt:
+            self.plot_adjacency_matrix(
+                mat1=adj,
+                # Below savar dag
+                mat2=learner.datamodule.savar_gt_adj,
+                path=learner.plots_path,
+                name_suffix="transition",
+                no_gt=no_gt,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
             )
         else:
-            gt_dag = None
-            gt_w = None
-
-            # for latent models, find the right permutation of the latent
-            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
-
-        # Plot adjacency matrix
-        self.plot_adjacency_matrix(
-            learner=learner,
-            mat1=adj,
-            mat2=gt_dag,
-            modes_gt=gt_w,
-            modes_inferred=adj_w,
-            path=learner.plots_path,
-            name_suffix="transition",
-            savar=False,
-            no_gt=learner.no_gt,
-            iteration=learner.iteration,
-            plot_through_time=learner.plot_params.plot_through_time,
-        )
+            self.plot_adjacency_matrix(
+                mat1=adj,
+                mat2=gt_dag,
+                path=learner.plots_path,
+                name_suffix="transition",
+                no_gt=no_gt,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+            )
 
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
         if learner.latent:
             # plot the decoder matrix W
-            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", learner.no_gt)
+            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", True)
             # plot the encoder matrix W_2
             # gt_w2 = np.swapaxes(gt_w, 1, 2)
             gt_w2 = gt_w
-            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", learner.no_gt)
-            if not learner.no_gt:
-                self.plot_adjacency_through_time_w(
-                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
+            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", True)
+            # if not no_gt:
+            #     self.plot_adjacency_through_time_w(
+            #         learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
+            #     )
+            if learner.plot_params.savar:
+                self.plot_savar_feature_maps(
+                    learner,
+                    adj_w,
+                    coordinates=learner.coordinates,
+                    iteration=learner.iteration,
+                    plot_through_time=learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
                 )
             else:
                 self.plot_regions_map(
@@ -386,23 +404,23 @@ class Plotter:
                     adj_w2 = np.swapaxes(adj_w2, 1, 2)
                 self.save_mcc_and_assignement(learner.plots_path)
 
-                # draw learned mixing fct vs GT
-                if learner.model_params.nonlinear_mixing:
-                    self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
+        #         # draw learned mixing fct vs GT
+        #         if learner.model_params.nonlinear_mixing:
+        #             self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
 
-            else:
-                gt_dag = learner.gt_dag
+        #     else:
+        #         gt_dag = learner.gt_dag
 
-            self.plot_adjacency_through_time(
-                learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
-            )
-        else:
-            gt_dag = None
-            gt_w = None
+        #     self.plot_adjacency_through_time(
+        #         learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
+        #     )
+        # else:
+        gt_dag = None
+        gt_w = None
 
-            # for latent models, find the right permutation of the latent
-            adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-            adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+        # for latent models, find the right permutation of the latent
+        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # Plot adjacency matrix
         self.plot_adjacency_matrix(
@@ -423,7 +441,7 @@ class Plotter:
         # hoping that these don't fail due to defaults
         if learner.latent:
             # plot the decoder matrix W
-            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", learner.no_gt)
+            self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", True)
             # plot the encoder matrix W_2
             gt_w2 = gt_w
             self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", learner.no_gt)
@@ -978,8 +996,8 @@ class Plotter:
         if not os.path.exists(learner.plots_path / "coordinates.npy"):
             np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
 
-        adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-        adj_encoder_w = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_encoder_w = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
         np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
         np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 
@@ -1144,14 +1162,14 @@ class Plotter:
 
     def plot_adjacency_matrix(
         self,
-        learner,
-        mat1: np.ndarray,
-        mat2: np.ndarray,
-        modes_gt,
-        modes_inferred,
-        path,
-        name_suffix: str,
-        savar,
+        learner=None,
+        mat1: np.ndarray = None,
+        mat2: np.ndarray = None,
+        modes_gt=None,
+        modes_inferred=None,
+        path=None,
+        name_suffix: str = "",
+        savar: bool = False,
         no_gt: bool = False,
         iteration: int = 0,
         plot_through_time: bool = True,
@@ -1171,30 +1189,35 @@ class Plotter:
         mat1 = np.array(mat1, copy=True)
         tau = mat1.shape[0]
         effective_no_gt = no_gt or mat2 is None
+        forcing_indices = None
+        if learner is not None and hasattr(learner, "datamodule"):
+            forcing_indices = getattr(learner.datamodule, "forcing_indices", None)
 
-        # Get forcing indices for colored plots
-        forcing_indices = getattr(learner, "forcing_indices", None)
-
-        # Prepare ground truth adjacency matrix
         mat2_aligned = None
-        if not effective_no_gt:
-            mat2_aligned = np.array(mat2, copy=True)
-            if mat2_aligned.ndim == 2:
-                mat2_aligned = mat2_aligned[None, ...]
-            if mat2_aligned.shape[0] != tau:
-                if mat2_aligned.shape[0] == 1:
-                    mat2_aligned = np.repeat(mat2_aligned, tau, axis=0)
-                else:
-                    mat2_aligned = mat2_aligned[:tau]
-            # Pad/crop ground truth to match learned latent size
-            target_d = mat1.shape[1]
-            if mat2_aligned.shape[1] != target_d or mat2_aligned.shape[2] != target_d:
-                resized = np.zeros((tau, target_d, target_d), dtype=mat2_aligned.dtype)
-                min_d = min(target_d, mat2_aligned.shape[1], mat2_aligned.shape[2])
-                resized[:, :min_d, :min_d] = mat2_aligned[:, :min_d, :min_d]
-                mat2_aligned = resized
+        if mat2 is not None:
+            mat2 = np.array(mat2, copy=True)
+            if mat2.shape[0] >= tau:
+                mat2_aligned = mat2[-tau:]
+            else:
+                mat2_aligned = mat2
 
-        # Permutation for SAVAR is handled in SavarPlotter.plot_adjacency_matrix_savar
+        if savar and modes_gt is not None and modes_inferred is not None:
+            lat = None
+            lon = None
+            if learner is not None and hasattr(learner, "exp_params"):
+                lat = getattr(learner.exp_params, "lat", None)
+                lon = getattr(learner.exp_params, "lon", None)
+            if lat is not None and lon is not None:
+                mat1 = permute_matrices(
+                    lat,
+                    lon,
+                    modes_inferred,
+                    modes_gt,
+                    mat1,
+                    tau,
+                )
+            else:
+                logger.warning("Skipping SAVAR permutation in adjacency plot: lat/lon not available.")
 
         # Create figure
         fig = plt.figure(constrained_layout=True)
@@ -1206,7 +1229,7 @@ class Plotter:
         else:
             self._plot_adjacency_through_time(fig, mat1, mat2_aligned, effective_no_gt, tau, forcing_indices)
 
-        # Save figure
+        # new
         if plot_through_time:
             fname = f"adjacency_{name_suffix}_{iteration}.png"
         else:

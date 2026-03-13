@@ -74,6 +74,7 @@ class CausalClimateDataModule(ClimateDataModule):
         self.num_months_aggregated = num_months_aggregated
         self.train_val_interval_length = train_val_interval_length
         self.shuffle_train = False  # need to keep order for causal train / val splits
+        self.savar_name = None
 
     @staticmethod
     def years_to_list(years_str):
@@ -160,6 +161,8 @@ class CausalClimateDataModule(ClimateDataModule):
                     background_timescale_rho=self.hparams.background_timescale_rho,
                     background_n_modes=self.hparams.background_n_modes,
                 )
+                self.savar_name = train_val_input4mips.savar_name
+
             elif (
                 "tas" in self.hparams.in_var_ids
                 or "pr" in self.hparams.in_var_ids

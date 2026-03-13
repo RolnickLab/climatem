@@ -53,7 +53,6 @@ class Mask(nn.Module):
         tau: int,
         latent: bool,
         instantaneous: bool,
-        drawhard: bool,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
         nodiag: bool = False,
@@ -65,7 +64,6 @@ class Mask(nn.Module):
         self.tau = tau
         self.latent = latent
         self.instantaneous = instantaneous
-        self.drawhard = drawhard
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
         # Here we can just set what we want the output to be.
@@ -111,7 +109,7 @@ class Mask(nn.Module):
         """
 
         if not self.fixed:
-            adj = gumbel_sigmoid(self.param, self.uniform, b, tau=tau, hard=self.drawhard)
+            adj = gumbel_sigmoid(self.param, self.uniform, b, tau=tau)
             adj = adj * self.fixed_mask
             return adj
         else:
@@ -172,7 +170,7 @@ class MixingMask(nn.Module):
 
     def forward(self, batch_size):
         param = self.param.unsqueeze(0).repeat(batch_size, 1, 1, 1)
-        mask = nn.functional.gumbel_softmax(param, tau=1, hard=False)
+        mask = nn.functional.gumbel_softmax(param, tau=1)
         return mask
 
 
@@ -181,24 +179,11 @@ def sample_logistic(shape, uniform):
     return torch.log(u) - torch.log(1 - u)
 
 
-def gumbel_sigmoid(log_alpha, uniform, bs, tau=1, hard=False):
+def gumbel_sigmoid(log_alpha, uniform, bs, tau=1):
     shape = tuple([bs] + list(log_alpha.size()))
     logistic_noise = sample_logistic(shape, uniform)
 
-    y_soft = torch.sigmoid((log_alpha + logistic_noise) / tau)
-
-    if hard:
-        # 0.5 threshold: binarization cutoff for the sigmoid mask (straight-through estimator)
-        y_hard = (y_soft > 0.5).type(torch.Tensor)
-
-        # This weird line does two things:
-        #   1) at forward, we get a hard sample.
-        #   2) at backward, we differentiate the gumbel sigmoid
-        y = y_hard.detach() - y_soft.detach() + y_soft
-
-    else:
-        y = y_soft
-    return y
+    return torch.sigmoid((log_alpha + logistic_noise) / tau)
 
 
 class MLP(nn.Module):
@@ -263,27 +248,28 @@ class LatentTSDCD(nn.Module):
         num_layers_mixing: int,
         num_hidden_mixing: int,
         position_embedding_dim: int,
-        reduce_encoding_pos_dim: bool,
+        transition_param_sharing: bool,
+        position_embedding_transition: int,
         coeff_kl: float,
         distr_z0: str,
         distr_encoder: str,
         distr_transition: str,
         distr_decoder: str,
-        d: int,
-        d_x: int,
-        d_z: int,
-        tau: int,
+        d: int,  # Number of variables
+        d_x: int,  # Dimension of observations
+        d_z: int,  # Dimension of latent space
+        tau: int,  # Number of timesteps as input
         instantaneous: bool,
         nonlinear_mixing: bool,
         nonlinear_dynamics: bool,
-        hard_gumbel: bool,
-        no_gt: bool,
-        debug_gt_graph: bool,
-        debug_gt_z: bool,
-        debug_gt_w: bool,
-        gt_graph: torch.tensor = None,
-        gt_w: torch.tensor = None,
+        # no_gt: bool,
+        # debug_gt_graph: bool,
+        # debug_gt_z: bool,
+        # debug_gt_w: bool,
+        # gt_graph: torch.tensor = None,
+        # gt_w: torch.tensor = None,
         tied_w: bool = False,
+        reduce_encoding_pos_dim: bool = False,
         fixed: bool = False,
         fixed_output_fraction: float = 1.0,
         gev_learn_xi: bool = False,
@@ -315,7 +301,6 @@ class LatentTSDCD(nn.Module):
             d_z: number of latent variables
             tau: size of the timewindow
             instantaneous: if True, models instantaneous connections
-            hard_gumbel: if True, use hard sampling for the masks
 
             no_gt: if True, do not use any ground-truth data (useful with realworld dataset)
             debug_gt_graph: if True, set the masks to the ground-truth graphes (gt_graph)
@@ -343,6 +328,8 @@ class LatentTSDCD(nn.Module):
         self.num_hidden_mixing = num_hidden_mixing
         self.position_embedding_dim = position_embedding_dim
         self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
+        self.transition_param_sharing = transition_param_sharing
+        self.position_embedding_transition = position_embedding_transition
         self.coeff_kl = coeff_kl
 
         self.d = d
@@ -352,11 +339,10 @@ class LatentTSDCD(nn.Module):
         self.instantaneous = instantaneous
         self.nonlinear_mixing = nonlinear_mixing
         self.nonlinear_dynamics = nonlinear_dynamics
-        self.hard_gumbel = hard_gumbel
-        self.no_gt = no_gt
-        self.debug_gt_graph = debug_gt_graph
-        self.debug_gt_z = debug_gt_z
-        self.debug_gt_w = debug_gt_w
+        # self.no_gt = no_gt
+        # self.debug_gt_graph = debug_gt_graph
+        # self.debug_gt_z = debug_gt_z
+        # self.debug_gt_w = debug_gt_w
         self.tied_w = tied_w
         self.fixed = fixed
         self.fixed_output_fraction = fixed_output_fraction
@@ -379,12 +365,12 @@ class LatentTSDCD(nn.Module):
         else:
             self.total_tau = tau
 
-        if self.no_gt:
-            self.gt_w = None
-            self.gt_graph = None
-        else:
-            self.gt_w = torch.as_tensor(gt_w).double()
-            self.gt_graph = torch.as_tensor(gt_graph).double()
+        # if self.no_gt:
+        #     self.gt_w = None
+        #     self.gt_graph = None
+        # else:
+        #     self.gt_w = torch.as_tensor(gt_w).double()
+        #     self.gt_graph = torch.as_tensor(gt_graph).double()
 
         if distr_z0 == "gaussian":
             self.distr_z0 = torch.normal
@@ -437,7 +423,6 @@ class LatentTSDCD(nn.Module):
                 d_z,
                 self.num_hidden_mixing,
                 self.num_layers_mixing,
-                use_gumbel_mask=False,
                 tied=tied_w,
                 embedding_dim=self.position_embedding_dim,
                 reduce_encoding_pos_dim=self.reduce_encoding_pos_dim,
@@ -467,21 +452,32 @@ class LatentTSDCD(nn.Module):
                 d_y_aerosol_spatial=d_y_aerosol_spatial,
             )
 
-        if debug_gt_w:
-            self.decoder.w = gt_w
+        # if debug_gt_w:
+        #     self.decoder.w = gt_w
 
-        self.transition_model = TransitionModelParamSharing(
-            self.d,
-            self.d_z,
-            self.total_tau,
-            self.nonlinear_dynamics,
-            self.num_layers,
-            self.num_hidden,
-            self.num_output,
-            self.position_embedding_dim,
-            d_y_co2=self.d_y_co2 if self.use_exogenous else 0,
-            d_y_aerosol=self.d_y_aerosol if self.use_exogenous else 0,
-        )
+        if self.transition_param_sharing:
+            self.transition_model = TransitionModelParamSharing(
+                self.d,
+                self.d_z,
+                self.total_tau,
+                self.nonlinear_dynamics,
+                self.num_layers,
+                self.num_hidden,
+                self.num_output,
+                self.position_embedding_dim,
+                d_y_co2=self.d_y_co2 if self.use_exogenous else 0,
+                d_y_aerosol=self.d_y_aerosol if self.use_exogenous else 0,
+            )
+        else:
+            self.transition_model = TransitionModel(
+                self.d,
+                self.d_z,
+                self.total_tau,
+                self.nonlinear_dynamics,
+                self.num_layers,
+                self.num_hidden,
+                self.num_output,
+            )
 
         # print("We are setting the Mask here.")
         self.mask = Mask(
@@ -490,15 +486,14 @@ class LatentTSDCD(nn.Module):
             self.total_tau,
             instantaneous=instantaneous,
             latent=True,
-            drawhard=hard_gumbel,
             fixed=fixed,
             fixed_output_fraction=fixed_output_fraction,
         )
-        if self.debug_gt_graph:
-            if self.instantaneous:
-                self.mask.fix(self.gt_graph)
-            else:
-                self.mask.fix(self.gt_graph[:-1])
+        # if self.debug_gt_graph:
+        #     if self.instantaneous:
+        #         self.mask.fix(self.gt_graph)
+        #     else:
+        #         self.mask.fix(self.gt_graph[:-1])
 
     def get_adj(self):
         """
@@ -657,27 +652,25 @@ class LatentTSDCD(nn.Module):
             # print("What is the shape of the mask?", mask.shape)
             # print("What is the shape of mask[:, :, i * self.d_z + k]?", mask[:, :, i * self.d_z + k].shape)
             # print("THIS DEFINES THE MASK THAT IS USED TO PRODUCE A PARTICULAR LATENT, Z_k.")
-            if self.use_exogenous and y_co2 is not None and y_aerosol is not None:
-                # Extract last timestep if temporal forcing (shape: batch, tau+1, dim)
-                # TransitionModel expects 2D forcing (batch, dim)
-                y_co2_t = y_co2[:, -1] if y_co2.dim() == 3 else y_co2
-                y_aerosol_t = y_aerosol[:, -1] if y_aerosol.dim() == 3 else y_aerosol
-
-                pz_params = self.transition_model(
-                    z,
-                    mask[:, :, i * self.d_z : (i + 1) * self.d_z],
-                    i,
-                    forcing_co2=y_co2_t,
-                    forcing_aerosol=y_aerosol_t,
-                )
-
+            if self.transition_param_sharing:
+                if self.use_exogenous and y_co2 is not None and y_aerosol is not None:
+                    y_co2_t = y_co2[:, -1] if y_co2.dim() == 3 else y_co2
+                    y_aerosol_t = y_aerosol[:, -1] if y_aerosol.dim() == 3 else y_aerosol
+                    pz_params = self.transition_model(
+                        z,
+                        mask[:, :, i * self.d_z : (i + 1) * self.d_z],
+                        i,
+                        forcing_co2=y_co2_t,
+                        forcing_aerosol=y_aerosol_t,
+                    )
+                else:
+                    pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
             else:
-
-                pz_params = self.transition_model(z, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i)
-
-            # print("Note here that mu[:, i] is the same as pz_params[:, :, 0], once we have filled up pz_params [:, k] wise, with each k being a forward pass.")
-            # print("What is the shape of mu[:, i] and std[:, i]?", mu[:, i].shape, std[:, i].shape)
-            # print("What is the shape of pz_params[:, :, 0]?", pz_params[:, :, 0].shape)
+                pz_params = torch.zeros(b, self.d_z, 1)
+                for k in range(self.d_z):
+                    pz_params[:, k] = self.transition_model(
+                        z[:, :, i][:, :, :, None], mask[:, :, i * self.d_z + k], i, k
+                    )
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
@@ -764,9 +757,6 @@ class LatentTSDCD(nn.Module):
             n_climate_latents = self.d_z - self.n_forced_latents_co2 - self.n_forced_latents_aerosol
             # q_mu_y shape: (batch, d, d_z), we want forcing latents from first feature dimension
             encoded_forcing_mu = q_mu_y[:, 0, n_climate_latents:]  # Shape: (batch, n_forced_latents_total)
-
-        if self.debug_gt_z:
-            z = gt_z
 
         # get params of the transition model p(z^t | z^{<t})
         mask = self.mask(b)
@@ -1280,27 +1270,17 @@ class LinearAutoEncoder(nn.Module):
 
 
 class NonLinearAutoEncoder(nn.Module):
-    def __init__(self, d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w=None):
+    def __init__(self, d, d_x, d_z, num_hidden, num_layer, tied, gt_w=None):
         super().__init__()
-        if use_gumbel_mask:
-            self.use_grad_project = False
-        else:
-            self.use_grad_project = True
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
-        self.use_gumbel_mask = use_gumbel_mask
 
-        if self.use_gumbel_mask:
-            self.mask = MixingMask(d, d_x, d_z, gt_w)
-            if not tied:
-                self.mask_encoder = MixingMask(d, d_x, d_z, gt_w)
-        else:
-            unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
-            self.w = nn.Parameter(unif / torch.as_tensor(d_z))
-            if not tied:
-                unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
-                self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
+        unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
+        self.w = nn.Parameter(unif / torch.as_tensor(d_z))
+        if not tied:
+            unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
+            self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
         # self.logvar_decoder = nn.Parameter(torch.ones(d) * -1)
@@ -1308,23 +1288,12 @@ class NonLinearAutoEncoder(nn.Module):
         self.logvar_decoder = nn.Parameter(torch.ones(d_x) * -1)
 
     def get_w_encoder(self):
-        if self.use_gumbel_mask:
-            if self.tied:
-                return torch.transpose(self.mask.param, 1, 2)
-            else:
-                return torch.transpose(self.mask_encoder.param, 1, 2)
-        else:
-            if self.tied:
-                return torch.transpose(self.w, 1, 2)
-                # return self.w
-            else:
-                return self.w_encoder
+        if self.tied:
+            return torch.transpose(self.w, 1, 2)
+        return self.w_encoder
 
     def get_w_decoder(self):
-        if self.use_gumbel_mask:
-            return self.mask.param
-        else:
-            return self.w
+        return self.w
 
     def get_w_co2(self):
         """Get CO2 forcing decoder spatial weights."""
@@ -1340,53 +1309,22 @@ class NonLinearAutoEncoder(nn.Module):
         else:
             return None
 
-    def get_encode_mask(self, bs_size: int):
-        if self.use_gumbel_mask:
-            if self.tied:
-                sampled_mask = self.mask(bs_size)
-            else:
-                sampled_mask = self.mask_encoder(bs_size)
-        else:
-            if self.tied:
-                return torch.transpose(self.w, 1, 2)
-            else:
-                return self.w_encoder
-        return sampled_mask
+    def get_encode_mask(self):
+        if self.tied:
+            return torch.transpose(self.w, 1, 2)
+        return self.w_encoder
 
     def select_encoder_mask(self, mask, i, j):
-        if self.use_gumbel_mask:
-            mask = mask[:, i, :, j]
-        else:
-            mask = mask[i, j]
         return mask
 
-    def get_decode_mask(self, bs_size: int):
-        if self.use_gumbel_mask:
-            sampled_mask = self.mask(bs_size)
-            # size: bs, dx, dz, 1
-        else:
-            sampled_mask = self.w
-            # size: dx, dz, 1
-
-        return sampled_mask
+    def get_decode_mask(self):
+        return self.w
 
     def select_decoder_mask(self, mask, i, j):
-        if self.use_gumbel_mask:
-            mask = mask[:, i, j]
-        else:
-            mask = mask[i, j]
-        return mask
+        return mask[i, j]
 
 
 class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
-
-    # TODO(dev): Investigate embedding naming confusion. After analysis, this is NOT a bug:
-    # - embedding_encoder is nn.Embedding(d_z, dim): embeds latent indices (0..d_z-1) so the
-    #   shared encoder MLP can distinguish which latent variable it is computing.
-    # - embedding_decoder is nn.Embedding(d_x, dim): embeds spatial indices (0..d_x-1) so the
-    #   shared decoder MLP can distinguish which spatial location it is reconstructing.
-    # The names are misleading (embedding_encoder indexes latents, not observations), but
-    # the usage in encode() and decode() is correct and intentional by design.
 
     def __init__(
         self,
@@ -1395,10 +1333,9 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         d_z,
         num_hidden,
         num_layer,
-        use_gumbel_mask,
         tied,
         embedding_dim,
-        reduce_encoding_pos_dim,
+        reduce_encoding_pos_dim=False,
         gt_w=None,
         d_y_co2=0,
         d_y_aerosol=0,
@@ -1408,9 +1345,10 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         d_y_co2_spatial=None,
         d_y_aerosol_spatial=None,
     ):
-        super().__init__(d, d_x, d_z, num_hidden, num_layer, use_gumbel_mask, tied, gt_w)
+        super().__init__(d, d_x, d_z, num_hidden, num_layer, tied, gt_w)
         self.d_y_co2 = d_y_co2
         self.d_y_aerosol = d_y_aerosol
+        self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
         # Spatial dims for forcing encoders/decoders (independent of MLP conditioning dims).
         # When use_exogenous=False but use_forced_latents=True, d_y_co2 may be 0
         # (no MLP conditioning) while d_y_co2_spatial carries the real spatial dimension.
@@ -1421,7 +1359,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         self.n_forced_latents_aerosol = n_forced_latents_aerosol
 
         # embedding_dim_encoding = d_z // 10
-        if not reduce_encoding_pos_dim:
+        if not self.reduce_encoding_pos_dim:
             self.embedding_encoder = nn.Embedding(d_z, embedding_dim)
             self.encoder = MLP(
                 num_layer, num_hidden, d_x + embedding_dim + d_y_co2 + d_y_aerosol, 1
@@ -1798,6 +1736,7 @@ class TransitionModelParamSharing(nn.Module):
             num_hidden: number of hidden units
             num_output: number of outputs
         """
+
         super().__init__()
         self.d_y_co2 = d_y_co2
         self.d_y_aerosol = d_y_aerosol

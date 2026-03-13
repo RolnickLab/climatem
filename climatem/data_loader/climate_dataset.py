@@ -1,7 +1,7 @@
 # import glob
-# import os
 # from datetime import datetime, timedelta
 import itertools
+import os
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Union  # Tuple
@@ -55,6 +55,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # output_normalization="z-norm",
         global_normalization: bool = True,
         seasonality_removal: bool = True,
+        temp_res: str = "mon",
         *args,
         **kwargs,
     ):
@@ -75,6 +76,9 @@ class ClimateDataset(torch.utils.data.Dataset):
         super().__init__()
         self.test_dir = output_save_dir
         self.output_save_dir = Path(output_save_dir)
+
+        os.makedirs(self.output_save_dir, exist_ok=True)
+
         self.reload_climate_set_data = reload_climate_set_data
         # Here need to propagate argument data_params.reload_climate_set_data
 
@@ -109,6 +113,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
+        self.temp_res = temp_res
 
         # if climate_model in AVAILABLE_MODELS_FIRETYPE:
         #     openburning_specs = OPENBURNING_MODEL_MAPPING[climate_model]
@@ -127,6 +132,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         channels_last=True,
         seq_to_seq=True,
         get_years=None,
+        variables=None,
     ):
         """
         Take a file structure of netcdf or grib files and load them into memory.
@@ -140,15 +146,29 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         array_list = []
 
-        for vlist in paths:
-            if vlist[0][-3:] == ".nc":
-                temp_data = xr.open_mfdataset(vlist, concat_dim="time", combine="nested").compute()
+        print("paths for loop")
+        for v, vlist in enumerate(paths):
+            print(vlist)
+            if str(vlist[0]).endswith(".nc"):
+                temp_data = xr.open_mfdataset(vlist, chunks={"time": 120})
+                print("opened dataset")
                 temp_data = temp_data.drop_dims("bnds", errors="ignore")
+                print("dropped dims")
+                list_keys = list(temp_data.sizes)
+                print(f"list of keys {list_keys}")
+                if "plev" in list_keys:
+                    temp_data = temp_data.mean("plev")
+                    print("took mean")
+                elif "lev" in list_keys:
+                    temp_data = temp_data.mean("lev")
+                    print("took mean")
+                temp_data = temp_data.compute()
+                print("computed")
 
-            elif vlist[0].endswith(".grib"):
+            elif str(vlist[0]).endswith(".grib"):
                 temp_data = xr.open_mfdataset(vlist, engine="cfgrib", concat_dim="time", combine="nested").compute()
             # TODO : handle gribs together
-            elif vlist[0].endswith(".grib2"):
+            elif str(vlist[0]).endswith(".grib2"):
                 # TODO: not all data will have this name to remove leap days + we should remove feb 29?
                 filtered_vlist = list(itertools.chain(*vlist))
                 filtered_vlist = [item for item in vlist if "000366.grib2" not in item]
@@ -160,16 +180,26 @@ class ClimateDataset(torch.utils.data.Dataset):
                 print("File extension not recognized, please use either .nc or .grib")
                 continue
 
-            temp_data = temp_data.to_array().to_numpy()  # Should be of shape (vars, time, lat, lon)
+            if variables is None:
+                temp_data = temp_data.to_array().to_numpy()
+            else:
+                temp_data = temp_data[
+                    variables[v]
+                ].to_numpy()  # Should be of shape (vars, time, lat, lon) or (vars, time, lvls, lat, lon)
+
             array_list.append(temp_data)
+            # Here we do this for all variables, then we shouldn't concatenate for axis = 0 or reshape later OK
 
         temp_data = np.concatenate(array_list, axis=0)
+        # (1, 4812, 96, 144)
 
-        if paths[0][0].endswith(".grib"):
+        print(f"temp_data shape {temp_data.shape}")
+
+        if str(paths[0][0]).endswith(".grib"):
             years = len(paths[0])
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
-        elif paths[0][0].endswith(".grib2"):
+        elif str(paths[0][0]).endswith(".grib2"):
             # Use self.seq_len = 365 (post-leap-day-removal)
             filtered_vlist = [f for f in vlist if int(f[-10:-6]) <= 365]
             vlist = filtered_vlist
@@ -177,8 +207,9 @@ class ClimateDataset(torch.utils.data.Dataset):
             temp_data = temp_data.reshape(num_vars, years, self.seq_len, -1)
 
         else:
-            years = len(paths[0])
-            temp_data = temp_data.reshape(num_vars, years, self.seq_len, self.lon, self.lat)
+            # years = len(paths[0])
+            # second dimension is years
+            temp_data = temp_data.reshape(num_vars, -1, self.seq_len, self.lat, self.lon)
 
         if seq_to_seq is False:
             temp_data = temp_data[:, :, -1, :, :]  # only take last time step
@@ -186,10 +217,12 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         if channels_last:
             temp_data = temp_data.transpose((1, 2, 3, 4, 0))
-        elif paths[0][0][-5:] in [".grib", "grib2"]:
+        elif str(paths[0][0])[-5:] in [".grib", "grib2"]:
             temp_data = temp_data.transpose((1, 2, 0, 3))
         else:
             temp_data = temp_data.transpose((1, 2, 0, 3, 4))
+
+        print(f"Output of load into mem of shape {temp_data.shape}")
 
         return temp_data
 
@@ -208,39 +241,43 @@ class ClimateDataset(torch.utils.data.Dataset):
             np.ndarray: coordinates
         """
         print("self.icosahedral_coordinates_path", self.icosahedral_coordinates_path)
-        print("length paths", len(paths))
-        if paths[0][0][-5:] == ".grib":
+        # print("length paths", len(paths))
+        if str(paths[0][0])[-5:] == ".grib":
             # we have no lat and lon in grib files, so we need to fill it up from elsewhere, from the mapping.txt file:
             coordinates = np.load(self.icosahedral_coordinates_path)
-        elif paths[0][0][-5:] == "grib2":
+            return coordinates[:, 0], coordinates[:, 1]
+        elif str(paths[0][0])[-5:] == "grib2":
             coordinates = np.loadtxt(self.icosahedral_coordinates_path, skiprows=1, usecols=(1, 2))
+            return coordinates[:, 0], coordinates[:, 1]
         else:
-            for vlist in [paths[0]]:
-                # print("I am in the else of load_coordinates_into_mem")
-                # print("length_paths_list", len(vlist))
-                temp_data = xr.open_mfdataset(
-                    vlist, concat_dim="time", combine="nested"
-                ).compute()  # .compute is not necessary but eh, doesn't hurt
-                # print("self.in_variables:", self.in_variables)
-                # NOTE:() - should this be for all possible variables? Not sure...
-                if (
-                    "tas" in self.in_variables
-                    or "pr" in self.in_variables
-                    or "psl" in self.in_variables
-                    or "ts" in self.in_variables
-                ):
-                    array_list_lon = temp_data.lon.to_numpy()
-                    # print('array_list_lon shape:', array_list_lon.shape)
-                    array_list_lon = array_list_lon[:]
-                    array_list_lat = temp_data.lat.to_numpy()
-                    array_list_lat = array_list_lat[:]
-                else:
-                    array_list_lon = temp_data.lon.to_numpy()
-                    array_list_lat = temp_data.lat.to_numpy()
-            coordinates = np.meshgrid(array_list_lon, array_list_lat)
-            coordinates = np.c_[coordinates[1].flatten(), coordinates[0].flatten()]
+            vlist = paths[0]
+            # for vlist in [paths[0]]:
+            # print("I am in the else of load_coordinates_into_mem")
+            # print("length_paths_list", len(vlist))
+            temp_data = xr.open_mfdataset(
+                vlist, concat_dim="time", combine="nested"
+            ).compute()  # .compute is not necessary but eh, doesn't hurt
+            # print("self.in_variables:", self.in_variables)
+            # NOTE:() - should this be for all possible variables? Not sure...
+            # if (
+            #     "tas" in self.in_variables
+            #     or "pr" in self.in_variables
+            #     or "psl" in self.in_variables
+            #     or "ts" in self.in_variables
+            # ):
+            #     array_list_lon = temp_data.lon.to_numpy()
+            #     # print('array_list_lon shape:', array_list_lon.shape)
+            #     array_list_lon = array_list_lon[:]
+            #     array_list_lat = temp_data.lat.to_numpy()
+            #     array_list_lat = array_list_lat[:]
+            # else:
+            # array_list_lon = temp_data.lon.to_numpy()
+            # array_list_lat = temp_data.lat.to_numpy()
+            # coordinates = np.meshgrid(array_list_lon, array_list_lat)
+            # coordinates = np.c_[coordinates[1].flatten(), coordinates[0].flatten()]
 
-        return coordinates
+        return temp_data.lon.to_numpy(), temp_data.lat.to_numpy()
+        # return coordinates
 
     @staticmethod
     def create_multi_res_data(data, num_months_aggregated):

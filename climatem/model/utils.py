@@ -15,6 +15,7 @@ class ALM:
         h_threshold: float,
         min_iter_convergence: int,
         dim_gamma=(1,),
+        valid_freq: int = 100,
     ):
         self.gamma = torch.zeros(*dim_gamma)
         self.delta_gamma = -np.inf
@@ -24,7 +25,7 @@ class ALM:
         self.omega_mu = omega_mu
         self.omega_gamma = omega_gamma
         self.mu_mult_factor = mu_mult_factor
-        self.stop_crit_window = 100
+        self.stop_crit_window = valid_freq  # This is actually the rate of update of the ALM
         self.constraint_violation = []
         self.has_converged = False
         self.dim_gamma = dim_gamma
@@ -32,13 +33,13 @@ class ALM:
     def _compute_delta_gamma(self, iteration: int, val_loss: list):
         # compute delta for gamma
         if iteration >= 2 * self.stop_crit_window and iteration % (2 * self.stop_crit_window) == 0:
-            t0, t_half, t1 = val_loss[-3], val_loss[-2], val_loss[-1]
+            t0, t1 = val_loss[-2], val_loss[-1]
 
             # if the validation loss went up and down, do not update lagrangian and penalty coefficients.
-            if not (min(t0, t1) < t_half < max(t0, t1)):
-                self.delta_gamma = -np.inf
-            else:
-                self.delta_gamma = (t1 - t0) / self.stop_crit_window
+            # if not (min(t0, t1) < t_half < max(t0, t1)):
+            #     self.delta_gamma = -np.inf
+            # else:
+            self.delta_gamma = (t1 - t0) / self.stop_crit_window
         else:
             self.delta_gamma = -np.inf  # do not update gamma nor mu
 
@@ -68,12 +69,13 @@ class ALM:
                 # update delta_gamma
                 self._compute_delta_gamma(iteration, val_loss)
 
-                # if we have found a stationary point of the augmented loss
+                # if we have found a stationary point of the augmented loss i.e. we found an approximate minimizer
+                # PROBLEM : Val loss is just NLL here, not the augmented loss
                 if self.delta_gamma > -abs(self.omega_gamma):
                     self.gamma += self.mu * h
                     self.constraint_violation.append(h_scalar)
 
-                    # increase mu if the constraint has sufficiently decreased
+                    # increase mu if the constraint has not sufficiently decreased
                     # since the last subproblem
                     if len(self.constraint_violation) >= 2:
                         if h_scalar > self.omega_mu * self.constraint_violation[-2]:

@@ -72,7 +72,7 @@ def logscore_the_samples_for_spatial_spectra_bayesian(
     spatial_spectra_score = -torch.sum(spatial_spectra_score, dim=(2, 3))
     if tempering: 
 #         spatial_spectra_score /= y_true_fft_mean.shape[1]
-        print(f"shape of FFT mean is {y_true_fft_mean.shape} and dim 1 is {y_true_fft_mean.shape[1]}")
+        # print(f"shape of FFT mean is {y_true_fft_mean.shape} and dim 1 is {y_true_fft_mean.shape[1]}")
         spatial_spectra_score /= np.sqrt(y_true_fft_mean.shape[1])
 
 #     print("The spatial spectra score shape should be (num_particles, num_batch_size):", spatial_spectra_score.shape)

@@ -84,7 +84,7 @@ class TrainingLatent:
         datamodule,
         data_params,
         exp_params,
-        gt_params,
+        # gt_params,
         model_params,
         train_params,
         optim_params,
@@ -111,6 +111,10 @@ class TrainingLatent:
         self.exp_params = exp_params
         self.train_params = train_params
         self.optim_params = optim_params
+        self.constraint_func = model_params.constraint_func
+
+        if optim_params.scheduler_spectra is not None and optim_params.scheduler_spectra[0] != 0:
+            optim_params.scheduler_spectra.insert(0, 0)
         self.coefs_scheduler_spectra = (
             None
             if optim_params.scheduler_spectra is None
@@ -125,8 +129,8 @@ class TrainingLatent:
         self.wandbname = wandbname
 
         self.latent = exp_params.latent
-        self.no_gt = gt_params.no_gt
-        self.debug_gt_z = gt_params.debug_gt_z
+        # self.no_gt = gt_params.no_gt
+        # self.debug_gt_z = gt_params.debug_gt_z
         self.d_z = exp_params.d_z
         self.no_w_constraint = model_params.no_w_constraint
 
@@ -202,29 +206,31 @@ class TrainingLatent:
             self.plotter = Plotter()
             logger.info("Using standard Plotter for climate data visualization")
 
-        # Initialize tensors to store adjacency matrices across training
-        if not self.no_gt:
-            self.adj_w_tt = torch.zeros(
-                [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
-            )
-            if self.instantaneous:
-                self.adj_tt = torch.zeros(
-                    [
-                        int(self.train_params.max_iteration / self.train_params.valid_freq),
-                        self.tau + 1,
-                        self.d * self.d_z,
-                        self.d * self.d_z,
-                    ]
-                )
-            else:
-                self.adj_tt = torch.zeros(
-                    [
-                        int(self.train_params.max_iteration / self.train_params.valid_freq),
-                        self.tau,
-                        self.d * self.d_z,
-                        self.d * self.d_z,
-                    ]
-                )
+        # I think this is just initialising a tensor of zeroes to store results in
+        # if not self.no_gt:
+        # self.adj_w_tt = torch.zeros(
+        #     [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
+        # )
+        # if self.instantaneous:
+        #     self.adj_tt = torch.zeros(
+        #         [
+        #             int(self.train_params.max_iteration / self.train_params.valid_freq),
+        #             self.tau + 1,
+        #             self.d * self.d_z,
+        #             self.d * self.d_z,
+        #         ]
+        #     )
+        # else:
+        #     self.adj_tt = torch.zeros(
+        #         [
+        #             int(self.train_params.max_iteration / self.train_params.valid_freq),
+        #             self.tau,
+        #             self.d * self.d_z,
+        #             self.d * self.d_z,
+        #         ]
+        #     )
+        # self.model.mask.fix(self.gt_dag)
+
         self.logvar_encoder_tt = []
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
@@ -295,6 +301,7 @@ class TrainingLatent:
             self.optim_params.ortho_h_threshold,
             self.optim_params.ortho_min_iter_convergence,
             dim_gamma=(n_climate, n_climate),  # Only climate latents
+            valid_freq=self.train_params.valid_freq,
         )
 
         self.ALM_sparsity = ALM(
@@ -305,6 +312,7 @@ class TrainingLatent:
             self.optim_params.sparsity_h_threshold,
             self.optim_params.sparsity_min_iter_convergence,
             # dim_gamma=(1,),
+            valid_freq=self.train_params.valid_freq,
         )
 
         if self.instantaneous:
@@ -317,6 +325,7 @@ class TrainingLatent:
                 self.optim_params.acyclic_h_threshold,
                 self.optim_params.acyclic_min_iter_convergence,
                 # dim_gamma=(1,),
+                valid_freq=self.train_params.valid_freq,
             )
 
         if self.profiler:
@@ -359,6 +368,10 @@ class TrainingLatent:
                 self.logging_iter += 1
                 self.valid_step()
                 self.log_losses()
+
+                # if self.iteration % 2000:
+                #     print("valid_loss_list last 10!!")
+                #     print(self.valid_loss_list[-10:])
 
                 # log these metrics to wandb every print_freq...
                 #  multiple metrics here...
@@ -440,7 +453,7 @@ class TrainingLatent:
                 # TODO(dev): Propagate the path for saving coordinates and adjacency matrices
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
-                torch.save(self.model.state_dict(), self.save_path / "model.pth")
+                torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
 
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
@@ -450,10 +463,14 @@ class TrainingLatent:
                 # train with penalty method
                 # NOTE: here valid_freq is critical for updating the parameters of the ALM method!
                 # this is easy to miss - perhaps we should implement another parameter for this.
+                alm_update_loss_list = (
+                    self.valid_loss_list if self.optim_params.udpate_ALM_using_valid else self.train_loss_list
+                )
+
                 if self.iteration % self.train_params.valid_freq == 0:
-                    self.ALM_ortho.update(self.iteration, self.valid_ortho_vector_cons_list, self.valid_loss_list)
+                    self.ALM_ortho.update(self.iteration, self.valid_ortho_vector_cons_list, alm_update_loss_list)
                     # updating ALM_sparsity here
-                    self.ALM_sparsity.update(self.iteration, self.valid_sparsity_cons_list, self.valid_loss_list)
+                    self.ALM_sparsity.update(self.iteration, self.valid_sparsity_cons_list, alm_update_loss_list)
 
                     # This iteration value should be explored.
                     if self.iteration > 1000:
@@ -481,7 +498,7 @@ class TrainingLatent:
                             self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
 
                     if self.instantaneous:
-                        self.QPM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, self.valid_loss_list)
+                        self.QPM_acyclic.update(self.iteration, self.valid_acyclic_cons_list, alm_update_loss_list)
                         acyclic_converged = self.QPM_acyclic.has_converged
                         # TODO: add optimizer reinit
                         if self.QPM_acyclic.has_increased_mu:
@@ -514,6 +531,8 @@ class TrainingLatent:
 
         if self.iteration >= self.train_params.max_iteration:
             self.threshold()
+
+        torch.save(self.model.state_dict(), self.save_path / "model_thresholded.pth")
 
         # final plotting and printing
         self.plotter.plot_sparsity(self, save=True)
@@ -637,8 +656,8 @@ class TrainingLatent:
             )
             sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
             if self.optim_params.binarize_transition and h_sparsity == 0:
-                h_variance = self.adj_transition_variance()
-                sparsity_reg = self.ALM_sparsity.gamma * h_variance + 0.5 * self.ALM_sparsity.mu * h_variance**2
+                h_sparsity = self.adj_transition_variance()
+                sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
 
         else:
             sparsity_reg = self.get_regularisation()
@@ -660,10 +679,17 @@ class TrainingLatent:
         # which is now fixed by excluding forcing latents from observation decoding entirely.
         decoder_utilization_penalty = torch.tensor(0.0, device=self.accelerator.device)
 
-        # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
+        # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
         loss = nll + connect_reg + sparsity_reg
         if not self.no_w_constraint:
-            loss = loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
+            if self.constraint_func == "sum":
+                loss = (
+                    loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
+                )
+            elif self.constraint_func == "trace":
+                loss = (
+                    loss + torch.sum(self.ALM_ortho.gamma * h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
+                )
         if self.instantaneous:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
@@ -671,19 +697,22 @@ class TrainingLatent:
         # need to be superbly careful here that we are really using predictions, not the reconstruction
         # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
         crps = 0
-        spectral_loss = 0
+        spectral_loss = torch.as_tensor([0.0])
         for k in range(self.future_timesteps):
             # This step (predict) could be removed - need to rewrite predict function, to speed things up
             px_mu, px_std = self.model.predict_pxmu_pxstd(
                 torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k], y_co2, y_aerosol
             )
             crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
-            spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
-                y[:, k], y_pred_all[:, k], take_log=True
-            )
+            if self.optim_params.spectral_coeff > 0:
+                spectral_loss += (self.optim_params.loss_decay_future_timesteps**k) * self.get_spatial_spectral_loss(
+                    y[:, k],
+                    y_pred_all[:, k],
+                    take_log=self.optim_params.take_log_spectra,
+                )
 
         # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
-        if self.tau > 1:
+        if self.tau > 1 and self.optim_params.temporal_spectral_coeff > 0:
             temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
         else:
             temporal_spectral_loss = torch.as_tensor([0.0])
@@ -701,6 +730,7 @@ class TrainingLatent:
                 + decoder_utilization_penalty
             )
         else:
+            coef = 0
             for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
                 if self.iteration >= iter_schedule:
                     coef = new_coef
@@ -801,7 +831,7 @@ class TrainingLatent:
         self.train_spectral_loss = spectral_loss.item()
 
         # adding the temporal spectral loss to the logs
-        if self.tau > 1:
+        if self.tau > 1 and self.optim_params.temporal_spectral_coeff > 0:
             self.train_temporal_spectral_loss = temporal_spectral_loss.item()
         else:
             self.train_temporal_spectral_loss = torch.as_tensor([0.0])
@@ -983,8 +1013,11 @@ class TrainingLatent:
         # return x, y, y_pred_all
 
     # Validation step here.
-    def valid_step(self):
+    def valid_step(self):  # noqa: C901  # noqa: C901
         self.model.eval()
+
+        if len(self.data_loader_val) == 0:
+            print("Validation dataloader is empty !!!!")
 
         with torch.no_grad():
             # sample data
@@ -1061,8 +1094,21 @@ class TrainingLatent:
                 # print(f"y_pred_recons shape {y_pred_recons.shape}")
             del x_bis, y_pred, nll_bis, recons_bis, kl_bis
 
-            # compute regularisations (sparsity and connectivity)
-            sparsity_reg = self.get_regularisation()
+            # compute regularisations constraints/penalties (sparsity and connectivity)
+            h_transition_var = self.adj_transition_variance()
+            if self.optim_params.use_sparsity_constraint:
+                h_sparsity = self.get_sparsity_violation(
+                    lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
+                )
+                sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
+                if self.optim_params.binarize_transition and h_sparsity == 0:
+                    h_sparsity = self.adj_transition_variance()
+                    sparsity_reg = self.ALM_sparsity.gamma * h_sparsity + 0.5 * self.ALM_sparsity.mu * h_sparsity**2
+
+            else:
+                sparsity_reg = self.get_regularisation()
+                h_transition_var = self.adj_transition_variance()
+
             connect_reg = torch.as_tensor([0.0])
             if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
                 # what is happening here between connectivity_reg and connectivity_reg_complete? See below.
@@ -1075,13 +1121,82 @@ class TrainingLatent:
                 h_acyclic = self.get_acyclicity_violation()
             h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
-            h_sparsity = self.get_sparsity_violation(
-                lower_threshold=0.05, upper_threshold=self.optim_params.sparsity_upper_threshold
-            )
-            h_transition_var = self.adj_transition_variance()
+            # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
+            loss = nll + connect_reg + sparsity_reg
+            if not self.no_w_constraint:
+                if self.constraint_func == "sum":
+                    loss = (
+                        loss
+                        + torch.sum(self.ALM_ortho.gamma @ h_ortho)
+                        + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
+                    )
+                elif self.constraint_func == "trace":
+                    loss = (
+                        loss
+                        + torch.sum(self.ALM_ortho.gamma * h_ortho)
+                        + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
+                    )
+            if self.instantaneous:
+                loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
+
+            # Remove this component if instantaneous and tau = 0?
+            # need to be superbly careful here that we are really using predictions, not the reconstruction
+            # I was hoping to do this with no_grad, but I do actually need it for the crps loss.
+            crps = 0
+            spectral_loss = torch.as_tensor([0.0])
+            for k in range(self.future_timesteps):
+                # This step (predict) could be removed - need to rewrite predict function, to speed things up
+                px_mu, px_std = self.model.predict_pxmu_pxstd(
+                    torch.cat((x[:, k:], y_pred_all[:, :k]), dim=1), y[:, k], y_co2=y_co2, y_aerosol=y_aerosol
+                )
+                crps += (self.optim_params.loss_decay_future_timesteps**k) * self.get_crps_loss(y[:, k], px_mu, px_std)
+                if self.optim_params.spectral_coeff > 0:
+                    spectral_loss += (
+                        self.optim_params.loss_decay_future_timesteps**k
+                    ) * self.get_spatial_spectral_loss(
+                        y[:, k],
+                        y_pred_all[:, k],
+                        take_log=self.optim_params.take_log_spectra,
+                    )
+
+            # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
+            if self.tau > 1 and self.optim_params.temporal_spectral_coeff > 0:
+                temporal_spectral_loss = self.get_temporal_spectral_loss(x, y, y_pred_all)
+            else:
+                temporal_spectral_loss = torch.as_tensor([0.0])
+
+            # print(f"loss: {loss}, crps: {crps}, spectral: {spectral_loss}, temporal: {temporal_spectral_loss}")
+            # add the spectral loss to the loss
+            if self.optim_params.scheduler_spectra is None:
+                loss = (
+                    loss
+                    + self.optim_params.crps_coeff * crps
+                    + self.optim_params.spectral_coeff * spectral_loss
+                    + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+                )
+            else:
+                coef = 0
+                for new_coef, iter_schedule in zip(self.coefs_scheduler_spectra, self.optim_params.scheduler_spectra):
+                    if self.iteration >= iter_schedule:
+                        coef = new_coef
+                    if self.iteration == iter_schedule:
+                        print(
+                            f"Scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}"
+                        )
+                        print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
+                loss = (
+                    loss
+                    + self.optim_params.crps_coeff * crps
+                    + coef
+                    * (
+                        self.optim_params.spectral_coeff * spectral_loss
+                        + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+                    )
+                )
 
             # compute total loss
-            loss = nll + connect_reg  # + sparsity_reg - for now we are removing the sparsity regularisation
+            # VALID LOSS SHOULD BE THE AUGMENTED LOSS
+            # loss = nll + connect_reg  # + sparsity_reg - for now we are removing the sparsity regularisation
 
             # NOTE: ignore the constraints loss for saving the loss of the validation data. We are basically just interested in the nll.
             # loss = loss + self.ALM_ortho.gamma * h_ortho + \
@@ -1090,7 +1205,7 @@ class TrainingLatent:
             # if self.instantaneous:
             #    loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic ** 2
 
-            self.valid_loss = loss.item()
+            self.valid_loss = nll.item() if self.optim_params.udpate_ALM_using_nll else loss.item()
             self.valid_nll = nll.item()
             self.valid_recons = recons.item()
             self.valid_kl = kl.item()
@@ -1110,6 +1225,16 @@ class TrainingLatent:
         # This can be cut if we want faster training...
 
         if self.iteration % self.plot_params.print_freq == 0:
+
+            print(f"Iteration {self.iteration}, Ortho constraint {h_ortho}")
+            np.save(
+                self.save_path / f"decoder_mat_{self.iteration}.npy",
+                self.model.autoencoder.get_w_decoder().cpu().detach().numpy(),
+            )
+            np.save(
+                self.save_path / f"encoder_mat_{self.iteration}.npy",
+                self.model.autoencoder.get_w_encoder().cpu().detach().numpy(),
+            )
 
             np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
@@ -1316,10 +1441,10 @@ class TrainingLatent:
         self.mu_sparsity_list.append(self.ALM_sparsity.mu)
         self.gamma_sparsity_list.append(self.ALM_sparsity.gamma)
 
-        if not self.no_gt:
-            w = self.model.autoencoder.get_w_decoder()
-            self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w.item()
-            self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
+        # if not self.no_gt:
+        # w = self.model.autoencoder.get_w_decoder()
+        # self.adj_w_tt[int(self.iteration / self.train_params.valid_freq)] = w.item()
+        # self.adj_tt[int(self.iteration / self.train_params.valid_freq)] = self.model.get_adj().item()
 
         # here we just plot the first element of the logvar_decoder and logvar_encoder
         self.logvar_decoder_tt.append(self.model.autoencoder.logvar_decoder[0].item())
@@ -1489,8 +1614,10 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
+
         h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
         assert torch.is_tensor(h)
+
         return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
@@ -1503,6 +1630,7 @@ class TrainingLatent:
         if self.iteration > self.optim_params.schedule_sparsity:
 
             # first get the adj
+            adj = self.model.get_adj()
             adj = self.model.get_adj()
 
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization
@@ -1708,6 +1836,7 @@ class TrainingLatent:
         """
 
         # assert that y_true has 3 dimensions
+
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
 
@@ -1736,29 +1865,26 @@ class TrainingLatent:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
 
         if take_log:
-            eps = torch.as_tensor(
-                getattr(self.optim_params, "spectral_eps", 1e-8),
-                dtype=fft_true.real.dtype,
-                device=fft_true.device,
-            )
-            # Take magnitude of complex FFT before log to get log-magnitude spectrum
-            fft_true = torch.log(torch.abs(fft_true) + eps)
-            fft_pred = torch.log(torch.abs(fft_pred) + eps)
+            idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
+            fft_true = torch.where(idx_pos, fft_true, 0.0)
+            fft_pred = torch.where(idx_pos, fft_pred, 0.0)
+            fft_true = torch.log(torch.abs(fft_true) + 1e-4)
+            fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
 
         spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
+        # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
 
         # Calculate the power spectrum
         if self.optim_params.fraction_highest_wavenumbers is not None:
             spectral_loss = spectral_loss[
-                :, round(self.optim_params.fraction_highest_wavenumbers * fft_true.shape[1]) :
+                :, round(self.optim_params.fraction_highest_wavenumbers * spectral_loss.shape[1]) :
             ]
         if self.optim_params.fraction_lowest_wavenumbers is not None:
-            spectral_loss = spectral_loss[:, : round(self.optim_params.fraction_lowest_wavenumbers * fft_true.shape[1])]
+            spectral_loss = spectral_loss[
+                :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
+            ]
 
-        spectral_loss = torch.mean(spectral_loss)
-        # print('what is the shape of the spectral loss?', spectral_loss)
-
-        return spectral_loss
+        return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """
@@ -1775,7 +1901,11 @@ class TrainingLatent:
         pred = torch.cat((x, y_pred), dim=1)
         # Calculate the power spectrum
         # compute the distance between the losses...
-        return torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1)))
+        temporal_spectral_loss = torch.nan_to_num(
+            torch.mean(torch.abs(torch.fft.rfft(obs, dim=1) - torch.fft.rfft(pred, dim=1))), 0
+        )
+
+        return temporal_spectral_loss
         # the shape here is (time/2 + 1, num_vars, coords)
 
     def connectivity_reg_complete(self):

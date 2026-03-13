@@ -209,6 +209,7 @@ class ERA5Dataset(ClimateDataset):
                                 # print(f"No netcdf files found in {var_dir}, trying to find .grib files")
                                 files = glob.glob(f"{var_dir}/*.grib2", recursive=True)
                             print(f"Grib FILES: {files}")
+
                             # print('files here:', files)
                             # loads all years! implement splitting
                             output_nc_files += files

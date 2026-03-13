@@ -62,6 +62,7 @@ class dataParams:
         temp_res: str = "mon",  # temporal resolution. Only "mon" is accepted for now
         batch_size: int = 256,  # batch size for loading the data
         eval_batch_size: int = 256,  # batch size for loading the evaluation data
+        map_to_healpix: bool = False,
         global_normalization: bool = True,  # normalize the data?
         seasonality_removal: bool = False,  # deseasonalize the data?
         channels_last: bool = False,  # last dimension of data is the channel
@@ -95,8 +96,10 @@ class dataParams:
             self.seq_len = SEQ_LEN_MAPPING[temp_res]
         except ValueError:
             print(f"Only monthly resolution is implemented for now, you entered resolution {temp_res}")
+        self.temp_res = temp_res
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
+        self.map_to_healpix = map_to_healpix
         self.global_normalization = global_normalization
         self.seasonality_removal = seasonality_removal
         self.channels_last = channels_last
@@ -110,20 +113,19 @@ class dataParams:
         self.num_months_aggregated = num_months_aggregated
 
 
-class gtParams:
-    """Ground truth debugging: flags to inject known GT latents/weights/graph during training."""
-
-    def __init__(
-        self,
-        no_gt: bool = True,  # do we have GT to compare? If synthetic data, will be True and overwritten
-        debug_gt_z: bool = False,  # below params help debugging the code when we have ground truth
-        debug_gt_w: bool = False,
-        debug_gt_graph: bool = False,
-    ):
-        self.no_gt = no_gt
-        self.debug_gt_z = debug_gt_z
-        self.debug_gt_w = debug_gt_w
-        self.debug_gt_graph = debug_gt_graph
+# # This class is only for debugging and for setting some params to the true aprams when training picabu
+# class gtParams:
+#     def __init__(
+#         self,
+#         no_gt: bool = True,  # do we have GT to compare? If synthetic data, will be True and overwritten
+#         debug_gt_z: bool = False,  # below params help debugging the code when we have ground truth
+#         debug_gt_w: bool = False,
+#         debug_gt_graph: bool = False,
+#     ):
+#         self.no_gt = no_gt
+#         self.debug_gt_z = debug_gt_z
+#         self.debug_gt_w = debug_gt_w
+#         self.debug_gt_graph = debug_gt_graph
 
 
 class trainParams:
@@ -168,11 +170,14 @@ class modelParams:
         num_layers: int = 2,
         num_output: int = 2,  # NOT SURE
         position_embedding_dim: int = 100,  # Dimension of positional embedding
-        reduce_encoding_pos_dim: bool = False,
+        reduce_encoding_pos_dim: bool = False,  # Reduce encoder positional embedding dimension by x10
+        tau_neigh: int = 0,  # Legacy neighborhood radius used in older configs
+        hard_gumbel: bool = False,  # Legacy mask sampling flag used in analysis scripts
+        transition_param_sharing: bool = True,
+        position_embedding_transition: int = 100,
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
-        fixed_output_fraction=None,  # NOT SURE, Remove this?
-        tau_neigh: int = 0,  # NOT SURE
-        hard_gumbel: bool = False,  # NOT SURE
+        fixed_output_fraction=None,  # This is used if we fix the mask, and want to get a fix number of 0 and 1
+        constraint_func: str = "trace",  # This is used for the constraint - trace is the correct one here
         use_exogenous: bool = False,  # NEW: Enable conditioning on exogenous forcings (CO2 + aerosols)
         d_y_co2: int = 1,  # NEW: Dimension of CO2 forcing (typically 1 for global, or spatial_dim for local)
         d_y_aerosol: int = 900,  # NEW: Dimension of aerosol forcing (typically spatial_dim for local effects)
@@ -193,10 +198,13 @@ class modelParams:
         self.num_layers_mixing = num_layers_mixing
         self.position_embedding_dim = position_embedding_dim
         self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
-        self.fixed = fixed
-        self.fixed_output_fraction = fixed_output_fraction
         self.tau_neigh = tau_neigh
         self.hard_gumbel = hard_gumbel
+        self.transition_param_sharing = transition_param_sharing
+        self.position_embedding_transition = position_embedding_transition
+        self.fixed = fixed
+        self.fixed_output_fraction = fixed_output_fraction
+        self.constraint_func = constraint_func
         self.use_exogenous = use_exogenous
         self.d_y_co2 = d_y_co2
         self.d_y_aerosol = d_y_aerosol
@@ -223,6 +231,7 @@ class optimParams:
         reg_coeff_connect: float = 0,  # for cluster connectivity penalty if we want to enforce it
         fraction_highest_wavenumbers: float = None,
         fraction_lowest_wavenumbers: float = None,
+        take_log_spectra: bool = True,
         scheduler_spectra: List[
             int
         ] = None,  # the spectra term coefficient in the loss will be linearly increased from 0 to 1 if this is not None, ex: [0, 30_000, 50_000]
@@ -255,7 +264,10 @@ class optimParams:
         forcing_latent_supervision_coeff: float = 10.0,  # Weight for direct forcing latent supervision loss
         decoder_utilization_coeff: float = 0.1,  # Penalty coefficient for underutilized forcing latent decoder weights
         min_forcing_decoder_norm: float = 1.5,  # Target minimum L2 norm for forcing latent decoder weights
+        udpate_ALM_using_valid: bool = True,  # If False use training loss convergence if True uses valid loss convergence
+        udpate_ALM_using_nll: bool = True,  # If False use augmented loss convergence if True uses NLL convergence
     ):
+
         self.optimizer = optimizer
         self.use_sparsity_constraint = use_sparsity_constraint
         self.binarize_transition = binarize_transition
@@ -269,6 +281,7 @@ class optimParams:
 
         self.fraction_highest_wavenumbers = fraction_highest_wavenumbers
         self.fraction_lowest_wavenumbers = fraction_lowest_wavenumbers
+        self.take_log_spectra = take_log_spectra
         self.scheduler_spectra = scheduler_spectra
 
         self.schedule_reg = schedule_reg
@@ -304,6 +317,9 @@ class optimParams:
         self.forcing_latent_supervision_coeff = forcing_latent_supervision_coeff
         self.decoder_utilization_coeff = decoder_utilization_coeff
         self.min_forcing_decoder_norm = min_forcing_decoder_norm
+
+        self.udpate_ALM_using_valid = udpate_ALM_using_valid
+        self.udpate_ALM_using_nll = udpate_ALM_using_nll
 
 
 class plotParams:
@@ -353,7 +369,7 @@ class savarParams:
         yearly_jitter_amp: float = 0.05,  # Year-to-year random variation in seasonal amplitude (adds realism)
         yearly_jitter_phase: float = 0.10,  # Year-to-year random variation in seasonal phase (adds realism)
         # Spatial structure
-        overlap: bool = False,  # Whether spatial modes can overlap (True = modes share spatial regions)
+        overlap: float = 0,  # Whether spatial modes can overlap between 0 and 1 (True = modes share spatial regions)
         # External forcing parameters
         is_forced: bool = False,  # Whether to include external forcings like CO2 and aerosols (mimics climate change)
         f_1: int = 0,  # Initial forcing value at start of ramp (baseline level). NOTE: used as float downstream
@@ -393,6 +409,7 @@ class savarParams:
         background_smoothness: float = 0.15,  # Controls spatial frequency (higher = smoother spatial patterns)
         background_timescale_rho: float = 0.995,  # AR(1) persistence (higher = slower temporal evolution, 0.995 ≈ 200 step timescale)
         background_n_modes: int = 3,  # Number of low-frequency Fourier components for spatial smoothness
+        use_correct_hyperparams: bool = True,  # Override some of the model params to match those of savar data if true
     ):
         self.time_len = time_len
         self.comp_size = comp_size
@@ -438,6 +455,7 @@ class savarParams:
         self.background_smoothness = background_smoothness
         self.background_timescale_rho = background_timescale_rho
         self.background_n_modes = background_n_modes
+        self.use_correct_hyperparams = use_correct_hyperparams
 
 
 class rolloutParams:

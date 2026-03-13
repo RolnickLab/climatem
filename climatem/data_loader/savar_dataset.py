@@ -166,14 +166,7 @@ class SavarDataset(torch.utils.data.Dataset):
         self.tau = tau
 
         if self.reload_climate_set_data:
-            self.gt_modes = np.load(self.savar_dataset_dir / "modes.npy")
-            self.gt_noise = np.load(self.savar_dataset_dir / "noise_modes.npy")
-            mode_weights_path = self.savar_dataset_dir / "mode_weights.npy"
-            if mode_weights_path.exists():
-                self.mode_weights = np.load(mode_weights_path)
-                logger.info(f"Loaded mode weights from {mode_weights_path}, shape: {self.mode_weights.shape}")
-            else:
-                self.mode_weights = None
+            self._load_mode_artifacts()
 
             # Load noise data field for signal-noise decomposition plots
             noise_data_path = self.savar_dataset_dir / "noise_data_field.npy"
@@ -438,6 +431,47 @@ class SavarDataset(torch.utils.data.Dataset):
 
         return np.stack(forcing_sequences)
 
+    def _load_mode_artifacts(self):
+        """Load SAVAR mode/noise artifacts with backward-compatible fallbacks."""
+        modes_path = self.savar_dataset_dir / "modes.npy"
+        mode_weights_path = self.savar_dataset_dir / "mode_weights.npy"
+        noise_modes_path = self.savar_dataset_dir / "noise_modes.npy"
+        noise_weights_path = self.savar_dataset_dir / "noise_weights.npy"
+
+        if modes_path.exists():
+            self.gt_modes = np.load(modes_path)
+        elif mode_weights_path.exists():
+            self.gt_modes = np.load(mode_weights_path)
+            logger.warning("modes.npy missing at %s; using mode_weights.npy fallback.", modes_path)
+        else:
+            raise FileNotFoundError(
+                f"Missing SAVAR mode files in {self.savar_dataset_dir}: expected modes.npy or mode_weights.npy"
+            )
+
+        if noise_modes_path.exists():
+            self.gt_noise = np.load(noise_modes_path)
+        elif noise_weights_path.exists():
+            noise_weights = np.load(noise_weights_path)
+            self.gt_noise = noise_weights.sum(axis=0) if noise_weights.ndim == 3 else noise_weights
+            logger.warning("noise_modes.npy missing at %s; using noise_weights.npy fallback.", noise_modes_path)
+        else:
+            if self.gt_modes.ndim == 3:
+                self.gt_noise = np.zeros_like(self.gt_modes.sum(axis=0))
+            else:
+                self.gt_noise = np.zeros_like(self.gt_modes)
+            logger.warning(
+                "Missing SAVAR noise files in %s (noise_modes.npy/noise_weights.npy). Using zero noise map.",
+                self.savar_dataset_dir,
+            )
+
+        if mode_weights_path.exists():
+            self.mode_weights = np.load(mode_weights_path)
+            logger.info("Loaded mode weights from %s, shape: %s", mode_weights_path, self.mode_weights.shape)
+        elif self.gt_modes.ndim == 3:
+            self.mode_weights = self.gt_modes
+        else:
+            self.mode_weights = None
+
     def _load_or_generate_savar_data(self, tau):
         """Load existing SAVAR data or generate new data."""
         if os.path.exists(self.savar_path) and self.reload_climate_set_data:
@@ -491,14 +525,7 @@ class SavarDataset(torch.utils.data.Dataset):
             time_steps = data.shape[1]
             data = data.T.reshape((time_steps, self.lat, self.lon))
 
-            self.gt_modes = np.load(self.savar_dataset_dir / "modes.npy")
-            self.gt_noise = np.load(self.savar_dataset_dir / "noise_modes.npy")
-            mode_weights_path = self.savar_dataset_dir / "mode_weights.npy"
-            if mode_weights_path.exists():
-                self.mode_weights = np.load(mode_weights_path)
-                logger.info(f"Loaded mode weights from {mode_weights_path}, shape: {self.mode_weights.shape}")
-            else:
-                self.mode_weights = None
+            self._load_mode_artifacts()
 
             # Load noise data field for signal-noise decomposition plots
             noise_data_path = self.savar_dataset_dir / "noise_data_field.npy"
