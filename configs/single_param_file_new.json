@@ -85,8 +85,8 @@
         "use_sparsity_constraint": true,
         "binarize_transition": true,
         "crps_coeff": 1,
-        "spectral_coeff": 1000,
-        "temporal_spectral_coeff": 2000,
+        "spectral_coeff": 100,
+        "temporal_spectral_coeff": 200,
         "coeff_kl": 1,
 
         "loss_decay_future_timesteps": 1,
@@ -103,14 +103,14 @@
         "schedule_ortho": 0,
         "schedule_sparsity": 0,    
 
-        "ortho_mu_init": 10000.0,
+        "ortho_mu_init": 1000.0,
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 1e-4,
         "ortho_min_iter_convergence": 1000,
 
-        "sparsity_mu_init": 0.01,
+        "sparsity_mu_init": 0.0001,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
