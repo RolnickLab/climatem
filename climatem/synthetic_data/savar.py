@@ -9,8 +9,6 @@ generation process
 import itertools as it
 import math
 from copy import deepcopy
-from math import pi
-from pathlib import Path
 from typing import List
 
 import numpy as np
@@ -45,8 +43,109 @@ def dict_to_matrix(links_coeffs, default=0):
     return graph
 
 
+def normalize_transition_matrix(phi: np.ndarray, eps: float = 1e-8) -> np.ndarray:
+    """
+    Normalize the transition matrix P so that for each target mode, the sum of all incoming link coefficients equals 1.
+
+    This follows the SAVAR SNR formulation constraint: sum of links in P = 1.
+
+    Args:
+        phi: Transition matrix of shape (n_modes, n_modes, tau_max)
+             where phi[j, i, tau] is the coefficient from mode i to mode j at lag tau+1
+        eps: Small constant to avoid division by zero
+
+    Returns:
+        Normalized phi where sum over (i, tau) of |phi[j, i, tau]| = 1 for each j
+    """
+    phi_normalized = phi.copy()
+    n_modes = phi.shape[0]
+
+    for j in range(n_modes):
+        # Sum of absolute values of all incoming links to mode j
+        total = np.abs(phi[j, :, :]).sum()
+        if total > eps:
+            phi_normalized[j, :, :] = phi[j, :, :] / total
+
+    return phi_normalized
+
+
+def normalize_transition_with_forcing(
+    phi_climate: np.ndarray, phi_forcing: np.ndarray, n_climate_modes: int, eps: float = 1e-8
+) -> tuple:
+    """
+    Normalize transition matrix including forcing coefficients.
+
+    For each climate mode j, the sum of all incoming coefficients equals 1:
+    sum(|phi_climate[j,:,:]|) + sum(|phi_forcing[j,:,:]|) = 1
+
+    This ensures the SAVAR SNR constraint is maintained when forcing
+    is included in the dynamics.
+
+    Args:
+        phi_climate: Climate-to-climate coefficients (n_climate, n_climate, tau_max)
+        phi_forcing: Forcing-to-climate coefficients (n_climate, n_forcing, tau_max)
+        n_climate_modes: Number of climate modes
+        eps: Small constant to avoid division by zero
+
+    Returns:
+        Tuple of (normalized phi_climate, normalized phi_forcing)
+    """
+    phi_climate_norm = phi_climate.copy()
+    phi_forcing_norm = phi_forcing.copy()
+
+    for j in range(n_climate_modes):
+        # Total incoming coefficient sum (climate + forcing)
+        climate_sum = np.abs(phi_climate[j, :, :]).sum()
+        forcing_sum = np.abs(phi_forcing[j, :, :]).sum()
+        total = climate_sum + forcing_sum
+
+        if total > eps:
+            phi_climate_norm[j, :, :] = phi_climate[j, :, :] / total
+            phi_forcing_norm[j, :, :] = phi_forcing[j, :, :] / total
+
+        logger.debug(
+            f"Mode {j}: climate links = {climate_sum:.4f}, " f"forcing links = {forcing_sum:.4f}, total = {total:.4f}"
+        )
+
+    return phi_climate_norm, phi_forcing_norm
+
+
 class SAVAR:
-    """Main class containing SAVAR model."""
+    """
+    SAVAR synthetic climate data generator.
+
+    Generates spatiotemporal synthetic climate data with a known causal structure,
+    used to benchmark causal discovery methods. Based on Tibau et al. (2022), extended
+    with GPU acceleration, external forcing (CO2 + aerosol), and background state.
+
+    Data generation pipeline:
+        1. Seasonality: harmonic components with optional yearly jitter
+        2. Forcing trajectories: CO2 (monotonic ramp) and aerosol (regional, staggered)
+           latent time series are generated as exogenous inputs
+        3. Dynamics: autoregressive evolution in latent (mode) space:
+               z_j(t) = sum_{k,tau} P_climate[j,k,tau] * z_k(t-tau)
+                       + sum_{f,tau} P_forcing[j,f,tau] * forcing_f(t-tau) + N_j(t)
+               S_t = W^{-1} * z(t)    (project back to observation space)
+           where W = mode_weights (mixing matrix), P_climate/P_forcing = transition
+           matrices, and N_t is observation-space noise with covariance s * W^T * W.
+        4. Background: optional slow, spatially-smooth AR(1) drift added post-dynamics
+
+    Key attributes:
+        links_coeffs (dict): Causal graph as {target_idx: [((source_idx, lag), coeff), ...]}.
+        n_climate_modes (int): Number of climate latent variables (from mode_weights).
+        n_vars (int): Total latent count (climate + forcing modes).
+        mode_weights (ndarray): Spatial patterns (mixing matrix W), shape (n_modes, D_x, D_y)
+            where D_x * D_y = spatial_resolution.
+        data_field (ndarray): Generated spatiotemporal data, shape (spatial_resolution, time_length).
+        noise_data_field (ndarray): Pre-generated noise, shape (spatial_resolution, time_length + transient).
+        seasonal_data_field (ndarray): Seasonality component (same shape as data_field before trimming).
+        co2_latent_trajectory (ndarray): CO2 latent time series, shape (time,).
+        aerosol_latent_trajectory (ndarray): Aerosol latent time series, shape (n_aerosol, time).
+        aerosol_spatial_templates (ndarray): Orthogonal spatial templates for aerosol extraction,
+            shape (n_aerosol, spatial_resolution).
+        forcing_coeffs (dict): Extracted forcing-to-climate causal coefficients.
+        forcing_amplification (float): Scaling factor for forcing contributions.
+    """
 
     __slots__ = [
         "links_coeffs",
@@ -61,11 +160,14 @@ class SAVAR:
         "noise_cov",
         "noise_strength",
         "noise_variance",
+        "noise_ar1",
+        "noise_ar1_rho",
         "latent_noise_cov",
         "fast_noise_cov",
         "forcing_dict",
         "forcing_indices",
         "forcing_coeffs",
+        "forcing_amplification",
         "season_dict",
         "data_field",
         "noise_data_field",
@@ -75,12 +177,21 @@ class SAVAR:
         "aerosol_forcing_data_field",
         "co2_latent_trajectory",
         "aerosol_latent_trajectory",
+        "aerosol_spatial_templates",
+        "background_data_field",
         "linearity",
         "poly_degrees",
         "verbose",
         "model_seed",
         "nnar_model",
         "output_save_dir",
+        # Background state parameters
+        "enable_background",
+        "background_strength",
+        "background_strength_mode",
+        "background_smoothness",
+        "background_timescale_rho",
+        "background_n_modes",
     ]
 
     def __init__(
@@ -92,11 +203,14 @@ class SAVAR:
         noise_weights: np.ndarray = None,
         noise_strength: float = 1,
         noise_variance: float = 1,
+        noise_ar1: bool = True,
+        noise_ar1_rho: float = 0.95,
         noise_cov: np.ndarray = None,
         latent_noise_cov: np.ndarray = None,
         fast_cov: np.ndarray = None,
         forcing_dict: dict = None,
         forcing_indices: dict = None,
+        forcing_amplification: float = 5.0,
         linearity: str = "linear",
         poly_degrees: List[int] = [2],
         season_dict: dict = None,
@@ -109,6 +223,13 @@ class SAVAR:
         verbose: bool = False,
         model_seed: int = None,
         output_save_dir: str = None,
+        # Background state parameters
+        enable_background: bool = False,
+        background_strength: float = 0.3,
+        background_strength_mode: str = "relative",
+        background_smoothness: float = 0.15,
+        background_timescale_rho: float = 0.995,
+        background_n_modes: int = 3,
     ):
 
         self.links_coeffs = links_coeffs
@@ -116,6 +237,8 @@ class SAVAR:
         self.transient = transient
         self.noise_strength = noise_strength
         self.noise_variance = noise_variance  # TODO: NOT USED.
+        self.noise_ar1 = noise_ar1
+        self.noise_ar1_rho = noise_ar1_rho
         self.noise_cov = noise_cov
 
         self.latent_noise_cov = latent_noise_cov  # D_x
@@ -126,6 +249,7 @@ class SAVAR:
 
         self.forcing_dict = forcing_dict
         self.forcing_indices = forcing_indices
+        self.forcing_amplification = forcing_amplification
         self.season_dict = season_dict
         self.linearity = linearity
         self.poly_degrees = poly_degrees
@@ -136,8 +260,16 @@ class SAVAR:
         self.model_seed = model_seed
         self.output_save_dir = output_save_dir
 
+        # Background state parameters
+        self.enable_background = enable_background
+        self.background_strength = background_strength
+        self.background_strength_mode = background_strength_mode
+        self.background_smoothness = background_smoothness
+        self.background_timescale_rho = background_timescale_rho
+        self.background_n_modes = background_n_modes
+
         # Computed attributes
-        print("Creating attributes")
+        logger.debug("Creating attributes")
         # n_climate_modes is the number of climate variables (from mode_weights)
         self.n_climate_modes = mode_weights.shape[0]
         # n_vars is total latents (climate + forcing) if forcing_indices provided
@@ -154,7 +286,8 @@ class SAVAR:
         # Initialize forcing latent trajectories (populated during forcing generation)
         self.co2_latent_trajectory = None
         self.aerosol_latent_trajectory = None
-        print("spatial-resolution done")
+        self.aerosol_spatial_templates = None  # Orthogonal spatial templates for aerosol extraction
+        logger.debug("spatial-resolution done")
 
         if self.noise_weights is None:
             self.noise_weights = deepcopy(self.mode_weights)
@@ -162,7 +295,7 @@ class SAVAR:
             self.latent_noise_cov = np.eye(self.n_vars)
         if self.fast_noise_cov is None:
             self.fast_noise_cov = np.zeros((self.spatial_resolution, self.spatial_resolution))
-        print("copies done")
+        logger.debug("copies done")
 
         # Empty attributes
         self.noise_data_field = noise_data_field
@@ -170,6 +303,7 @@ class SAVAR:
         self.forcing_data_field = forcing_data_field
         self.co2_forcing_data_field = co2_forcing_data_field
         self.aerosol_forcing_data_field = aerosol_forcing_data_field
+        self.background_data_field = None
 
         if np.random is not None:
             np.random.seed(model_seed)
@@ -210,107 +344,171 @@ class SAVAR:
         # Print summary
         n_co2_links = sum(len(v) for v in forcing_coeffs["co2_to_modes"].values())
         n_aerosol_links = sum(len(v) for v in forcing_coeffs["aerosol_to_modes"].values())
-        print(f"Extracted forcing coefficients: {n_co2_links} CO2→mode links, {n_aerosol_links} aerosol→mode links")
+        logger.info(
+            f"Extracted forcing coefficients: {n_co2_links} CO2→mode links, {n_aerosol_links} aerosol→mode links"
+        )
 
         return forcing_coeffs
 
-    def generate_data(self, train_nnar=True) -> None:
-        """Generates the data of savar :return:"""
+    def generate_data(self, train_nnar=True, include_noise=True) -> None:
+        """
+        Generates the data of savar.
+
+        Args:
+            train_nnar: Whether to train NNAR model for nonlinear data
+            include_noise: Whether to include noise in the generated data
+        """
         # Prepare the datafield
         if self.data_field is None:
-            if self.verbose:
-                print("Creating empty data field")
-            # Compute the field
+            logger.debug("Creating empty data field")
             self.data_field = np.zeros((self.spatial_resolution, self.time_length + self.transient))
 
-        # Add noise first
-        if self.noise_data_field is None:
-            if self.verbose:
-                print("Creating noise data field")
-            self._add_noise_field()
-        else:
-            self.data_field += self.noise_data_field
+        self._apply_noise(include_noise)
+        self._apply_seasonality()
+        self._apply_forcing()
+        self._apply_dynamics(train_nnar)
+        self._apply_background()
 
-        # Add seasonality
-        if self.season_dict is not None:
-            if self.verbose:
-                print("Adding seasonality forcing")
+    def _apply_noise(self, include_noise):
+        """Add noise to data_field BEFORE dynamics (baseline behavior)."""
+        if include_noise:
+            if self.noise_data_field is None:
+                logger.debug("Creating noise data field and adding to data_field")
+                self._add_noise_field()
+            else:
+                logger.debug("Reusing existing noise_data_field, adding to data_field")
+                self.data_field += self.noise_data_field
+        else:
+            logger.debug("Skipping noise (generating deterministic data)")
+
+    def _apply_seasonality(self):
+        """Add seasonality to data_field if configured."""
+        if self.season_dict is None:
+            logger.info("No seasonality")
+            return
+        logger.debug("Adding seasonality forcing")
+        if self.seasonal_data_field is not None:
+            logger.debug("Reusing existing seasonal_data_field")
+            self.data_field += self.seasonal_data_field
+        else:
             self._add_seasonality_forcing()
+
+    def _apply_forcing(self):
+        """Generate forcing latent trajectories if configured."""
+        if self.forcing_dict is None:
+            return
+        logger.debug("Generating forcing latent trajectories (applied during dynamics)")
+        if self.co2_latent_trajectory is None:
+            self._generate_forcing_trajectories()
         else:
-            print("No seasonality")
+            logger.debug("Reusing existing forcing latent trajectories")
 
-        # Add external forcing
-        if self.forcing_dict is not None:
-            if self.verbose:
-                print("Adding external forcing")
-            initial_data = self.data_field.copy()
-            # Merge greenhouse gas and aerosol forcings into the simulation baseline.
-            self._consume_radiative_forcing()
-            # self._add_external_forcing()
-            diff = self.data_field - initial_data
-            print(f"Max change in data field: {diff.max()}")
-            print(f"Mean change in data field: {diff.mean()}")
-            print(f"Sample values after forcing applied:\n{diff[:, :5]}")
-
-        # Compute the data
+    def _apply_dynamics(self, train_nnar):
+        """Compute data using the configured linearity model."""
         if self.linearity == "linear":
-            if self.verbose:
-                print("Creating linear data")
+            logger.debug("Creating linear data")
             self._create_linear()
         elif self.linearity == "polynomial":
-            if self.verbose:
-                print("Creating polynomial data")
+            logger.debug("Creating polynomial data")
             self._create_polynomial()
         else:
-            if self.verbose:
-                print("Creating nonlinear data")
+            logger.debug("Creating nonlinear data")
             if train_nnar:
-                print("Training NNAR model before data generation...")
+                logger.info("Training NNAR model before data generation...")
                 self.train_nnar(num_epochs=50, learning_rate=0.001, batch_size=32)
             self._create_nonlinear()
 
+    def _apply_background(self):
+        """Add background state AFTER mode dynamics to avoid entanglement with causal graph."""
+        if not self.enable_background:
+            return
+        logger.debug("Adding low-frequency background state")
+        if self.background_data_field is not None:
+            logger.debug("Reusing existing background_data_field")
+            self.data_field += self.background_data_field
+        else:
+            self._add_background_field(
+                background_strength=self.background_strength,
+                background_strength_mode=self.background_strength_mode,
+                spatial_smoothness=self.background_smoothness,
+                time_rho=self.background_timescale_rho,
+                n_bg_modes=self.background_n_modes,
+            )
+
     def generate_cov_noise_matrix(self) -> np.ndarray:
         """
-        W in NxL data_field L times T.
+        Generate the noise covariance matrix: Cov = s · W^+ · (W^+)^T.
 
-        :return:
+        This gives noise that is anti-correlated with the mode spatial structure,
+        ensuring the model can distinguish signal from noise. W^+ is the
+        pseudoinverse of the noise_weights mixing matrix.
+
+        Returns:
+            cov: Covariance matrix of shape (spatial_resolution, spatial_resolution).
         """
-
-        # Use n_climate_modes (not n_vars) since noise_weights only covers climate modes
         W = deepcopy(self.noise_weights).reshape(self.n_climate_modes, -1)
-        print(f"noise_weights copied, {W.shape}")
+        logger.debug(f"noise_weights copied, {W.shape}")
         W_plus = np.linalg.pinv(W)
-        print("noise_weights inverted")
-        # Can we speed this up? since they are all np.eye
-        cov = self.noise_strength * W_plus @ W_plus.transpose()  # + self.fast_noise_cov
-        print("cov created inverted")
+        logger.debug("noise_weights inverted")
+        cov = self.noise_strength * W_plus @ W_plus.transpose()
+        logger.debug("cov created")
 
         return cov
 
     def _add_noise_field(self):
+        """
+        Generate noise in observation space with covariance s · W^+ · (W^+)^T.
+
+        Uses the pseudoinverse of the mixing matrix so that the noise covariance
+        is *anti-correlated* with the mode spatial patterns. This is essential for
+        the model to distinguish signal (mode-aligned) from noise.
+
+        NOTE: This method stores the noise in self.noise_data_field but does NOT
+        add it to self.data_field. The noise is applied during dynamics
+        (_create_linear, etc.) following:  S_t = W^{-1}·P·W·S_{t-τ} + N_t
+        """
+        logger.info("Generate noise_data_field with covariance s·W^+·(W^+)^T")
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float32
 
         if self.noise_cov is None:
-            print("Generate covariance matrix")
+            logger.debug("Generate covariance matrix")
             self.noise_cov = self.generate_cov_noise_matrix()
             self.noise_cov += 1e-6 * np.eye(self.noise_cov.shape[0])
 
-        # Generate noise from cov
-        print("Generate noise_data_field multivariate random")
-        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        dtype = torch.float32
         mean_torch = torch.zeros(self.spatial_resolution, device=dev, dtype=dtype)
-        cov = torch.tensor(self.noise_cov, device=dev, dtype=dtype)
-        distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov)  # . to(device="cuda")
+        cov_torch = torch.tensor(self.noise_cov, device=dev, dtype=dtype)
+        distrib = MultivariateNormal(loc=mean_torch, covariance_matrix=cov_torch)
         noise_data_field = distrib.sample(sample_shape=torch.Size([self.time_length + self.transient]))
         self.noise_data_field = noise_data_field.detach().cpu().numpy().transpose()
 
-        # self.noise_data_field = np.random.multivariate_normal(mean=np.zeros(self.spatial_resolution), cov=self.noise_cov,
-        #                                                       size=self.time_length + self.transient).transpose()
-
+        logger.info(
+            f"Generated noise with shape {self.noise_data_field.shape}, "
+            f"std={self.noise_data_field.std():.4f}, "
+            f"noise_strength (s)={self.noise_strength:.4f}"
+        )
+        # Add noise to data_field BEFORE dynamics (baseline behavior).
+        # The AR dynamics will then evolve the noise-inclusive field,
+        # effectively dampening the noise through the transition coefficients.
         self.data_field += self.noise_data_field
 
     def _add_seasonality_forcing(self):
+        """
+        Add deterministic seasonal cycle to the data field.
 
+        Constructs a sum of sinusoidal harmonics (e.g. annual, semi-annual) with
+        optional year-to-year jitter in amplitude and phase. The result is stored
+        in ``self.seasonal_data_field`` and added to ``self.data_field``.
+
+        Configuration comes from ``self.season_dict`` with keys:
+            periods (list[float]): harmonic periods in timesteps, e.g. [365, 182.5, 60].
+            amplitudes (list[float]): amplitude for each harmonic.
+            phases (list[float]): phase offset (radians) for each harmonic.
+            yearly_jitter (dict|None): {"amplitude": float, "phase": float} controlling
+                inter-annual variability of each harmonic.
+            season_weight (ndarray|None): per-gridpoint multiplier (latitude-dependent
+                seasonality strength), shape (spatial_resolution,).
+        """
         periods = self.season_dict["periods"]  # e.g. [12, 6, 3] for year, half-year, quarter-year
         amplitudes = self.season_dict["amplitudes"]  # same length as periods
         phases = self.season_dict.get("phases", [0.0] * len(periods))
@@ -454,88 +652,6 @@ class SAVAR:
             result = result.astype(np_dtype, copy=False)
         return result
 
-    def _add_external_forcing(self):
-        """
-        Adds external forcing to the data field using PyTorch tensors for GPU acceleration.
-
-        Allows for both linear and nonlinear ramps.
-        """
-        if self.forcing_dict is None:
-            raise TypeError("Forcing dict is empty")
-
-        w_f = deepcopy(self.forcing_dict.get("w_f"))
-        f_1 = float(self.forcing_dict.get("f_1", 0))
-        f_2 = float(self.forcing_dict.get("f_2", 0))
-        f_time_1 = self.forcing_dict.get("f_time_1", 0)
-        f_time_2 = self.forcing_dict.get("f_time_2", self.time_length)
-        ramp_type = self.forcing_dict.get("ramp_type", "linear")  # Default to linear
-
-        if w_f is None:
-            w_f = deepcopy(self.mode_weights)
-            w_f = (w_f != 0).astype(int)  # Convert non-zero elements to 1
-
-        print(self.mode_weights.shape)
-        # w_f = w_f / (w_f.max() + 1e-8)  # Normalize to range [0,1]
-
-        # Merge last two dims first => shape (d_z, lat*lon)
-        temp = w_f.reshape(w_f.shape[0], w_f.shape[1] * w_f.shape[2])
-        # sum over dim=0 => shape (lat*lon,)
-
-        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        dtype = torch.float32
-        w_f_sum = torch.tensor(temp.sum(axis=0), dtype=dtype, device=dev)
-        f_time_1 += self.transient
-        f_time_2 += self.transient
-        time_length = self.time_length + self.transient
-
-        # Generate the forcing trend using torch tensors
-        if ramp_type == "linear":
-            ramp = torch.linspace(f_1, f_2, f_time_2 - f_time_1, dtype=dtype, device=dev)
-        elif ramp_type == "quadratic":
-            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=dtype, device=dev)
-            ramp = f_1 + (f_2 - f_1) * t**2
-        elif ramp_type == "exponential":
-            t = torch.linspace(0, 1, f_time_2 - f_time_1, dtype=torch.float32, device=dev)
-            ramp = f_1 + (f_2 - f_1) * (torch.exp(t) - 1) / (torch.exp(torch.tensor(1.0)) - 1)
-        elif ramp_type == "sigmoid":
-            t = torch.linspace(-6, 6, f_time_2 - f_time_1, dtype=dtype, device=dev)
-            ramp = f_1 + (f_2 - f_1) * (1 / (1 + torch.exp(-t)))
-        elif ramp_type == "sinusoidal":
-            t = torch.linspace(0, pi, f_time_2 - f_time_1, dtype=dtype, device=dev)
-            ramp = f_1 + (f_2 - f_1) * (0.5 * (1 - torch.cos(t)))
-        else:
-            raise ValueError(
-                "Unsupported ramp type. Choose from 'linear', 'quadratic', 'exponential', 'sigmoid', or 'sinusoidal'."
-            )
-
-        # Generate the forcing trend using torch tensors
-        trend = torch.cat(
-            [
-                torch.full((f_time_1,), f_1, dtype=dtype, device=dev),
-                ramp,
-                torch.full((time_length - f_time_2,), f_2, dtype=dtype, device=dev),
-            ]
-        ).reshape(1, time_length)
-
-        if w_f_sum.dim() == 2:
-            w_f_sum = w_f_sum.sum(dim=0, keepdim=True)  # Sum across the correct dimension
-
-        # Compute the forcing field on GPU
-        forcing_field = (w_f_sum.reshape(1, -1) * trend.T).T
-        # Optionally modulate the forcing by the seasonal cycle so ramp strength depends on time of year.
-        forcing_field = self._apply_season_forcing_interaction(forcing_field)
-        self.forcing_data_field = forcing_field.cpu().numpy()
-
-        print(f"Using {ramp_type} ramp: f_1={f_1}, f_2={f_2}, f_time_1={f_time_1}, f_time_2={f_time_2}")
-
-        print(f"Forcing data field mean: {self.forcing_data_field.mean()}")
-
-        print(f"Before addition - Data field mean: {self.data_field.mean()}")
-
-        self.data_field += self.forcing_data_field
-
-        print(f"After addition - Data field mean: {self.data_field.mean()}")
-
     def create_co2_forcing(self) -> np.ndarray:
         """
         Create a CO2 forcing field that grows over time with mild spatial variability.
@@ -583,9 +699,7 @@ class SAVAR:
             t = torch.linspace(-6, 6, f_time_2 - f_time_1, dtype=dtype, device=dev)
             ramp = f_1 + (f_2 - f_1) * (1 / (1 + torch.exp(-t)))
         elif ramp_type == "sinusoidal":
-            from math import pi
-
-            t = torch.linspace(0, pi, f_time_2 - f_time_1, dtype=dtype, device=dev)
+            t = torch.linspace(0, math.pi, f_time_2 - f_time_1, dtype=dtype, device=dev)
             ramp = f_1 + (f_2 - f_1) * (0.5 * (1 - torch.cos(t)))
         else:
             raise ValueError(
@@ -606,7 +720,7 @@ class SAVAR:
             f"(time {f_time_1} to {f_time_2}, total length {time_len})"
         )
 
-        print(
+        logger.debug(
             f"CO2 forcing: Using {ramp_type} ramp from f_1={f_1} to f_2={f_2} "
             f"(time {f_time_1} to {f_time_2}, total length {time_len})"
         )
@@ -641,17 +755,219 @@ class SAVAR:
 
         return forcing_np
 
+    def _resolve_aerosol_warming_index(self, warming_index, n_aerosol_latents: int):
+        """Resolve and validate the optional warming latent index."""
+        if warming_index is None and n_aerosol_latents >= 4:
+            warming_index = 3
+        try:
+            return int(warming_index) if warming_index is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _create_aerosol_spatial_templates(
+        self, n_aerosol_latents: int, spatial_len: int, aerosol_contrast: float, dev, dtype
+    ) -> torch.Tensor:
+        """Create and normalize aerosol spatial templates for latent projection."""
+        if spatial_len == 1:
+            return torch.ones(n_aerosol_latents, 1, device=dev, dtype=dtype)
+
+        grid_size = int(math.sqrt(spatial_len))
+        is_2d_grid = (grid_size * grid_size == spatial_len) and grid_size > 1
+
+        if is_2d_grid:
+            logger.info(f"Creating 2D aerosol templates for {grid_size}x{grid_size} grid")
+            spatial_templates = self._create_aerosol_templates_2d(n_aerosol_latents, grid_size, dev, dtype)
+        else:
+            logger.info(f"Creating 1D aerosol templates for {spatial_len} points")
+            spatial_templates = self._create_aerosol_templates_1d(n_aerosol_latents, spatial_len, dev, dtype)
+
+        self._normalize_aerosol_templates(spatial_templates, aerosol_contrast)
+        self._log_aerosol_template_orthogonality(spatial_templates)
+        return spatial_templates
+
+    def _create_aerosol_templates_2d(self, n_aerosol_latents: int, grid_size: int, dev, dtype) -> torch.Tensor:
+        """Build 2D region-localized aerosol templates."""
+        spatial_templates = torch.zeros(n_aerosol_latents, grid_size * grid_size, device=dev, dtype=dtype)
+
+        lat_coords = torch.linspace(-1.0, 1.0, grid_size, device=dev, dtype=dtype)
+        lon_coords = torch.linspace(-1.0, 1.0, grid_size, device=dev, dtype=dtype)
+        lat_grid, lon_grid = torch.meshgrid(lat_coords, lon_coords, indexing="ij")
+
+        def gaussian_2d(lat_center, lon_center, lat_sigma, lon_sigma, angle=0.0):
+            x = lon_grid - lon_center
+            y = lat_grid - lat_center
+            if angle != 0.0:
+                cos_a = math.cos(angle)
+                sin_a = math.sin(angle)
+                x_rot = x * cos_a + y * sin_a
+                y_rot = -x * sin_a + y * cos_a
+            else:
+                x_rot = x
+                y_rot = y
+            return torch.exp(-0.5 * ((x_rot / lon_sigma) ** 2 + (y_rot / lat_sigma) ** 2))
+
+        def smooth_window(x, start, end, sharpness=8.0):
+            return torch.sigmoid((x - start) * sharpness) * torch.sigmoid((end - x) * sharpness)
+
+        north_mask = smooth_window(lat_grid, -1.0, -0.05, sharpness=8.0)
+        north_mask_strict = smooth_window(lat_grid, -1.0, -0.30, sharpness=8.0)
+
+        if n_aerosol_latents >= 1:
+            na = (
+                1.0 * gaussian_2d(-0.80, -0.80, 0.30, 0.38, angle=-0.25)
+                + 0.8 * gaussian_2d(-0.85, -0.95, 0.30, 0.28, angle=-0.05)
+                + 0.7 * gaussian_2d(-0.70, -0.35, 0.26, 0.32, angle=0.10)
+            )
+            na *= north_mask_strict * smooth_window(lon_grid, -1.0, 0.00, sharpness=6.5)
+            spatial_templates[0] = -na.reshape(-1) * 1.65
+
+        if n_aerosol_latents >= 2:
+            eu = (
+                1.0 * gaussian_2d(-0.80, 0.40, 0.24, 0.30, angle=0.20)
+                + 0.8 * gaussian_2d(-0.75, 0.50, 0.22, 0.26, angle=0.30)
+                + 0.6 * gaussian_2d(-0.70, 0.30, 0.20, 0.24, angle=-0.05)
+            )
+            eu *= north_mask_strict * smooth_window(lon_grid, -0.30, 0.55, sharpness=7.5)
+            spatial_templates[1] = -eu.reshape(-1) * 1.55
+
+        if n_aerosol_latents >= 3:
+            ea = (
+                1.0 * gaussian_2d(0.45, 0.65, 0.16, 0.22, angle=-0.20)
+                + 0.6 * gaussian_2d(0.35, 0.80, 0.12, 0.18, angle=-0.10)
+                + 0.5 * gaussian_2d(0.50, 0.45, 0.14, 0.18, angle=0.10)
+            )
+            ea *= north_mask * smooth_window(lon_grid, 0.35, 0.98, sharpness=8.0)
+            spatial_templates[2] = -ea.reshape(-1) * 1.10
+
+        if n_aerosol_latents >= 4:
+            ind = (
+                1.0 * gaussian_2d(0.25, 0.25, 0.10, 0.12, angle=0.30)
+                + 0.6 * gaussian_2d(0.15, 0.35, 0.08, 0.10, angle=-0.10)
+                + 0.4 * gaussian_2d(0.35, 0.15, 0.10, 0.12, angle=0.00)
+            )
+            ind *= smooth_window(lat_grid, -0.55, -0.05, sharpness=8.0) * smooth_window(
+                lon_grid, 0.20, 0.65, sharpness=8.0
+            )
+            spatial_templates[3] = -ind.reshape(-1) * 0.95
+
+        for i in range(4, n_aerosol_latents):
+            wave_num = i - 2
+            pattern_2d = torch.abs(torch.sin(wave_num * math.pi * lat_grid)) * torch.abs(
+                torch.cos((wave_num + 1) * math.pi * lon_grid)
+            )
+            spatial_templates[i] = -pattern_2d.reshape(-1) * (1.0 + 0.2 * i)
+
+        return spatial_templates
+
+    def _create_aerosol_templates_1d(self, n_aerosol_latents: int, spatial_len: int, dev, dtype) -> torch.Tensor:
+        """Build fallback 1D aerosol templates for non-square grids."""
+        spatial_templates = torch.zeros(n_aerosol_latents, spatial_len, device=dev, dtype=dtype)
+        coords = torch.linspace(-1.0, 1.0, spatial_len, device=dev, dtype=dtype)
+
+        if n_aerosol_latents >= 1:
+            northern_mask = (coords < 0.0).float()
+            spatial_templates[0] = -torch.sigmoid((-coords - 0.3) * 8.0) * northern_mask * 1.5
+
+        if n_aerosol_latents >= 2:
+            southern_mask = (coords > 0.0).float()
+            spatial_templates[1] = -torch.sigmoid((coords - 0.3) * 8.0) * southern_mask * 1.0
+
+        if n_aerosol_latents >= 3:
+            spatial_templates[2] = -torch.exp(-((coords / 0.3) ** 2)) * 0.8
+
+        if n_aerosol_latents >= 4:
+            mid_lat_mask = ((coords > -0.5) & (coords < 0.5)).float()
+            spatial_templates[3] = -torch.abs(torch.sin(2 * math.pi * coords)) * mid_lat_mask * 1.2
+
+        for i in range(4, n_aerosol_latents):
+            wave_num = i - 2
+            spatial_templates[i] = -torch.abs(torch.sin(wave_num * math.pi * coords + i * 0.3)) * (1.0 + 0.2 * i)
+
+        return spatial_templates
+
+    def _normalize_aerosol_templates(self, spatial_templates: torch.Tensor, aerosol_contrast: float) -> None:
+        """Apply contrast and L2 normalization in-place."""
+        n_aerosol_latents = spatial_templates.shape[0]
+        for i in range(n_aerosol_latents):
+            if aerosol_contrast != 1.0:
+                spatial_templates[i] = -torch.abs(spatial_templates[i]).pow(aerosol_contrast)
+
+            norm = torch.sqrt((spatial_templates[i] ** 2).sum())
+            if norm > 1e-8:
+                spatial_templates[i] = spatial_templates[i] / norm
+            else:
+                logger.warning(f"Aerosol template {i} has near-zero norm, skipping normalization")
+
+    def _log_aerosol_template_orthogonality(self, spatial_templates: torch.Tensor) -> None:
+        """Log pairwise inner products for diagnostics."""
+        n_aerosol_latents = spatial_templates.shape[0]
+        if n_aerosol_latents <= 1:
+            return
+
+        logger.info("Aerosol spatial template orthogonality:")
+        for i in range(n_aerosol_latents):
+            for j in range(i + 1, n_aerosol_latents):
+                inner_prod = (spatial_templates[i] * spatial_templates[j]).sum().item()
+                logger.info(f"  Template {i} · Template {j} = {inner_prod:.4f}")
+
+    def _accumulate_aerosol_latent_forcing(
+        self,
+        forcing: torch.Tensor,
+        spatial_templates: torch.Tensor,
+        latent_signs: List[float],
+        t: torch.Tensor,
+        time_len: int,
+        base_ramp_up_time: int,
+        base_peak_time: int,
+        base_decline_time: int,
+        timing_stagger: float,
+        aerosol_scale: float,
+    ) -> None:
+        """Accumulate latent-specific temporal patterns into the forcing field."""
+        n_aerosol_latents = spatial_templates.shape[0]
+        for i in range(n_aerosol_latents):
+            offset_fraction = i / n_aerosol_latents
+            latent_ramp_up = base_ramp_up_time + int(offset_fraction * timing_stagger * time_len)
+            latent_peak = base_peak_time + int(offset_fraction * timing_stagger * 0.7 * time_len)
+            latent_decline = base_decline_time + int(offset_fraction * timing_stagger * 0.5 * time_len)
+
+            latent_peak = min(latent_peak, time_len - 100)
+            latent_decline = min(latent_decline, time_len - 10)
+
+            t_ramp = latent_ramp_up / time_len
+            t_peak = latent_peak / time_len
+            t_decline = latent_decline / time_len
+            ramp_up = torch.sigmoid((t - t_ramp) * 10.0 / (t_peak - t_ramp + 1e-6))
+            ramp_down = torch.sigmoid((t_decline - t) * 10.0 / (t_decline - t_peak + 1e-6))
+            envelope = ramp_up * ramp_down
+
+            base_freq = 3.0 + i * 2.0
+            freq_mod = 1.0 + 0.2 * torch.sin(2.0 * math.pi * base_freq * t + i * 0.5)
+            latent_seasonal = torch.sin(2.0 * math.pi * (6.0 + i) * t)
+            latent_bursts = torch.sin(2.0 * math.pi * (18.0 + i * 3) * t + 0.3 * i)
+
+            trend_sign = latent_signs[i] if i < len(latent_signs) else -1.0
+            latent_trend = (
+                trend_sign * aerosol_scale * envelope * freq_mod * (1.0 + 0.15 * latent_seasonal + 0.05 * latent_bursts)
+            )
+            forcing += spatial_templates[i].unsqueeze(1) * latent_trend.unsqueeze(0)
+
+            sign_label = "warming" if trend_sign > 0 else "cooling"
+            logger.debug(
+                f"  Latent {i}: ramp_up={latent_ramp_up}, peak={latent_peak}, decline={latent_decline}, "
+                f"freq={base_freq}, {sign_label}"
+            )
+
     def create_aerosol_forcing(self) -> np.ndarray:
         """
         Create an aerosol forcing field with distinct temporal dynamics per region.
 
-        Each spatial region (corresponding to an aerosol latent) has a staggered temporal envelope with unique timing
-        and frequency modulation. This ensures aerosol latents are distinguishable for causal discovery.
+        Each spatial region (corresponding to an aerosol latent) has a staggered temporal signal with unique timing and
+        frequency modulation. This ensures aerosol latents are distinguishable for causal discovery.
 
         Uses aerosol_ramp_up_time, aerosol_peak_time, and aerosol_decline_time from forcing_dict as base timing, with
         staggered offsets per region.
         """
-
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.float32
 
@@ -664,309 +980,229 @@ class SAVAR:
             raise ValueError("Spatial resolution must be positive")
 
         forcing_cfg = self.forcing_dict or {}
-        aerosol_scale = float(forcing_cfg.get("aerosol_scale", 0.03))
-        aerosol_contrast = float(forcing_cfg.get("aerosol_spatial_contrast", 1.05))
-        aerosol_scale = max(aerosol_scale, 0.0)
-        aerosol_contrast = max(aerosol_contrast, 0.5)
+        aerosol_scale = max(float(forcing_cfg.get("aerosol_scale", 0.03)), 0.0)
+        aerosol_contrast = max(float(forcing_cfg.get("aerosol_spatial_contrast", 1.05)), 0.5)
 
-        # Get aerosol temporal parameters (base timing, independent from CO2)
-        base_ramp_up_time = int(forcing_cfg.get("aerosol_ramp_up_time", int(0.2 * self.time_length)))
-        base_peak_time = int(forcing_cfg.get("aerosol_peak_time", int(0.6 * self.time_length)))
-        base_decline_time = int(forcing_cfg.get("aerosol_decline_time", int(0.85 * self.time_length)))
-
-        # Stagger fraction: how much to spread timing across latents (default 30% of time span)
+        base_ramp_up_time = int(forcing_cfg.get("aerosol_ramp_up_time", int(0.2 * self.time_length))) + self.transient
+        base_peak_time = int(forcing_cfg.get("aerosol_peak_time", int(0.6 * self.time_length))) + self.transient
+        base_decline_time = int(forcing_cfg.get("aerosol_decline_time", int(0.85 * self.time_length))) + self.transient
         timing_stagger = float(forcing_cfg.get("aerosol_timing_stagger", 0.3))
 
-        # Adjust base times to include transient period
-        base_ramp_up_time += self.transient
-        base_peak_time += self.transient
-        base_decline_time += self.transient
-
-        # Time vector
         t = torch.linspace(0.0, 1.0, time_len, device=dev, dtype=dtype)
-
-        # Generate spatial pattern (used to modulate amplitude within each region)
-        if spatial_len == 1:
-            spatial_pattern = torch.ones(1, device=dev, dtype=dtype)
-        else:
-            coords = torch.linspace(-1.0, 1.0, spatial_len, device=dev, dtype=dtype)
-            num_lobes = max(3, min(8, spatial_len // 64 + 3))
-            rand_params = torch.as_tensor(np.random.rand(num_lobes, 3), device=dev, dtype=dtype)
-            centers = rand_params[:, 0] * 2.0 - 1.0
-            widths = 0.3 + rand_params[:, 1] * 0.7
-            amplitudes = 0.3 + rand_params[:, 2] * 0.7
-
-            diff = coords.unsqueeze(0) - centers.unsqueeze(1)
-            gaussians = torch.exp(-0.5 * (diff / widths.unsqueeze(1)) ** 2)
-            spatial_pattern = (amplitudes.unsqueeze(1) * gaussians).sum(dim=0)
-            spatial_pattern = spatial_pattern / (spatial_pattern.mean() + 1e-6)
-
-            idx = torch.linspace(0.0, 2.0 * math.pi, spatial_len, device=dev, dtype=dtype)
-            regional_variability = 0.6 + 0.4 * torch.sin(idx * 3.0 + 0.8)
-            hemispheric_gradient = 0.8 + 0.2 * torch.cos(idx)
-            spatial_pattern = spatial_pattern * regional_variability * hemispheric_gradient
-
-        spatial_pattern = spatial_pattern.pow(aerosol_contrast)
-        spatial_pattern = spatial_pattern / (spatial_pattern.abs().mean() + 1e-8)
-
-        # Get number of aerosol latents from forcing_indices
         n_aerosol_latents = len(self.forcing_indices.get("aerosol", [])) if self.forcing_indices else 1
-        n_aerosol_latents = max(n_aerosol_latents, 1)  # At least 1 region
-        region_size = spatial_len // n_aerosol_latents
+        n_aerosol_latents = max(n_aerosol_latents, 1)
 
-        # Create forcing with distinct temporal dynamics per region
+        warming_index = self._resolve_aerosol_warming_index(
+            forcing_cfg.get("aerosol_warming_index", None),
+            n_aerosol_latents,
+        )
+        latent_signs = [-1.0] * n_aerosol_latents
+        if warming_index is not None and 0 <= warming_index < n_aerosol_latents:
+            latent_signs[warming_index] = 1.0
+
+        spatial_templates = self._create_aerosol_spatial_templates(
+            n_aerosol_latents,
+            spatial_len,
+            aerosol_contrast,
+            dev,
+            dtype,
+        )
         forcing = torch.zeros((spatial_len, time_len), device=dev, dtype=dtype)
 
         logger.info(
-            f"Aerosol forcing: Creating {n_aerosol_latents} distinct temporal patterns "
+            f"Aerosol forcing: Creating {n_aerosol_latents} orthogonal spatial templates with distinct temporal patterns "
             f"(base_ramp={base_ramp_up_time}, base_peak={base_peak_time}, base_decline={base_decline_time}, "
-            f"timing_stagger={timing_stagger}, scale={aerosol_scale})"
+            f"timing_stagger={timing_stagger}, scale={aerosol_scale}, spatial_contrast={aerosol_contrast})"
         )
-        print(
-            f"Aerosol forcing: Creating {n_aerosol_latents} distinct temporal patterns " f"(stagger={timing_stagger})"
+        if warming_index is not None and 0 <= warming_index < n_aerosol_latents:
+            logger.info(f"Aerosol forcing: warming latent index={warming_index}")
+
+        self._accumulate_aerosol_latent_forcing(
+            forcing=forcing,
+            spatial_templates=spatial_templates,
+            latent_signs=latent_signs,
+            t=t,
+            time_len=time_len,
+            base_ramp_up_time=base_ramp_up_time,
+            base_peak_time=base_peak_time,
+            base_decline_time=base_decline_time,
+            timing_stagger=timing_stagger,
+            aerosol_scale=aerosol_scale,
         )
-
-        for i in range(n_aerosol_latents):
-            # Stagger timing for each latent to create distinct temporal patterns
-            offset_fraction = i / n_aerosol_latents
-
-            # Each latent has progressively later timing
-            latent_ramp_up = base_ramp_up_time + int(offset_fraction * timing_stagger * time_len)
-            latent_peak = base_peak_time + int(offset_fraction * timing_stagger * 0.7 * time_len)
-            latent_decline = base_decline_time + int(offset_fraction * timing_stagger * 0.5 * time_len)
-
-            # Clamp to valid range
-            latent_peak = min(latent_peak, time_len - 100)
-            latent_decline = min(latent_decline, time_len - 10)
-
-            # Normalized time positions for this latent's envelope
-            t_ramp = latent_ramp_up / time_len
-            t_peak = latent_peak / time_len
-            t_decline = latent_decline / time_len
-
-            # Create envelope: sharp rise and decline using sigmoid
-            ramp_up = torch.sigmoid((t - t_ramp) * 10.0 / (t_peak - t_ramp + 1e-6))
-            ramp_down = torch.sigmoid((t_decline - t) * 10.0 / (t_decline - t_peak + 1e-6))
-            envelope = ramp_up * ramp_down
-
-            # Add unique frequency modulation per latent (makes temporal patterns distinguishable)
-            base_freq = 3.0 + i * 2.0  # Different base frequency per latent
-            freq_mod = 1.0 + 0.2 * torch.sin(2.0 * math.pi * base_freq * t + i * 0.5)
-
-            # Episodic variations unique to each latent
-            latent_seasonal = torch.sin(2.0 * math.pi * (6.0 + i) * t)
-            latent_bursts = torch.sin(2.0 * math.pi * (18.0 + i * 3) * t + 0.3 * i)
-
-            # Combine into temporal trend for this latent
-            latent_trend = -aerosol_scale * envelope * freq_mod * (1.0 + 0.15 * latent_seasonal + 0.05 * latent_bursts)
-
-            # Apply to this region's spatial locations
-            start_idx = i * region_size
-            end_idx = start_idx + region_size if i < n_aerosol_latents - 1 else spatial_len
-            region_pattern = spatial_pattern[start_idx:end_idx]
-
-            # Each spatial location in the region gets this latent's temporal pattern
-            forcing[start_idx:end_idx] = region_pattern.unsqueeze(1) * latent_trend.unsqueeze(0)
-
-            print(
-                f"  Latent {i}: ramp_up={latent_ramp_up}, peak={latent_peak}, decline={latent_decline}, freq={base_freq}"
-            )
 
         forcing_np = forcing.detach().cpu().numpy()
-
+        self.aerosol_spatial_templates = spatial_templates.detach().cpu().numpy()
+        logger.info(f"[AEROSOL FORCING] Stored {n_aerosol_latents} spatial templates for latent extraction")
         return forcing_np
 
-    def _apply_causal_forcing(self, co2_forcing: np.ndarray, aerosol_forcing: np.ndarray) -> np.ndarray:
+    def _generate_forcing_trajectories(self) -> None:
         """
-        Apply forcing through the causal structure defined in links_coeffs.
+        Generate forcing latent trajectories BEFORE dynamics.
 
-        Instead of uniform forcing, each climate mode receives forcing contributions
-        weighted by the causal coefficients. This creates the ground truth causal
-        relationship between forcings and climate modes.
+        This creates the CO2 and aerosol forcing fields and extracts their
+        latent representations (time series) that will be used as exogenous
+        inputs during the dynamics computation.
 
-        Args:
-            co2_forcing: CO2 forcing field, shape (spatial_resolution, time_length + transient)
-            aerosol_forcing: Aerosol forcing field, same shape
+        Must be called BEFORE _create_linear(), _create_nonlinear(), or _create_polynomial().
 
-        Returns:
-            combined_contrib: Total forcing contribution to add to data_field
+        The forcing latent trajectories are stored in:
+        - self.co2_latent_trajectory: shape (time,) - scalar CO2 latent over time
+        - self.aerosol_latent_trajectory: shape (n_aerosol_latents, time) - aerosol latents over time
         """
-        time_len = co2_forcing.shape[1]
-        combined_contrib = np.zeros_like(co2_forcing)
-
-        # Get mode weights for projecting back to observation space
-        mode_weights = self.mode_weights.reshape(self.n_climate_modes, -1)  # (n_modes, spatial)
-
-        # Create forcing latent trajectories
-        # CO2: Use spatial mean as the CO2 latent signal (it's meant to be global)
-        co2_latent = co2_forcing.mean(axis=0)  # shape: (time,)
-        self.co2_latent_trajectory = co2_latent
-
-        # Aerosol: Project to latent space using mode_weights
-        # Each aerosol latent corresponds to how aerosol affects each spatial region
-        # We create n_aerosol_latents trajectories by dividing space into regions
-        n_aerosol_latents = len(self.forcing_indices.get("aerosol", []))
-        if n_aerosol_latents > 0:
-            # Divide spatial domain into regions for each aerosol latent
-            region_size = self.spatial_resolution // n_aerosol_latents
-            aerosol_latents = np.zeros((n_aerosol_latents, time_len))
-            for i in range(n_aerosol_latents):
-                start_idx = i * region_size
-                end_idx = start_idx + region_size if i < n_aerosol_latents - 1 else self.spatial_resolution
-                aerosol_latents[i] = aerosol_forcing[start_idx:end_idx].mean(axis=0)
-            self.aerosol_latent_trajectory = aerosol_latents
-        else:
-            self.aerosol_latent_trajectory = None
-
-        # Apply CO2 → mode causal contributions
-        for mode_idx, links in self.forcing_coeffs["co2_to_modes"].items():
-            mode_contrib = np.zeros(time_len)
-            for forcing_idx, lag, coeff in links:
-                # Apply time lag (lag is negative in links_coeffs convention)
-                shift = abs(lag)
-                if shift < time_len:
-                    # forcing at t-shift affects mode at t
-                    mode_contrib[shift:] += coeff * co2_latent[:-shift] if shift > 0 else coeff * co2_latent
-
-            # Project mode contribution to observation space
-            mode_weight = mode_weights[mode_idx]  # (spatial,)
-            combined_contrib += np.outer(mode_weight, mode_contrib)
-
-        # Apply Aerosol → mode causal contributions
-        if self.aerosol_latent_trajectory is not None:
-            aerosol_idx_offset = self.n_climate_modes + len(self.forcing_indices.get("co2", []))
-            for mode_idx, links in self.forcing_coeffs["aerosol_to_modes"].items():
-                mode_contrib = np.zeros(time_len)
-                for forcing_idx, lag, coeff in links:
-                    # Map forcing_idx to aerosol latent index
-                    aerosol_latent_idx = forcing_idx - aerosol_idx_offset
-                    if 0 <= aerosol_latent_idx < n_aerosol_latents:
-                        shift = abs(lag)
-                        if shift < time_len:
-                            aerosol_signal = self.aerosol_latent_trajectory[aerosol_latent_idx]
-                            mode_contrib[shift:] += (
-                                coeff * aerosol_signal[:-shift] if shift > 0 else coeff * aerosol_signal
-                            )
-
-                # Project mode contribution to observation space
-                mode_weight = mode_weights[mode_idx]
-                combined_contrib += np.outer(mode_weight, mode_contrib)
-
-        # Apply seasonal interaction
-        combined_contrib = self._apply_season_forcing_interaction(combined_contrib)
-
-        return combined_contrib
-
-    def _consume_radiative_forcing(self) -> None:
-        """
-        Combine CO2 and aerosol forcing fields and inject them into the data field.
-
-        If causal coefficients are available (forcing_coeffs), the forcing is applied
-        through the causal structure: each climate mode receives forcing contributions
-        weighted by the causal coefficients from links_coeffs.
-        """
-        if self.data_field is None:
-            raise ValueError("Data field must be initialised before applying forcing")
-
-        co2_forcing = self.create_co2_forcing()
-        aerosol_forcing = self.create_aerosol_forcing()
-
-        if co2_forcing.shape != self.data_field.shape:
-            raise ValueError("CO2 forcing shape mismatch with data field")
-        if aerosol_forcing.shape != self.data_field.shape:
-            raise ValueError("Aerosol forcing shape mismatch with data field")
-
-        if self.forcing_data_field is None:
-            self.forcing_data_field = np.zeros_like(self.data_field)
-        if self.co2_forcing_data_field is None:
-            self.co2_forcing_data_field = np.zeros_like(self.data_field)
-        if self.aerosol_forcing_data_field is None:
-            self.aerosol_forcing_data_field = np.zeros_like(self.data_field)
-
-        # Store separate CO2 and aerosol forcings (for model training)
-        np.add(self.co2_forcing_data_field, co2_forcing, out=self.co2_forcing_data_field)
-        np.add(self.aerosol_forcing_data_field, aerosol_forcing, out=self.aerosol_forcing_data_field)
-
-        # If we have causal coefficients, apply forcing through the causal structure
-        if self.forcing_coeffs is not None and self.forcing_indices is not None:
-            combined_contrib = self._apply_causal_forcing(co2_forcing, aerosol_forcing)
-            print("Applied forcing through causal structure")
-        else:
-            # Legacy behavior: uniform addition
-            combined_contrib = co2_forcing.copy()
-            np.add(combined_contrib, aerosol_forcing, out=combined_contrib)
-            combined_contrib = self._apply_season_forcing_interaction(combined_contrib)
-
-        # Accumulate the forcing
-        np.add(self.forcing_data_field, combined_contrib, out=self.forcing_data_field)
-
-        # Feed the combined forcing into the simulator state
-        np.add(self.data_field, combined_contrib, out=self.data_field)
-
-        instantaneous_mean = combined_contrib.mean(axis=0)
-        time_index = np.arange(1, instantaneous_mean.shape[-1] + 1, dtype=float)
-        cumulative_mean = np.cumsum(instantaneous_mean, axis=-1) / time_index
-
-        logger.info(
-            "Forcing diagnostics: instant mean=%.4f +/- %.4f, cumulative mean=%.4f +/- %.4f",
-            float(instantaneous_mean.mean()),
-            float(instantaneous_mean.std()),
-            float(cumulative_mean.mean()),
-            float(cumulative_mean.std()),
-        )
-
-        # Save forcing diagnostics plot to the SAVAR dataset directory
-        if self.output_save_dir is not None:
-            plot_path = Path(self.output_save_dir) / "forcing_diagnostics.png"
-            print(f"Saving forcing diagnostics to: {plot_path}")
-            self._plot_mean_forcing(instantaneous_mean, cumulative_mean, plot_path)
-
-    def _plot_mean_forcing(self, instantaneous_mean: np.ndarray, cumulative_mean: np.ndarray, output_path: str) -> None:
-        """Persist diagnostic plots summarising the applied radiative forcing."""
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError:
-            logger.warning("matplotlib not available; skipping forcing diagnostics plot at %s", output_path)
+        if self.forcing_dict is None or self.forcing_indices is None:
+            logger.info("No forcing configured, skipping trajectory generation")
             return
 
-        time_steps = np.arange(instantaneous_mean.shape[-1])
-        fig, ax = plt.subplots()
-        ax.plot(time_steps, instantaneous_mean, label="Instantaneous mean")
-        ax.plot(time_steps, cumulative_mean, label="Cumulative mean")
-        ax.set_title("Radiative forcing mean over time")
-        ax.set_xlabel("Time step")
-        ax.set_ylabel("Mean forcing")
-        ax.legend(loc="best")
-        fig.tight_layout()
+        time_len = self.time_length + self.transient
 
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
+        # Initialize forcing data fields if needed
+        if self.forcing_data_field is None:
+            self.forcing_data_field = np.zeros((self.spatial_resolution, time_len))
+        if self.co2_forcing_data_field is None:
+            self.co2_forcing_data_field = np.zeros((self.spatial_resolution, time_len))
+        if self.aerosol_forcing_data_field is None:
+            self.aerosol_forcing_data_field = np.zeros((self.spatial_resolution, time_len))
+
+        # Generate CO2 forcing field and extract latent trajectory
+        co2_forcing = self.create_co2_forcing()
+        self.co2_forcing_data_field = co2_forcing
+        self.co2_latent_trajectory = co2_forcing.mean(axis=0)  # shape: (time,)
+
+        logger.info(
+            f"[FORCING TRAJ] Generated CO2 latent trajectory: shape {self.co2_latent_trajectory.shape}, "
+            f"range [{self.co2_latent_trajectory.min():.4f}, {self.co2_latent_trajectory.max():.4f}]"
+        )
+
+        # Generate aerosol forcing field and extract latent trajectories via template projection
+        aerosol_forcing = self.create_aerosol_forcing()
+        self.aerosol_forcing_data_field = aerosol_forcing
+
+        n_aerosol_latents = len(self.forcing_indices.get("aerosol", []))
+
+        if n_aerosol_latents > 0 and self.aerosol_spatial_templates is not None:
+            aerosol_latents = np.zeros((n_aerosol_latents, time_len))
+            for i in range(n_aerosol_latents):
+                template = self.aerosol_spatial_templates[i]  # (spatial_resolution,)
+                # Inner product of template with forcing field at each timestep
+                aerosol_latents[i] = template @ aerosol_forcing  # (time,)
+            self.aerosol_latent_trajectory = aerosol_latents
+
+            logger.info(
+                f"[FORCING TRAJ] Generated aerosol latent trajectories: shape {self.aerosol_latent_trajectory.shape}"
+            )
+            for i in range(n_aerosol_latents):
+                logger.debug(
+                    f"  Aerosol latent {i}: range [{aerosol_latents[i].min():.4f}, {aerosol_latents[i].max():.4f}]"
+                )
+        else:
+            self.aerosol_latent_trajectory = None
+            if n_aerosol_latents > 0:
+                logger.info(
+                    f"[FORCING TRAJ] Warning: {n_aerosol_latents} aerosol latents configured but no spatial templates"
+                )
+
+        # Store combined forcing field for diagnostics (but DON'T add to data_field)
+        self.forcing_data_field = co2_forcing + aerosol_forcing
 
     def _create_linear(self):
-        """Weights N \times L data_field L \times T."""
-        weights = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1))
-        # weights_inv = np.linalg.pinv(weights)
+        """
+        Create linear SAVAR dynamics with forcing in the dynamics equation:
+
+        z_j(t) = sum_{k,τ} P_climate[j,k,τ] · z_k(t-τ) + sum_{f,τ} P_forcing[j,f,τ] · forcing_f(t-τ) + N_j(t)
+        S_t = W^{-1} · z(t)
+
+        where:
+        - W is the mixing matrix (mode_weights)
+        - P_climate is the climate-to-climate transition matrix
+        - P_forcing is the forcing-to-climate transition matrix
+        - forcing_f are exogenous forcing latent trajectories (CO2, aerosol)
+        - N_t ~ N(0, s·W·W^T) is the noise at each timestep
+        - The sum of all links (climate + forcing) equals 1 for each target mode
+        """
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        weights_inv = torch.Tensor(np.linalg.pinv(weights)).to(device=dev)
-        weights = torch.Tensor(weights).to(device=dev)
-        time_len = deepcopy(self.time_length)
-        time_len += self.transient
+        dtype = torch.float32
+
+        weights = deepcopy(self.mode_weights.reshape(self.n_climate_modes, -1))
+        weights_inv = torch.tensor(np.linalg.pinv(weights), device=dev, dtype=dtype)
+        weights_torch = torch.tensor(weights, device=dev, dtype=dtype)
+
+        time_len = self.time_length + self.transient
         tau_max = self.tau_max
 
-        # phi = dict_to_matrix(self.links_coeffs)
-        phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device=dev)
-        # Only use climate mode dynamics (forcing is applied separately via _apply_causal_forcing)
-        phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
-        # data_field = deepcopy(self.data_field)
-        data_field = torch.Tensor(self.data_field).to(device=dev)
+        # Get full transition matrix
+        phi_full_np = dict_to_matrix(self.links_coeffs)
 
-        print("create_linear")
+        # Extract climate-to-climate submatrix
+        phi_climate_np = phi_full_np[: self.n_climate_modes, : self.n_climate_modes, :]
+
+        # Check if we have forcing
+        has_forcing = self.forcing_indices is not None and self.co2_latent_trajectory is not None
+
+        if has_forcing:
+            # Extract forcing-to-climate submatrix: phi_full[climate_targets, forcing_sources, :]
+            phi_forcing_np = phi_full_np[: self.n_climate_modes, self.n_climate_modes :, :]
+
+            # Normalize both climate and forcing coefficients together
+            phi_climate_np, phi_forcing_np = normalize_transition_with_forcing(
+                phi_climate_np, phi_forcing_np, self.n_climate_modes
+            )
+            phi_forcing = torch.tensor(phi_forcing_np, device=dev, dtype=dtype)
+
+            # Prepare forcing latent trajectories
+            co2_latent = torch.tensor(self.co2_latent_trajectory, device=dev, dtype=dtype)
+
+            # Concatenate all forcing latents: (n_forcing, time)
+            if self.aerosol_latent_trajectory is not None:
+                aerosol_latent = torch.tensor(self.aerosol_latent_trajectory, device=dev, dtype=dtype)
+                forcing_latents = torch.cat(
+                    [co2_latent.unsqueeze(0), aerosol_latent], dim=0  # (1, time)  # (n_aerosol, time)
+                )
+            else:
+                forcing_latents = co2_latent.unsqueeze(0)  # (1, time)
+
+            logger.debug(f"[LINEAR] Forcing latents shape: {forcing_latents.shape}")
+            logger.debug(f"[LINEAR] Forcing coefficient matrix shape: {phi_forcing_np.shape}")
+        else:
+            # No forcing - use raw coefficients (already bounded < 1 by create_links_coeffs)
+            pass
+
+        phi_climate = torch.tensor(phi_climate_np, device=dev, dtype=dtype)
+
+        # Initialize data_field from existing (includes noise added by _add_noise_field)
+        data_field = torch.tensor(self.data_field, device=dev, dtype=dtype)
+
+        if has_forcing:
+            logger.info("create_linear (with forcing in dynamics: S_t = W^{-1}·(P_c·z + P_f·f))")
+        else:
+            logger.info("create_linear (no forcing: S_t = W^{-1}·P·W·S)")
+
         for t in tqdm(range(tau_max, time_len)):
+            # Climate-to-climate AR contribution: W^{-1} · P_climate · W · S_{t-τ:t-1}
+            ar_contribution = torch.zeros(self.spatial_resolution, 1, device=dev, dtype=dtype)
             for i in range(tau_max):
-                data_field[..., t : t + 1] += weights_inv @ phi[..., i] @ weights @ data_field[..., t - 1 - i : t - i]
-                # data_field[..., t:t + 1] += torch.matmul(torch.matmul(torch.matmul(weights_inv, phi[..., i]), weights), data_field[..., t - 1 - i:t - i])
+                ar_contribution += (
+                    weights_inv @ phi_climate[..., i] @ weights_torch @ data_field[..., t - 1 - i : t - i]
+                )
+
+            # Forcing-to-climate contribution (if forcing exists)
+            if has_forcing:
+                # Forcing contribution in latent space: P_forcing @ forcing_latents
+                forcing_contrib_latent = torch.zeros(self.n_climate_modes, 1, device=dev, dtype=dtype)
+                for i in range(tau_max):
+                    lag_idx = t - 1 - i
+                    if lag_idx >= 0:
+                        # phi_forcing: (n_climate, n_forcing, tau_max)
+                        # forcing_latents: (n_forcing, time)
+                        forcing_at_lag = forcing_latents[:, lag_idx].unsqueeze(1)  # (n_forcing, 1)
+                        forcing_contrib_latent += phi_forcing[..., i] @ forcing_at_lag
+
+                # Project forcing contribution to observation space: W^{-1} @ forcing_contrib
+                forcing_contrib_obs = weights_inv @ forcing_contrib_latent
+                ar_contribution += forcing_contrib_obs
+
+            # S_t = AR_contribution + forcing_contribution
+            # Noise is already in data_field (added before dynamics by _add_noise_field)
+            data_field[..., t : t + 1] += ar_contribution
 
         self.data_field = data_field[..., self.transient :].detach().cpu().numpy()
 
@@ -1014,84 +1250,191 @@ class SAVAR:
                 optimizer.step()
 
             if (epoch + 1) % 5 == 0:
-                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {sum(batch_losses)/len(batch_losses):.6f}")
+                logger.info(f"Epoch [{epoch+1}/{num_epochs}], Loss: {sum(batch_losses)/len(batch_losses):.6f}")
 
-        print("Training of single-layer NNAR model completed.")
+        logger.info("Training of single-layer NNAR model completed.")
 
     def _create_nonlinear(self):
         """
-        Generates nonlinear data by applying a (trained or simple) nonlinearity at each time step. This method uses the
-        same logic as _create_linear to step forward in time and adds the nonlinearity (sigmoid) before adding to
-        data_field.
+        Generates nonlinear SAVAR data with forcing in the dynamics equation:
 
-        If train_nnar=True was set, we assume self.nnar_model was trained in generate_data().
-        Otherwise, we can do a direct inline "torch.sigmoid(...)" approach.
-        Can be increased in complexity if needed
+        z_j(t) = tanh(sum_{k,τ} P_climate[j,k,τ] · z_k(t-τ)) + sum_{f,τ} P_forcing[j,f,τ] · forcing_f(t-τ) + N_j(t)
+        S_t = W^{-1} · z(t)
+
+        Note: The nonlinearity (tanh) is applied only to climate contributions.
+        Forcing contributions remain linear as they are exogenous inputs.
         """
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float32
 
-        weights = torch.Tensor(np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1))).to("cuda")
-        phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to("cuda")
-        # Only use climate mode dynamics (forcing is applied separately)
-        phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
-        mode_weights_tensor = torch.Tensor(self.mode_weights.reshape(self.n_climate_modes, -1)).to("cuda")
-        data_field = torch.Tensor(self.data_field).to("cuda")
+        weights_np = np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1))
+        weights_inv = torch.tensor(weights_np, device=dev, dtype=dtype)
+        mode_weights_tensor = torch.tensor(self.mode_weights.reshape(self.n_climate_modes, -1), device=dev, dtype=dtype)
 
         time_len = self.time_length + self.transient
         tau_max = self.tau_max
 
-        print("create_nonlinear (single-layer net + sigmoid)")
+        # Get full transition matrix
+        phi_full_np = dict_to_matrix(self.links_coeffs)
+
+        # Extract climate-to-climate submatrix
+        phi_climate_np = phi_full_np[: self.n_climate_modes, : self.n_climate_modes, :]
+
+        # Check if we have forcing
+        has_forcing = self.forcing_indices is not None and self.co2_latent_trajectory is not None
+
+        if has_forcing:
+            # Extract forcing-to-climate submatrix
+            phi_forcing_np = phi_full_np[: self.n_climate_modes, self.n_climate_modes :, :]
+
+            # Normalize both climate and forcing coefficients together
+            phi_climate_np, phi_forcing_np = normalize_transition_with_forcing(
+                phi_climate_np, phi_forcing_np, self.n_climate_modes
+            )
+            phi_forcing = torch.tensor(phi_forcing_np, device=dev, dtype=dtype)
+
+            # Prepare forcing latent trajectories
+            co2_latent = torch.tensor(self.co2_latent_trajectory, device=dev, dtype=dtype)
+
+            if self.aerosol_latent_trajectory is not None:
+                aerosol_latent = torch.tensor(self.aerosol_latent_trajectory, device=dev, dtype=dtype)
+                forcing_latents = torch.cat([co2_latent.unsqueeze(0), aerosol_latent], dim=0)
+            else:
+                forcing_latents = co2_latent.unsqueeze(0)
+
+            logger.debug(f"[NONLINEAR] Forcing latents shape: {forcing_latents.shape}")
+        else:
+            # No forcing - use raw coefficients (already bounded < 1 by create_links_coeffs)
+            pass
+
+        phi_climate = torch.tensor(phi_climate_np, device=dev, dtype=dtype)
+        data_field = torch.tensor(self.data_field, device=dev, dtype=dtype)
+
+        if has_forcing:
+            logger.info("create_nonlinear (with forcing: tanh(climate) + linear(forcing))")
+        else:
+            logger.info("create_nonlinear (no forcing: tanh(climate) + noise)")
 
         for t in tqdm(range(tau_max, time_len)):
-            # Sum up influences from each lag
-            nonlinear_contrib = 0.0
+            # Climate contribution with nonlinearity
+            nonlinear_contrib = torch.zeros(self.spatial_resolution, device=dev, dtype=dtype)
             for i in range(tau_max):
-                # get linear combination as in _create_linear
-                lincombo = weights @ phi[..., i] @ mode_weights_tensor @ data_field[..., (t - 1 - i) : (t - i)]
-                # Apply a sigmoid (or feed it through the small neural net if you want more complexity)
-                lincombo_nl = torch.sigmoid(lincombo)
-                # accumulate
+                lincombo = (
+                    weights_inv @ phi_climate[..., i] @ mode_weights_tensor @ data_field[..., (t - 1 - i) : (t - i)]
+                )
+                lincombo_nl = torch.tanh(lincombo)
                 nonlinear_contrib += lincombo_nl.squeeze(-1)
 
-            # Add the (nonlinear) effect to the data field at time t
+            # Forcing contribution (linear, exogenous)
+            if has_forcing:
+                forcing_contrib_latent = torch.zeros(self.n_climate_modes, 1, device=dev, dtype=dtype)
+                for i in range(tau_max):
+                    lag_idx = t - 1 - i
+                    if lag_idx >= 0:
+                        forcing_at_lag = forcing_latents[:, lag_idx].unsqueeze(1)
+                        forcing_contrib_latent += phi_forcing[..., i] @ forcing_at_lag
+
+                forcing_contrib_obs = weights_inv @ forcing_contrib_latent
+                nonlinear_contrib += forcing_contrib_obs.squeeze(-1)
+
+            # S_t = nonlinear_contribution + forcing_contribution
+            # Noise is already in data_field (added before dynamics by _add_noise_field)
             data_field[:, t] += nonlinear_contrib
 
         self.data_field = data_field[:, self.transient :].detach().cpu().numpy()
 
     def _create_polynomial(self):
-        """Example polynomial autoregression, e.g. x^2 for poly_degree=2."""
-        w_np = np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1))
-        phi_np_full = dict_to_matrix(self.links_coeffs)
-        # Only use climate mode dynamics (forcing is applied separately)
-        phi_np = phi_np_full[: self.n_climate_modes, : self.n_climate_modes, :]
+        """
+        Polynomial SAVAR dynamics with forcing in the dynamics equation:
 
-        # choose GPU if available, else CPU — and use float32 everywhere
+        z_j(t) = sum_deg (sum_{k,τ} P_climate[j,k,τ] · z_k(t-τ))^deg + sum_{f,τ} P_forcing[j,f,τ] · forcing_f(t-τ) + N_j(t)
+        S_t = W^{-1} · z(t)
+
+        Note: The polynomial nonlinearity is applied only to climate contributions.
+        Forcing contributions remain linear as they are exogenous inputs.
+        """
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.float32
+
+        w_np = np.linalg.pinv(self.mode_weights.reshape(self.n_climate_modes, -1))
         w_torch = torch.tensor(w_np, device=dev, dtype=dtype)
-        phi_torch = torch.tensor(phi_np, device=dev, dtype=dtype)
         mw_torch = torch.tensor(
             self.mode_weights.reshape(self.n_climate_modes, -1),
             device=dev,
             dtype=dtype,
         )
-        data_field = torch.tensor(self.data_field, device=dev, dtype=dtype)
 
         time_len = self.time_length + self.transient
         tau_max = self.tau_max
 
-        print(f"create_polynomial with degrees={self.poly_degrees}")
+        # Get full transition matrix
+        phi_full_np = dict_to_matrix(self.links_coeffs)
+
+        # Extract climate-to-climate submatrix
+        phi_climate_np = phi_full_np[: self.n_climate_modes, : self.n_climate_modes, :]
+
+        # Check if we have forcing
+        has_forcing = self.forcing_indices is not None and self.co2_latent_trajectory is not None
+
+        if has_forcing:
+            # Extract forcing-to-climate submatrix
+            phi_forcing_np = phi_full_np[: self.n_climate_modes, self.n_climate_modes :, :]
+
+            # Normalize both climate and forcing coefficients together
+            phi_climate_np, phi_forcing_np = normalize_transition_with_forcing(
+                phi_climate_np, phi_forcing_np, self.n_climate_modes
+            )
+            phi_forcing = torch.tensor(phi_forcing_np, device=dev, dtype=dtype)
+
+            # Prepare forcing latent trajectories
+            co2_latent = torch.tensor(self.co2_latent_trajectory, device=dev, dtype=dtype)
+
+            if self.aerosol_latent_trajectory is not None:
+                aerosol_latent = torch.tensor(self.aerosol_latent_trajectory, device=dev, dtype=dtype)
+                forcing_latents = torch.cat([co2_latent.unsqueeze(0), aerosol_latent], dim=0)
+            else:
+                forcing_latents = co2_latent.unsqueeze(0)
+
+            logger.debug(f"[POLYNOMIAL] Forcing latents shape: {forcing_latents.shape}")
+        else:
+            # No forcing - use raw coefficients (already bounded < 1 by create_links_coeffs)
+            pass
+
+        phi_climate = torch.tensor(phi_climate_np, device=dev, dtype=dtype)
+        data_field = torch.tensor(self.data_field, device=dev, dtype=dtype)
+
+        if has_forcing:
+            logger.info(
+                f"create_polynomial (with forcing: poly(climate) + linear(forcing) + noise) degrees={self.poly_degrees}"
+            )
+        else:
+            logger.info(f"create_polynomial (no forcing: poly(climate) + noise) degrees={self.poly_degrees}")
 
         for t in tqdm(range(tau_max, time_len)):
-            # For each time step, sum over the contributions of all lags
+            # Climate contribution with polynomial nonlinearity
+            poly_contrib = torch.zeros(self.spatial_resolution, device=dev, dtype=dtype)
             for i in range(tau_max):
-                lincombo = w_torch @ phi_torch[..., i] @ mw_torch @ data_field[..., (t - 1 - i) : (t - i)]
+                lincombo = w_torch @ phi_climate[..., i] @ mw_torch @ data_field[..., (t - 1 - i) : (t - i)]
 
                 # For each requested polynomial degree, add its effect
-                poly_sum = torch.zeros_like(lincombo)
                 for deg in self.poly_degrees:
-                    poly_sum += lincombo**deg
+                    poly_contrib += (lincombo**deg).squeeze(-1)
 
-                data_field[:, t] += poly_sum.squeeze(-1)
+            # Forcing contribution (linear, exogenous)
+            if has_forcing:
+                forcing_contrib_latent = torch.zeros(self.n_climate_modes, 1, device=dev, dtype=dtype)
+                for i in range(tau_max):
+                    lag_idx = t - 1 - i
+                    if lag_idx >= 0:
+                        forcing_at_lag = forcing_latents[:, lag_idx].unsqueeze(1)
+                        forcing_contrib_latent += phi_forcing[..., i] @ forcing_at_lag
+
+                forcing_contrib_obs = w_torch @ forcing_contrib_latent
+                poly_contrib += forcing_contrib_obs.squeeze(-1)
+
+            # S_t = polynomial_contribution + forcing_contribution
+            # Noise is already in data_field (added before dynamics by _add_noise_field)
+            data_field[:, t] += poly_contrib
 
         self.data_field = data_field[:, self.transient :].detach().cpu().numpy()
 
@@ -1114,7 +1457,7 @@ class SAVAR:
 
         # phi = dict_to_matrix(self.links_coeffs)
         phi_full = torch.Tensor(dict_to_matrix(self.links_coeffs)).to(device="cuda")
-        # Only use climate mode dynamics (forcing is applied separately via _apply_causal_forcing)
+        # Only use climate mode dynamics (forcing latents handled separately)
         phi = phi_full[: self.n_climate_modes, : self.n_climate_modes, :]
         # data_field = deepcopy(self.data_field)
         next_step = torch.zeros(self.spatial_resolution).to(device="cuda")

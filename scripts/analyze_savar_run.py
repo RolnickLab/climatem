@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Post-hoc analysis of a trained SAVAR experiment.
+
+Loads a trained LatentTSDCD model checkpoint and its SAVAR dataset, then
+produces diagnostic plots and metrics (causal graph recovery, forcing
+latent correlations, mode weight analysis).
+"""
 
 import argparse
 import os

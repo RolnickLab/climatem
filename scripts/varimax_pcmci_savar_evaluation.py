@@ -1,4 +1,16 @@
+"""Baseline evaluation of causal discovery using PCMCI with Varimax-PCA preprocessing.
+
+This script provides a baseline comparison for the ClimatEM causal discovery
+model.  It applies Varimax-rotated PCA to extract latent modes from synthetic
+SAVAR data and then runs PCMCI (Runge et al., 2019) to infer causal links.
+The inferred adjacency matrix is compared against the known ground-truth
+structure using precision, recall, F1, and SHD.
+
+The script also loads results from the ClimatEM model (CDSD) for side-by-side
+comparison.
+"""
 import json
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,21 +29,30 @@ from tigramite.independence_tests.parcorr import ParCorr
 from tigramite.pcmci import PCMCI
 from tqdm.auto import tqdm
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 parcorr = ParCorr(significance="analytic")
 
 
 def extract_adjacency_matrix(links_coeffs, N, tau):
-    """
-    Extract the ground truth adjacency matrices for each time lag from the links_coeffs.
+    """Extract ground-truth adjacency matrices for each time lag.
 
-    Args:
-        links_coeffs (dict): The dictionary of causal links between latent variables.
-        N (int): The number of latent variables.
-        tau (int): The maximum time lag.
+    Parameters
+    ----------
+    links_coeffs : dict
+        Dictionary mapping each latent variable index to a list of
+        ``((target_var, lag), coefficient)`` tuples describing causal links.
+    N : int
+        Number of latent variables.
+    tau : int
+        Maximum time lag to consider.
 
-    Returns:
-        adj_matrices (np.ndarray): The ground truth adjacency matrices (tau x N x N),
-                                where each matrix corresponds to a different time lag.
+    Returns
+    -------
+    adj_matrices : np.ndarray
+        Binary adjacency matrices with shape ``(tau, N, N)`` where entry
+        ``[t, i, j]`` is 1 if variable *j* causes variable *i* at lag *t+1*.
     """
     # Initialize a 3D array to store adjacency matrices for each time lag (tau x N x N)
     adj_matrices = np.zeros((tau, N, N))
@@ -54,8 +75,25 @@ def extract_adjacency_matrix(links_coeffs, N, tau):
 
 
 def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
-    """Evaluates the precision, recall, F1-score, and Structural Hamming Distance (SHD) between the inferred and ground
-    truth adjacency matrices."""
+    """Evaluate precision, recall, F1-score, and SHD between two adjacency matrices.
+
+    Parameters
+    ----------
+    A_inferred : np.ndarray
+        Inferred adjacency matrix (may be real-valued).
+    A_ground_truth : np.ndarray
+        Ground-truth adjacency matrix (may be real-valued).
+    threshold : float
+        Threshold for binarising both matrices before comparison.
+
+    Returns
+    -------
+    precision : float
+    recall : float
+    f1 : float
+    shd : int
+        Structural Hamming Distance (false positives + false negatives).
+    """
     # Binarize the matrices before comparison
     A_inferred_bin = binarize_matrix(A_inferred, threshold)
     A_ground_truth_bin = binarize_matrix(A_ground_truth, threshold)
@@ -77,45 +115,49 @@ def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
     return precision, recall, f1, shd
 
 
-def extract_adjacency_matrix(links_coeffs, N, tau):
-    """
-    Extract the ground truth adjacency matrices for each time lag from the links_coeffs.
-
-    Args:
-        links_coeffs (dict): The dictionary of causal links between latent variables.
-        N (int): The number of latent variables.
-        tau (int): The maximum time lag.
-
-    Returns:
-        adj_matrices (np.ndarray): The ground truth adjacency matrices (tau x N x N),
-                                where each matrix corresponds to a different time lag.
-    """
-    # Initialize a 3D array to store adjacency matrices for each time lag (tau x N x N)
-    adj_matrices = np.zeros((tau, N, N))
-
-    # Loop through each component and its links
-    for key, values in links_coeffs.items():
-        for link, coeff in values:
-            target_var, lag = link
-            time_lag = -lag  # Convert the negative lag to a positive index
-            # Only consider lags that are within the specified time window (tau)
-            if time_lag <= tau:
-                if abs(coeff) > 0.01:
-                    adj_matrices[time_lag - 1, key, target_var] = (
-                        1  # Fill the adjacency matrix at the appropriate time lag
-                    )
-                else:
-                    adj_matrices[time_lag - 1, key, target_var] = 0
-
-    return adj_matrices
-
-
 def binarize_matrix(A, threshold=0.5):
-    """Binarizes the adjacency matrix by applying a threshold."""
+    """Binarise an adjacency matrix by applying a threshold.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Real-valued adjacency matrix.
+    threshold : float
+        Values strictly above this are set to 1; all others to 0.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array with values in {0, 1}.
+    """
     return (A > threshold).astype(int)
 
 
 def varimax(Phi, gamma=1, q=20, tol=1e-6):
+    """Compute the Varimax rotation of a factor loading matrix.
+
+    Implements the standard Varimax criterion (Kaiser, 1958) via SVD-based
+    iterative optimisation.
+
+    Parameters
+    ----------
+    Phi : np.ndarray
+        Factor loading matrix of shape ``(p, k)`` where *p* is the number of
+        observed variables and *k* is the number of factors.
+    gamma : float, optional
+        Rotation parameter. ``gamma=1`` gives standard Varimax.
+    q : int, optional
+        Maximum number of iterations.
+    tol : float, optional
+        Convergence tolerance (ratio of successive singular-value sums).
+
+    Returns
+    -------
+    rotated : np.ndarray
+        Rotated loading matrix ``Phi @ R``.
+    R : np.ndarray
+        Orthogonal rotation matrix.
+    """
     p, k = Phi.shape
     R = eye(k)
     d = 0
@@ -131,7 +173,6 @@ def varimax(Phi, gamma=1, q=20, tol=1e-6):
 
 
 if __name__ == "__main__":
-
 
     # load your existing JSON config
     config_path = Path("configs/single_param_file_savar.json")
@@ -158,79 +199,27 @@ if __name__ == "__main__":
     for k in range(n_modes):
         var_names.append(rf"$X^{k}$")
 
+    # NOTE: Adjust these paths to match your local environment.
     savar_folder = "/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST"
     # Load gt mode weights
     savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
     # Get the gt mode weights
     modes_gt = np.load(savar_folder + f"/{savar_fname}_mode_weights.npy")
 
-    #savar_data = np.load(savar_folder / savar_fname)
     params_file = savar_folder + f"/{savar_fname}_parameters.npy"
     params = np.load(params_file, allow_pickle=True).item()
     links_coeffs = params["links_coeffs"]
 
-    # modes_gt = np.load(savar_folder / f"{savar_fname[:-4]}_mode_weights.npy")
-    # modes_gt -= modes_gt.mean()
-    # modes_gt /= modes_gt.std()
-
     adj_gt = extract_adjacency_matrix(links_coeffs, n_modes, tau)
     n_gt_connections = (np.array(adj_gt) > 0).sum()
 
-    # load CDSD results (already permuted / aligned)
+    # NOTE: Adjust these paths to match your local environment.
     cdsd_adj_inferred_path = Path("/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True/plots/graphs.npy")
     cdsd_modes_inferred_path = Path("/home/ka/ka_iti/ka_qa4548/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True/plots/w_decoder.npy")
     modes_inferred = np.load(cdsd_modes_inferred_path)
     adj_w = np.load(cdsd_adj_inferred_path)
 
-    ############################
-
-    # # Fit PCA + varimax
-    # pca_model = PCA(n_modes).fit(savar_data.T)
-    # latent_data = pca_model.transform(savar_data.T)
-    # varimaxpcs, varimax_rotation = varimax(latent_data)
-
-    # # To recover which mode is which and permute accordingly when evaluating
-    # inverse_varimax = dot(latent_data, np.linalg.pinv(varimax_rotation))
-    # reverted_data = pca_model.inverse_transform(inverse_varimax)
-
-    # dataframe = pp.DataFrame(varimaxpcs, datatime={0: np.arange(len(varimaxpcs))}, var_names=var_names)
-    # # Run PCMCI
-    # pcmci = PCMCI(dataframe=dataframe, cond_ind_test=parcorr, verbosity=1)
-
-    # results = pcmci.run_pcmci(tau_min=1, tau_max=5, pc_alpha=None, alpha_level=0.001)
-
-    # Permute accordingly before evaluating learned graph.
-    # individual_modes = np.zeros((n_modes, time_len, lat, lon))
-    # for k in range(n_modes):
-    #     latent_data_bis = np.zeros(latent_data.shape)
-    #     latent_data_bis[:, k] = latent_data[:, k]
-    #     inverse_varimax = dot(latent_data_bis, np.linalg.pinv(varimax_rotation))
-    #     reverted_data = pca_model.inverse_transform(inverse_varimax)
-    #     individual_modes[k] = reverted_data.reshape((-1, lat, lon))
-    # individual_modes = individual_modes.std(1)
-    # individual_modes -= individual_modes.mean()
-    # individual_modes /= individual_modes.std()
-
-    # permutation_list = ((modes_gt[:, None] - individual_modes[None]) ** 2).sum((2, 3)).argmin(1)
-
-    # # Get adjacency matrix from PCMCI graph
-    # graph = results["graph"]
-    # graph[
-    #     results["val_matrix"]
-    #     < np.abs(results["val_matrix"].flatten()[results["val_matrix"].flatten().argsort()[::-1][n_gt_connections - 1]])
-    # ] = ""
-
-    # adj_matrix_inferred = np.zeros((tau, n_modes, n_modes))
-    # for k in range(n_modes):
-    #     graph_k = graph[k]
-    #     for j in range(n_modes):
-    #         adj_matrix_inferred[:, k, j] = graph_k[j][1:] == "-->"
-
-    # for k in range(tau):
-    #     adj_matrix_inferred[k] = adj_matrix_inferred[k][np.ix_(permutation_list, permutation_list)]
-    # adj_matrix_inferred = adj_matrix_inferred.transpose((0, 2, 1))
-
-    # Find the permutation 
+    # Find the permutation
     modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
 
     # Get the flat index of the maximum for each mode
@@ -243,15 +232,15 @@ if __name__ == "__main__":
 
     # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
     permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
-    print("permutation_list:", permutation_list)
+    logger.info("permutation_list: %s", permutation_list)
 
-    # Permute 
+    # Permute
     for k in range(tau):
         adj_w[k] = adj_w[k][np.ix_(permutation_list, permutation_list)]
 
-    print("PERMUTED THE MATRICES")
+    logger.info("PERMUTED THE MATRICES")
 
     precision, recall, f1, shd = evaluate_adjacency_matrix(adj_w, adj_gt, 0.9)
 
-    print(f"difficuly {difficulty} results:")
-    print(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
+    logger.info("difficulty %s results:", difficulty)
+    logger.info("Precision: %s, Recall: %s, F1 Score: %s, SHD: %s", precision, recall, f1, shd)

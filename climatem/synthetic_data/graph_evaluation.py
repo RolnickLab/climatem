@@ -1,4 +1,13 @@
+"""
+Evaluation utilities for comparing learned causal graphs against ground truth.
+
+Provides functions to compute standard causal-discovery metrics -- Structural Hamming Distance (SHD), precision, recall,
+and F1 -- between inferred and ground-truth adjacency matrices.  Also includes helpers for permuting matrices to align
+latent orderings, plotting adjacency heatmaps, and extracting human-readable latent equations from adjacency structures.
+"""
+
 import json
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -7,9 +16,32 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import f1_score, precision_score, recall_score
 
+logger = logging.getLogger(__name__)
+
 
 def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
+    """
+    Find the permutation that best aligns inferred modes to ground-truth modes.
 
+    Alignment is based on the 2-D grid location of the maximum value of each
+    spatial mode.  The permutation minimises the sum of squared Euclidean
+    distances between the peak locations of ground-truth and inferred modes.
+
+    Parameters
+    ----------
+    mat_adj_w : np.ndarray
+        Inferred mode weight matrix, shape ``(lat*lon, n_modes)``.
+    modes_gt : np.ndarray
+        Ground-truth mode weights, shape ``(n_modes, lat, lon)``.
+    lat, lon : int
+        Spatial grid dimensions.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of length ``n_modes`` mapping each ground-truth mode
+        index to the best-matching inferred mode index.
+    """
     mat_adj_w = mat_adj_w.reshape((lat, lon, mat_adj_w.shape[1])).transpose((2, 0, 1))
 
     idx_gt = np.where(modes_gt == modes_gt.max((1, 2))[:, None, None])
@@ -25,7 +57,28 @@ def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
 
 
 def get_permutation_list_hardcoded_100(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
+    """
+    Compute mode permutation for exactly 100 modes on a 10x10 spatial grid.
 
+    This is a specialised (and possibly dead-code) variant of
+    ``get_permutation_list`` that assumes 100 modes laid out on a 10x10 grid
+    of 10x10 spatial patches.  Each mode is matched by finding the maximum
+    activation within its expected patch.
+
+    Parameters
+    ----------
+    mat_adj_w : np.ndarray
+        Inferred mode weight matrix, shape ``(lat*lon, 100)``.
+    modes_gt : np.ndarray
+        Ground-truth mode weights, shape ``(100, lat, lon)``.
+    lat, lon : int
+        Spatial grid dimensions (expected to be 100 each).
+
+    Returns
+    -------
+    list of int
+        Permutation mapping ground-truth mode indices to inferred mode indices.
+    """
     mat_adj_w = mat_adj_w.reshape((lat, lon, mat_adj_w.shape[1])).transpose((2, 0, 1))
 
     permutation_list = []
@@ -93,19 +146,33 @@ def load_and_permute_all_matrices(modes_inferred, modes_gt, adj_w, adj_gt, lat, 
 
     # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
     permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
-    print("permutation_list:", permutation_list)
+    logger.info("permutation_list: %s", permutation_list)
 
     # Permute
     for k in range(tau):
         adj_w[k] = adj_w[k][np.ix_(permutation_list, permutation_list)]
 
-    print("PERMUTED THE MATRICES")
+    logger.info("PERMUTED THE MATRICES")
 
     return adj_w
 
 
 def binarize_matrix(A, threshold=0.5):
-    """Binarizes the adjacency matrix by applying a threshold."""
+    """
+    Binarise an adjacency matrix by applying a threshold.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Real-valued adjacency matrix.
+    threshold : float
+        Values strictly above this become 1; all others become 0.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array with values in {0, 1}.
+    """
     return (A > threshold).astype(int)
 
 
@@ -285,7 +352,7 @@ def plot_adjacency_with_forcing_labels(
     plt.savefig(Path(path) / f"{name}.png", dpi=150)
     plt.close()
 
-    print(f"Saved labeled adjacency plot to {Path(path) / name}.png")
+    logger.info(f"Saved labeled adjacency plot to {Path(path) / name}.png")
 
 
 def plot_adjacency_all_lags_with_labels(
@@ -367,15 +434,35 @@ def plot_adjacency_all_lags_with_labels(
     plt.savefig(Path(path) / f"{name}.png", dpi=150)
     plt.close()
 
-    print(f"Saved multi-lag adjacency plot to {Path(path) / name}.png")
+    logger.info(f"Saved multi-lag adjacency plot to {Path(path) / name}.png")
 
 
 def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
-    """Evaluates the precision, recall, F1-score, and Structural Hamming Distance (SHD) between the inferred and ground
-    truth adjacency matrices."""
+    """
+    Evaluate precision, recall, F1, and SHD between inferred and ground-truth graphs.
+
+    Both matrices are binarised with the given *threshold* before comparison.
+
+    Parameters
+    ----------
+    A_inferred : np.ndarray
+        Inferred adjacency matrix (possibly real-valued).
+    A_ground_truth : np.ndarray
+        Ground-truth adjacency matrix.
+    threshold : float
+        Values strictly above this become 1; all others become 0.
+
+    Returns
+    -------
+    precision : float
+    recall : float
+    f1 : float
+    shd : int
+        Structural Hamming Distance (false positives + false negatives).
+    """
     # Binarize the matrices before comparison
     A_inferred_bin = binarize_matrix(A_inferred, threshold)
-    print(f"N inferred links: {A_inferred_bin.sum()}")
+    logger.info(f"N inferred links: {A_inferred_bin.sum()}")
     A_ground_truth_bin = binarize_matrix(A_ground_truth, threshold)
 
     # Flatten the matrices to make comparison easier
@@ -468,7 +555,22 @@ def evaluate_adjacency_by_link_type(A_inferred, A_ground_truth, threshold, forci
 
 
 def _compute_metrics(inferred_flat, gt_flat):
-    """Helper function to compute precision, recall, F1, SHD from flattened arrays."""
+    """
+    Compute precision, recall, F1, and SHD from flattened binary arrays.
+
+    Parameters
+    ----------
+    inferred_flat : np.ndarray
+        Flattened binary inferred adjacency values.
+    gt_flat : np.ndarray
+        Flattened binary ground-truth adjacency values.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys ``'precision'``, ``'recall'``, ``'f1'``,
+        ``'shd'``, and ``'n_gt_links'``.
+    """
     if len(inferred_flat) == 0:
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
 
@@ -494,20 +596,28 @@ def _compute_metrics(inferred_flat, gt_flat):
 
 
 def print_evaluation_by_link_type(results):
-    """Pretty print evaluation results by link type."""
-    print(f"\n{'=' * 70}")
-    print("EVALUATION BY LINK TYPE")
-    print("=" * 70)
+    """
+    Log evaluation metrics grouped by causal link type.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary returned by ``evaluate_adjacency_by_link_type``, mapping
+        link-type names (e.g. ``'climate_to_climate'``) to metric dicts.
+    """
+    logger.info("\n%s", "=" * 70)
+    logger.info("EVALUATION BY LINK TYPE")
+    logger.info("=" * 70)
 
     for link_type, metrics in results.items():
-        print(f"\n{link_type.upper().replace('_', ' ')}:")
-        print(f"  GT links: {metrics['n_gt_links']}")
-        print(f"  Precision: {metrics['precision']:.3f}")
-        print(f"  Recall:    {metrics['recall']:.3f}")
-        print(f"  F1:        {metrics['f1']:.3f}")
-        print(f"  SHD:       {metrics['shd']}")
+        logger.info("\n%s:", link_type.upper().replace("_", " "))
+        logger.info("  GT links: %s", metrics["n_gt_links"])
+        logger.info("  Precision: %.3f", metrics["precision"])
+        logger.info("  Recall:    %.3f", metrics["recall"])
+        logger.info("  F1:        %.3f", metrics["f1"])
+        logger.info("  SHD:       %s", metrics["shd"])
 
-    print(f"\n{'=' * 70}")
+    logger.info("\n%s", "=" * 70)
 
 
 def extract_adjacency_matrix(links_coeffs, N, tau):
@@ -527,23 +637,38 @@ def extract_adjacency_matrix(links_coeffs, N, tau):
     adj_matrices = np.zeros((tau, N, N))
 
     # Loop through each component and its links
-    for key, values in links_coeffs.items():
+    for target, values in links_coeffs.items():
         for link, coeff in values:
-            target_var, lag = link
+            source, lag = link
             time_lag = -lag  # Convert the negative lag to a positive index
             # Only consider lags that are within the specified time window (tau)
             if time_lag <= tau:
                 if abs(coeff) > 0.01:
-                    adj_matrices[time_lag - 1, key, target_var] = (
+                    adj_matrices[time_lag - 1, target, source] = (
                         1  # Fill the adjacency matrix at the appropriate time lag
                     )
                 else:
-                    adj_matrices[time_lag - 1, key, target_var] = 0
+                    adj_matrices[time_lag - 1, target, source] = 0
 
     return adj_matrices
 
 
 def extract_latent_equations(links_coeffs):
+    """
+    Convert a ``links_coeffs`` dictionary into human-readable latent equations.
+
+    Parameters
+    ----------
+    links_coeffs : dict
+        Mapping from latent variable index to a list of
+        ``((linked_var, lag), coefficient)`` tuples.
+
+    Returns
+    -------
+    dict
+        Mapping from latent variable index to a string equation, e.g.
+        ``"L0(t) = 0.5 * L1(t - 1) + 0.3 * L0(t - 2)"``.
+    """
     equations = {}
 
     for latent_var, links in links_coeffs.items():
@@ -559,6 +684,21 @@ def extract_latent_equations(links_coeffs):
 
 
 def extract_equations_from_adjacency(adj_matrices):
+    """
+    Derive human-readable latent equations from a stack of adjacency matrices.
+
+    Parameters
+    ----------
+    adj_matrices : np.ndarray
+        Adjacency matrices with shape ``(num_lags, num_latents, num_latents)``.
+        Non-zero entries indicate a causal link.
+
+    Returns
+    -------
+    dict
+        Mapping from latent variable index to a string equation built from
+        the non-zero entries of the adjacency matrices across all lags.
+    """
     num_lags, num_latents, _ = adj_matrices.shape  # 5 lags, 16 latents
 
     equations = {}
@@ -603,13 +743,26 @@ def main(csv_file, permutation):
 
 
 def save_equations_to_json(equations, filename):
+    """
+    Serialise a dictionary of latent equations to a JSON file.
+
+    Parameters
+    ----------
+    equations : dict
+        Mapping from latent variable index to equation string.
+    filename : str or Path
+        Destination file path.
+    """
     with open(filename, "w") as json_file:
         json.dump(equations, json_file, indent=4)
-    print(f"Equations saved to {filename}")
+    logger.info(f"Equations saved to {filename}")
 
 
 # Example usage:
+# NOTE: The paths below are hardcoded to a specific user/cluster environment.
+#       Adjust savar_path, results_path, and config_path to match your setup.
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
 
     threshold = 0.5
 
@@ -687,7 +840,7 @@ if __name__ == "__main__":
     )
 
     precision, recall, f1, shd = evaluate_adjacency_matrix(permuted_matrices, gt_adj_list, threshold)
-    print(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
+    logger.info(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
     results = {"precision": precision, "recall": recall, "f1_score": f1, "shd": shd}
     # Save results as a JSON file
     json_filename = result_folder / f"thr_{threshold}_evaluation_results.json"

@@ -63,7 +63,7 @@ class CausalClimateDataModule(ClimateDataModule):
     """
 
     def __init__(self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
-        super().__init__(self)
+        super().__init__(**kwargs)
 
         # kwargs are initialized as self.hparams by the Lightning module
         # WHat is this line? We cannot have different test vs train models
@@ -124,6 +124,11 @@ class CausalClimateDataModule(ClimateDataModule):
                     n_per_col=self.hparams.n_per_col,
                     difficulty=self.hparams.difficulty,
                     seasonality=self.hparams.seasonality,
+                    periods=self.hparams.periods,
+                    amplitudes=self.hparams.amplitudes,
+                    phases=self.hparams.phases,
+                    yearly_jitter_amp=self.hparams.yearly_jitter_amp,
+                    yearly_jitter_phase=self.hparams.yearly_jitter_phase,
                     overlap=self.hparams.overlap,
                     is_forced=self.hparams.is_forced,
                     f_1=self.hparams.f_1,
@@ -135,11 +140,25 @@ class CausalClimateDataModule(ClimateDataModule):
                     poly_degrees=self.hparams.poly_degrees,
                     plot_original_data=self.hparams.plot_original_data,
                     use_separate_forcings=self.hparams.use_separate_forcings,
+                    forcing_amplification=self.hparams.forcing_amplification,
+                    forcing_conditioning=self.hparams.forcing_conditioning,
                     aerosol_scale=self.hparams.aerosol_scale,
                     aerosol_spatial_contrast=self.hparams.aerosol_spatial_contrast,
                     aerosol_ramp_up_time=self.hparams.aerosol_ramp_up_time,
                     aerosol_peak_time=self.hparams.aerosol_peak_time,
                     aerosol_decline_time=self.hparams.aerosol_decline_time,
+                    n_co2_latents=self.hparams.n_co2_latents,
+                    n_aerosol_latents=self.hparams.n_aerosol_latents,
+                    co2_effect_strength=self.hparams.co2_effect_strength,
+                    aerosol_effect_strength=self.hparams.aerosol_effect_strength,
+                    noise_ar1=self.hparams.noise_ar1,
+                    noise_ar1_rho=self.hparams.noise_ar1_rho,
+                    enable_background=self.hparams.enable_background,
+                    background_strength=self.hparams.background_strength,
+                    background_strength_mode=self.hparams.background_strength_mode,
+                    background_smoothness=self.hparams.background_smoothness,
+                    background_timescale_rho=self.hparams.background_timescale_rho,
+                    background_n_modes=self.hparams.background_n_modes,
                 )
             elif (
                 "tas" in self.hparams.in_var_ids
@@ -228,6 +247,7 @@ class CausalClimateDataModule(ClimateDataModule):
                 self.savar_gt_modes = train_val_input4mips.gt_modes
                 self.savar_gt_noise = train_val_input4mips.gt_noise
                 self.savar_gt_adj = train_val_input4mips.gt_adj
+                self.forcing_indices = getattr(train_val_input4mips, "forcing_indices", None)
                 # Store reference to SAVAR instance for later plotting
                 self.savar = train_val_input4mips
 

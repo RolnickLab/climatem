@@ -1,12 +1,16 @@
-# Adapting to do training across multiple GPUs with huggingface accelerate.
+"""
+Training loop for LatentTSDCD using the Augmented Lagrangian Method (ALM).
+
+This module implements the full training pipeline for the LatentTSDCD causal discovery model, including multi-phase
+training (encoder/decoder warmup followed by joint optimization with causal graph learning), ALM-based constrained
+optimization (orthogonality, sparsity, and acyclicity constraints), loss computation (ELBO, CRPS, spectral losses,
+forcing losses), validation, checkpoint saving, and integration with HuggingFace Accelerate for distributed training.
+"""
+
 import numpy as np
 import torch
 import torch.distributions as dist
-
-# we use accelerate for distributed training
 from geopy import distance
-
-# from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import ProfilerActivity
 
 from climatem.model.dag_optim import compute_dag_constraint
@@ -14,11 +18,66 @@ from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
 from climatem.plotting.plot_savar_output import SavarPlotter
+from climatem.utils import get_logger
 
+logger = get_logger(__name__)
+
+# Euler-Mascheroni constant, used in Gumbel distribution CDF for GEV loss computation (duplicated from tsdcd_latent.py)
 euler_mascheroni = 0.57721566490153286060
 
 
 class TrainingLatent:
+    """
+    Training wrapper for the LatentTSDCD causal discovery model.
+
+    This class manages the complete training loop for causal discovery with
+    latent variables, including data loading, loss computation, validation,
+    plotting, and checkpoint saving.
+
+    Training proceeds in two phases:
+
+    - **Phase 1** (first ``patience`` iterations): Only the encoder and decoder
+      are optimized, allowing the autoencoder to learn meaningful latent
+      representations before introducing causal graph learning.
+    - **Phase 2** (remaining iterations): Joint optimization of the encoder,
+      decoder, and the learnable causal graph structure. ALM constraints
+      (orthogonality on decoder weights, sparsity on the adjacency matrix,
+      and optionally acyclicity for instantaneous connections) are gradually
+      enforced via penalty terms and Lagrange multipliers with automatic
+      mu (penalty weight) scaling.
+
+    Once all ALM constraints converge, training continues without penalties
+    until validation loss patience is exhausted, at which point the learned
+    adjacency matrix is thresholded to a binary graph and training resumes
+    briefly for fine-tuning.
+
+    Parameters
+    ----------
+    model : LatentTSDCD
+        The causal discovery model to train.
+    datamodule : CausalClimateDataModule
+        Provides train and validation dataloaders.
+    data_params, exp_params, gt_params, model_params, train_params,
+    optim_params, plot_params, savar_params : dataclass
+        Configuration parameter objects (see ``climatem.config``).
+    save_path : pathlib.Path
+        Directory for model checkpoints and intermediate outputs.
+    plots_path : pathlib.Path
+        Directory for training visualizations.
+    best_metrics : dict
+        Dictionary to store best validation metrics.
+    d : int
+        Number of observed climate variables.
+    accelerator : accelerate.Accelerator
+        HuggingFace Accelerate instance for distributed training.
+    wandbname : str, optional
+        Name for the Weights & Biases run.
+    profiler : bool, optional
+        Whether to enable PyTorch profiling.
+    profiler_path : str, optional
+        Output path for profiler traces.
+    """
+
     def __init__(
         self,
         model,
@@ -40,7 +99,7 @@ class TrainingLatent:
         profiler=False,
         profiler_path="./log",
     ):
-        # TODO: do we want to have the profiler as an argument? Maybe not, but useful to speed up the code
+        # TODO(dev): Consider whether profiler should be a constructor arg or a separate config option
         self.accelerator = accelerator
         self.model = model
         self.model.to(accelerator.device)
@@ -138,18 +197,12 @@ class TrainingLatent:
         # Automatically use SavarPlotter for SAVAR synthetic data, otherwise use standard Plotter
         if plot_params.savar:
             self.plotter = SavarPlotter()
-            print("Using SavarPlotter for synthetic SAVAR data visualization")
+            logger.info("Using SavarPlotter for synthetic SAVAR data visualization")
         else:
             self.plotter = Plotter()
-            print("Using standard Plotter for climate data visualization")
+            logger.info("Using standard Plotter for climate data visualization")
 
-        # if MULTI_GPU:
-        #     print("I am using multiple GPUs!!")
-        #     # setup_ddp()
-        #     # DistributedSampler
-        #     self.model = DDP(self.model)
-
-        # I think this is just initialising a tensor of zeroes to store results in
+        # Initialize tensors to store adjacency matrices across training
         if not self.no_gt:
             self.adj_w_tt = torch.zeros(
                 [int(self.train_params.max_iteration / self.train_params.valid_freq), self.d, self.d_x, self.d_z]
@@ -176,8 +229,6 @@ class TrainingLatent:
         self.logvar_decoder_tt = []
         self.logvar_transition_tt = []
 
-        # self.model.mask.fix(self.gt_dag)
-
         # optimizer
         if self.optim_params.optimizer == "sgd":
             self.optimizer = torch.optim.SGD(model.parameters(), lr=self.train_params.lr)
@@ -191,28 +242,10 @@ class TrainingLatent:
         )
 
         # prepare the model, optimizer, data loader, and scheduler using Accerate for distributed training
-        print("Preparing all the models here!")
+        logger.info("Preparing all the models here!")
         self.data_loader_train, self.model, self.optimizer, self.scheduler = accelerator.prepare(
             self.data_loader_train, self.model, self.optimizer, self.scheduler
         )
-
-        # Check that model and everything is on gpu
-        # print("\nModel Parameter Devices after moving to GPU:")
-        # for name, param in self.model.named_parameters():
-        #     print(f"{name}: {param.device}")
-
-        # # Check the device of a sample batch (after iterating through the prepared dataloader)
-        # for batch in self.data_loader_train:
-        #     inputs, labels = batch
-        #     print(f"Input tensor device: {inputs.device}")
-        #     print(f"Label tensor device: {labels.device}")
-        #     break
-
-        # # Check the device of the optimizer's state (this might vary)
-        # for group in self.optimizer.param_groups:
-        #     for param in group['params']:
-        #         if param in self.optimizer.state:
-        #             print(f"Optimizer state for parameter '{param.shape}': {self.optimizer.state[param].get('step', torch.tensor(0)).device}")
 
         # compute constraint normalization
         with torch.no_grad():
@@ -221,7 +254,12 @@ class TrainingLatent:
             self.acyclic_constraint_normalization = compute_dag_constraint(full_adjacency).item()
 
             if self.latent:
-                self.ortho_normalization = self.d_x * self.d_z
+                # Ortho normalization only applies to climate latents
+                if model.use_forced_latents:
+                    n_climate = self.d_z - model.n_forced_latents_co2 - model.n_forced_latents_aerosol
+                else:
+                    n_climate = self.d_z
+                self.ortho_normalization = self.d_x * n_climate
                 if self.instantaneous:
                     self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
                 else:
@@ -236,26 +274,19 @@ class TrainingLatent:
         the adjacency matrix
         """
 
-        # Pre-Accelerate - start a new wandb run to track this script
-        # wandb.init(
-        # set the wandb project where this run will be logged
-        # please alter this project, and set the name to something appropriate for your experiments
-        #    project="test-gpu-code-wandb",
-        #    name=...
-        # # )
-
-        # print("what is the cuda device count?", torch.cuda.device_count())
-        # print("MULTI GPU?", MULTI_GPU)
-
-        # TODO: Why config here?
-        # config = self.hp
         self.accelerator.init_trackers(
             "gpu-code-wandb",
-            # config=config,
             init_kwargs={"wandb": {"name": self.wandbname}},
         )
 
         # initialize ALM/QPM for orthogonality and acyclicity constraints
+        # Orthogonality constraint only applies to climate latents (not forcing latents)
+        if self.model.use_forced_latents:
+            n_climate = self.d_z - self.model.n_forced_latents_co2 - self.model.n_forced_latents_aerosol
+        else:
+            n_climate = self.d_z
+        self.n_climate_latents = n_climate  # Store for later use
+
         self.ALM_ortho = ALM(
             self.optim_params.ortho_mu_init,
             self.optim_params.ortho_mu_mult_factor,
@@ -263,7 +294,7 @@ class TrainingLatent:
             self.optim_params.ortho_omega_mu,
             self.optim_params.ortho_h_threshold,
             self.optim_params.ortho_min_iter_convergence,
-            dim_gamma=(self.d_z, self.d_z),
+            dim_gamma=(n_climate, n_climate),  # Only climate latents
         )
 
         self.ALM_sparsity = ALM(
@@ -292,11 +323,11 @@ class TrainingLatent:
 
             # we should have this function elsewhere. It is rarely used.
             def trace_handler(p):
-                print("Printing profiler key averages from trace handler!")
+                logger.debug("Printing profiler key averages from trace handler!")
                 output_cpu = p.key_averages().table(sort_by="cpu_time_total", row_limit=20)
                 output_cuda = p.key_averages().table(sort_by="cuda_time_total", row_limit=20)
-                print(output_cpu)
-                print(output_cuda)
+                logger.debug(output_cpu)
+                logger.debug(output_cuda)
 
             prof = torch.profiler.profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -314,9 +345,11 @@ class TrainingLatent:
             # print out the output of the profiler
 
         while self.iteration < self.train_params.max_iteration and not self.ended:
+            if self.plot_params.savar and self.iteration == 1 and hasattr(self.plotter, "prepare_savar_context"):
+                logger.info("[SAVAR] GT diagnostics triggered at iteration 1")
+                self.plotter.prepare_savar_context(self)
 
             # train and valid step
-            # HERE MODIFY train_step()
             self.train_step()
             self.scheduler.step()
             if self.profiler:
@@ -324,7 +357,6 @@ class TrainingLatent:
 
             if self.iteration % self.train_params.valid_freq == 0:
                 self.logging_iter += 1
-                # HERE MODIFY valid_step()
                 self.valid_step()
                 self.log_losses()
 
@@ -398,15 +430,14 @@ class TrainingLatent:
                     )
 
                 # print and plot losses
-                # TODO : the plotting frrequency is hard to control and unintuitive... update the code here
+                # TODO(dev): The plotting frequency is hard to control and unintuitive; update the code here
                 if self.iteration % (self.plot_params.print_freq) == 0:
                     self.print_results()
 
             if self.logging_iter > 0 and self.iteration % (self.plot_params.plot_freq) == 0:
-                print(f"Plotting Iteration {self.iteration}")
+                logger.info(f"Plotting Iteration {self.iteration}")
                 self.plotter.plot_sparsity(self)
-                # trying to save coords and adjacency matrices
-                # Todo propagate the path!
+                # TODO(dev): Propagate the path for saving coordinates and adjacency matrices
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
                 torch.save(self.model.state_dict(), self.save_path / "model.pth")
@@ -465,16 +496,13 @@ class TrainingLatent:
             else:
                 # continue training without penalty method
                 if not self.thresholded and self.iteration % self.patience_freq == 0:
-                    # self.plotter.plot(self, save=True)
                     if not self.has_patience(self.train_params.patience, self.valid_loss):
                         self.threshold()
                         self.patience = self.train_params.patience_post_thresh
                         self.best_valid_loss = np.inf
-                        # self.plotter.plot(self, save=True)
                 # continue training after thresholding
                 else:
                     if self.iteration % self.patience_freq == 0:
-                        # self.plotter.plot(self, save=True)
                         if not self.has_patience(self.train_params.patience_post_thresh, self.valid_loss):
                             self.ended = True
 
@@ -625,19 +653,12 @@ class TrainingLatent:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
 
-        # Add forcing decoder utilization penalty to encourage non-zero decoder weights for forcing latents
+        # NOTE: Decoder utilization penalty is no longer applicable.
+        # With the architectural fix, forcing latents are excluded from the observation decoder
+        # (they only go through forcing decoders and the causal transition model).
+        # The penalty below was a workaround for blob patterns in forcing decoder weights,
+        # which is now fixed by excluding forcing latents from observation decoding entirely.
         decoder_utilization_penalty = torch.tensor(0.0, device=self.accelerator.device)
-        if self.model.use_forced_latents:
-            w_decoder = self.model.autoencoder.get_w_decoder()  # (d_x, d_z)
-            n_climate = self.model.d_z - self.model.n_forced_latents_co2 - self.model.n_forced_latents_aerosol
-            forcing_decoder_weights = w_decoder[:, n_climate:]  # weights for forcing latents
-            forcing_decoder_norms = torch.norm(forcing_decoder_weights, dim=0)  # per-latent norms
-
-            # Penalize if any forcing latent has decoder norm below threshold
-            min_norm_threshold = getattr(self.optim_params, "min_forcing_decoder_norm", 1.5)
-            decoder_util_coeff = getattr(self.optim_params, "decoder_utilization_coeff", 0.1)
-            norm_deficit = torch.relu(min_norm_threshold - forcing_decoder_norms)
-            decoder_utilization_penalty = decoder_util_coeff * torch.sum(norm_deficit**2)
 
         # compute total loss - here we are removing the sparsity regularisation as we are using the constraint here.
         loss = nll + connect_reg + sparsity_reg
@@ -684,10 +705,10 @@ class TrainingLatent:
                 if self.iteration >= iter_schedule:
                     coef = new_coef
                 if self.iteration == iter_schedule:
-                    print(
+                    logger.info(
                         f"Scheduling spectrum coefficient at iterations {self.optim_params.scheduler_spectra} at coefficients {self.coefs_scheduler_spectra}"
                     )
-                    print(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
+                    logger.info(f"Updating spectral coefficient to {coef} at iteration {self.iteration}!!")
             loss = (
                 loss
                 + self.optim_params.crps_coeff * crps
@@ -723,7 +744,11 @@ class TrainingLatent:
         # Log gradient norms for diagnostic purposes (every 100 iterations)
         if self.iteration % 100 == 0:
             # Compute climate encoder gradient norm
-            climate_encoder_grads = [p.grad for p in self.model.autoencoder.encoder.parameters() if p.grad is not None]
+            climate_encoder_grads = (
+                [p.grad for p in self.model.autoencoder.encoder.parameters() if p.grad is not None]
+                if hasattr(self.model.autoencoder, "encoder")
+                else []
+            )
             if climate_encoder_grads:
                 climate_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in climate_encoder_grads]))
             else:
@@ -788,21 +813,23 @@ class TrainingLatent:
 
         # Debug logging for forcing latent supervision
         if self.iteration % 1000 == 0 and self.model.use_forced_latents:
-            print(
+            logger.debug(
                 f"[DEBUG iter {self.iteration}] Forcing losses: "
                 f"CO2={forcing_loss_co2.item():.6f}, "
                 f"Aerosol={forcing_loss_aerosol.item():.6f}, "
                 f"Supervision={forcing_latent_loss.item():.6f}"
             )
             if gt_co2_latent is not None:
-                print(f"  GT latent ranges: CO2=[{gt_co2_latent.min():.3f}, {gt_co2_latent.max():.3f}]")
+                logger.debug(f"  GT latent ranges: CO2=[{gt_co2_latent.min():.3f}, {gt_co2_latent.max():.3f}]")
             else:
-                print("  WARNING: gt_co2_latent is None - supervision loss not computed!")
+                logger.warning("  gt_co2_latent is None - supervision loss not computed!")
             if gt_aerosol_latent is not None:
-                print(f"  GT latent ranges: Aerosol=[{gt_aerosol_latent.min():.3f}, {gt_aerosol_latent.max():.3f}]")
+                logger.debug(
+                    f"  GT latent ranges: Aerosol=[{gt_aerosol_latent.min():.3f}, {gt_aerosol_latent.max():.3f}]"
+                )
             else:
-                print("  WARNING: gt_aerosol_latent is None - supervision loss not computed!")
-            print(f"  Decoder utilization penalty: {decoder_utilization_penalty.item():.6f}")
+                logger.warning("  gt_aerosol_latent is None - supervision loss not computed!")
+            logger.debug(f"  Decoder utilization penalty: {decoder_utilization_penalty.item():.6f}")
 
         # # NOTE: here we have the saving, prediction, and analysis of some metrics, which comes at every print_freq
         # # This can be cut if we want faster training...
@@ -950,7 +977,7 @@ class TrainingLatent:
                         plot_through_time=True,
                     )
                 else:
-                    print("Not plotting predictions.")
+                    logger.debug("Not plotting predictions.")
 
         # note that this has been changed to y_pred_recons
         # return x, y, y_pred_all
@@ -1222,7 +1249,7 @@ class TrainingLatent:
             if valid_loss < self.best_valid_loss:
                 self.best_valid_loss = valid_loss
                 self.patience = patience_init
-                print(f"Best valid loss: {self.best_valid_loss}")
+                logger.info(f"Best valid loss: {self.best_valid_loss}")
             else:
                 self.patience -= 1
             return True
@@ -1239,7 +1266,7 @@ class TrainingLatent:
             thresholded_adj = (self.model.get_adj() > 0.5).type(torch.Tensor)
             self.model.mask.fix(thresholded_adj)
         self.thresholded = True
-        print("Thresholding ================")
+        logger.info("Thresholding ================")
 
     def log_losses(self):
         """Append in lists values of the losses and more."""
@@ -1317,7 +1344,7 @@ class TrainingLatent:
         # print("The self.ALM_sparsity.gamma * h_sparsity is:", self.ALM_sparsity.gamma * self.train_sparsity_cons)
         # print("The 0.5 * self.ALM_sparsity.mu * h_sparsity**2 is:", (0.5 * self.ALM_sparsity.mu * self.train_sparsity_cons**2))
 
-        print("****************************************************************************************")
+        logger.info("****************************************************************************************")
         # print("What are the actual values of the constraints?")
         # print("The connect reg is:", self.train_connect_reg)
         # print("The sparsity reg is:", self.train_sparsity_reg)
@@ -1345,25 +1372,24 @@ class TrainingLatent:
             Tuple of (-elbo, reconstruction_loss, kl_divergence, predictions,
                      forcing_co2_loss, forcing_aerosol_loss, forcing_latent_supervision_loss)
         """
-        # Process exogenous forcings if model uses them
-        if self.model.use_exogenous and y_co2 is not None and y_aerosol is not None:
+        # Process exogenous forcings if model uses them (either as MLP conditioning or forced latents)
+        if (self.model.use_exogenous or self.model.use_forced_latents) and y_co2 is not None and y_aerosol is not None:
             # Check if we have temporal forcings (shape: batch, tau+1, spatial_dim)
             # vs single-timestep forcings (shape: batch, spatial_dim)
             has_temporal_dim = len(y_co2.shape) == 3 and y_co2.shape[1] == self.tau + 1
 
             if not has_temporal_dim:
                 # Legacy path: single-timestep forcings that need spatial processing
-                # CO2: Convert to global mean if spatial
+                # CO2: Keep spatial structure, flatten if needed (same as aerosol)
                 if len(y_co2.shape) == 3:  # (batch, lat, lon)
-                    y_co2 = y_co2.mean(dim=(-2, -1), keepdim=True)  # -> (batch, 1)
-                elif len(y_co2.shape) == 2:  # (batch, spatial_dim)
-                    y_co2 = y_co2.mean(dim=-1, keepdim=True)  # -> (batch, 1)
+                    y_co2 = y_co2.reshape(y_co2.shape[0], -1)  # -> (batch, lat*lon)
+                # else: already (batch, spatial_dim) - keep as is
 
                 # Aerosols: Flatten spatial structure to match d_x
                 if len(y_aerosol.shape) == 3:  # (batch, lat, lon)
                     y_aerosol = y_aerosol.reshape(y_aerosol.shape[0], -1)  # -> (batch, lat*lon)
             # else: temporal forcings are already spatially processed by the dataset
-            #       shapes are (batch, tau+1, 1) for CO2 and (batch, tau+1, d_x) for aerosols
+            #       shapes are (batch, tau+1, d_x) for both CO2 and aerosols
         else:
             # Model doesn't use exogenous or forcings not provided
             y_co2, y_aerosol = None, None
@@ -1381,7 +1407,13 @@ class TrainingLatent:
 
         # Compute forcing latent supervision loss if ground truth latents available
         forcing_latent_supervision_loss = torch.tensor(0.0, device=x.device)
-        if encoded_forcing_mu is not None and gt_co2_latent is not None and gt_aerosol_latent is not None:
+        forcing_arch = getattr(self.model, "forcing_arch", "baseline")
+        if (
+            forcing_arch != "predefined"
+            and encoded_forcing_mu is not None
+            and gt_co2_latent is not None
+            and gt_aerosol_latent is not None
+        ):
             # Extract ground truth latents for the target timestep (last timestep, tau+1 index)
             # gt_co2_latent shape: (batch, tau+1, 1), we want [:, -1, :]
             # gt_aerosol_latent shape: (batch, tau+1, n_aerosol_latents), we want [:, -1, :]
@@ -1393,6 +1425,9 @@ class TrainingLatent:
 
             # Compute MSE between encoded and ground truth forcing latents
             forcing_latent_supervision_loss = torch.mean((encoded_forcing_mu - gt_forcing_target) ** 2)
+        elif forcing_arch == "predefined" and not hasattr(self, "_forcing_arch_supervision_logged"):
+            logger.info("[ForcingArch] Skipping forcing latent supervision (predefined arch)")
+            self._forcing_arch_supervision_logged = True
 
         return (
             -elbo,
@@ -1428,14 +1463,18 @@ class TrainingLatent:
     def get_ortho_violation(self, w: torch.Tensor) -> float:
 
         if self.iteration > self.optim_params.schedule_ortho:
-            # constraint = torch.tensor([0.])
-            k = w.size(2)
-            # for i in range(w.size(0)):
-            #     constraint = constraint + torch.norm(w[i].T @ w[i] - torch.eye(k), p=2)
+            # Only apply orthogonality constraint to columns that are actually used in decoding
+            # When use_forced_latents=True, forcing latent columns are not used, so exclude them
+            if self.model.use_forced_latents:
+                n_climate = self.model.d_z - self.model.n_forced_latents_co2 - self.model.n_forced_latents_aerosol
+                w_climate = w[:, :, :n_climate]  # Only climate latent columns
+                k = n_climate
+            else:
+                w_climate = w
+                k = w.size(2)
+
             i = 0
-            # constraint = torch.norm(w[i].T @ w[i] - torch.eye(k), p=2, dim=1)
-            constraint = w[i].T @ w[i] - torch.eye(k)
-            # print('What is the ortho constraint shape:', constraint.shape)
+            constraint = w_climate[i].T @ w_climate[i] - torch.eye(k, device=w.device)
             h = constraint / self.ortho_normalization
         else:
             h = torch.as_tensor([0.0])
@@ -1619,7 +1658,7 @@ class TrainingLatent:
                 crps[idx] = t1 + t2
 
             if torch.isnan(crps).any():
-                print("[NaN] Final CRPS")
+                logger.warning("[NaN] Final CRPS")
 
             # Clamp final CRPS to ensure numerical validity
             crps = torch.nan_to_num(crps, nan=0.0, posinf=1e3, neginf=0.0)
@@ -1897,18 +1936,18 @@ class TrainingLatent:
             predictions = torch.stack(predictions, dim=1)
             # the resulting shape of this tensor is (batch_size, timesteps, num_vars, coords)
 
-            print("What is the shape of the predictions, once I made it into a tensor?", predictions.shape)
+            logger.debug("What is the shape of the predictions, once I made it into a tensor? %s", predictions.shape)
 
             # then calculate the mean of the predictions along the timesteps
             y_pred_mean = torch.mean(predictions, dim=1)
             # calculate the variance of the predictions along the timesteps dimension
             y_pred_var = torch.var(predictions, dim=1)
-            print("What is the shape of the mean of the predictions?", y_pred_mean.shape)
-            print("What is the shape of the variance of the predictions?", y_pred_var.shape)
+            logger.debug("What is the shape of the mean of the predictions? %s", y_pred_mean.shape)
+            logger.debug("What is the shape of the variance of the predictions? %s", y_pred_var.shape)
 
             # take the mean of the predictions along the batch and coordinates dimension:
-            print(
-                "What is the shape when I try to take the mean across the batch and coordinates:",
+            logger.debug(
+                "What is the shape when I try to take the mean across the batch and coordinates: %s",
                 torch.mean(y_pred_mean, dim=(0, 2)),
             )
 
@@ -1927,7 +1966,9 @@ class TrainingLatent:
             # take the mean across the frequencies, the 1st dimension
             spatial_spectra_score = torch.mean(spatial_spectra_score, dim=1)
 
-            print("Spatial spectra score, lower is better...should be a spectra for each var", spatial_spectra_score)
+            logger.debug(
+                "Spatial spectra score, lower is better...should be a spectra for each var %s", spatial_spectra_score
+            )
 
             # if this spatial_spectra_score is the lowest we have seen, then save the predictions
             if self.best_spatial_spectra_score is None:
@@ -1937,19 +1978,21 @@ class TrainingLatent:
             assert self.best_spatial_spectra_score is not None
 
             # check if every element of spatial_spectra_score is less than the best_spatial_spectra_score:
-            print(torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
+            logger.debug("%s", torch.all(spatial_spectra_score < self.best_spatial_spectra_score))
 
-            print("new score", spatial_spectra_score)
-            print("previous best score", self.best_spatial_spectra_score)
+            logger.debug("new score %s", spatial_spectra_score)
+            logger.debug("previous best score %s", self.best_spatial_spectra_score)
 
             if torch.all(spatial_spectra_score < self.best_spatial_spectra_score):
-                print("The spatial spectra score is the best we have seen for all variables, I am in the if.")
+                logger.info("The spatial spectra score is the best we have seen for all variables, I am in the if.")
 
                 self.best_spatial_spectra_score = spatial_spectra_score
-                print(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
+                logger.info(f"Best spatial spectra score: {self.best_spatial_spectra_score}")
 
                 # save the model in its current state
-                print("Saving the model, since the spatial spectra score is the best we have seen for all variables.")
+                logger.info(
+                    "Saving the model, since the spatial spectra score is the best we have seen for all variables."
+                )
                 torch.save(self.model.state_dict(), self.save_path / "best_model_for_average_spectra.pth")
 
         else:
@@ -2071,10 +2114,10 @@ class TrainingLatent:
         """
 
         # calculate the average spatial spectra of the true values, averaging across the batch
-        print("y_true shape:", y_true.shape)
+        logger.debug("y_true shape: %s", y_true.shape)
         fft_true = torch.mean(torch.abs(torch.fft.rfft(y_true, dim=3)), dim=0)
         # calculate the average spatial spectra of the individual predicted fields - I think this below is wrong
-        print("y_pred shape:", y_pred_samples.shape)
+        logger.debug("y_pred shape: %s", y_pred_samples.shape)
         fft_pred = torch.mean(torch.abs(torch.fft.rfft(y_pred_samples, dim=3)), dim=0)
 
         # extend fft_true so it is the same value but extended to the same shape as fft_pred
