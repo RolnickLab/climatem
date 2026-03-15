@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/lower_dim_newruns/",
+        "exp_path": "$SCRATCH/results/latest_runs/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
