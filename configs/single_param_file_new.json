@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/latest_runs/",
+        "exp_path": "$SCRATCH/results/test_debug_small/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
@@ -59,7 +59,7 @@
         "max_iteration": 200000,
         "patience": 5000,
         "patience_post_thresh": 50,
-        "valid_freq": 100
+        "valid_freq": 200
     },
     "model_params": {
         "instantaneous": false,
@@ -83,7 +83,7 @@
         "optimizer": "rmsprop",
         
         "use_sparsity_constraint": true,
-        "binarize_transition": true,
+        "binarize_transition": false,
         "crps_coeff": 1,
         "spectral_coeff": 1000,
         "temporal_spectral_coeff": 2000,
@@ -92,9 +92,9 @@
         "loss_decay_future_timesteps": 1,
 
         "fraction_highest_wavenumbers": 0.5,
-        "fraction_lowest_wavenumbers": null,
+        "fraction_lowest_wavenumbers": 0.95,
         "take_log_spectra": true,
-        "scheduler_spectra": [100000],
+        "scheduler_spectra": null,
 
         "reg_coeff": 0.12801,
         "reg_coeff_connect": 0,
@@ -134,7 +134,7 @@
     "plot_params": {
         "plot_freq": 20000,
         "plot_through_time": true,
-        "print_freq": 1000
+        "print_freq": 20000
     },
     "savar_params": {
         "n_per_col": 2,
