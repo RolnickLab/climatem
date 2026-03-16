@@ -215,7 +215,7 @@ def main(
 
     # Here we load a final model, when we do learn the causal graph. Make sure  it is on GPU:
     state_dict_vae_final = torch.load(
-        model_path / "training_results/model_100000.pth", 
+        model_path / "model.pth", 
         map_location=device
     )
     model.load_state_dict({k.replace("module.", ""): v for k, v in state_dict_vae_final.items()})
