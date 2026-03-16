@@ -1248,7 +1248,7 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
-        h = torch.sum(torch.minimum(adj, adj - 1)) / self.sparsity_normalization
+        h = torch.sum(torch.minimum(adj, 1 - adj)) / self.sparsity_normalization
         # assert torch.is_tensor(h)
         return h
 
