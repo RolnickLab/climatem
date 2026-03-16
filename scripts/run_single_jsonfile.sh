@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=run_single                                           # Set name of job
-#SBATCH --output=srun_outs_ft/rs_%j.out                                  # Set location of output file
-#SBATCH --error=srun_outs_ft/rs_%j.err                                    # Set location of error file
+#SBATCH --output=srun_outs_ft/rs/rs_%j.out                                  # Set location of output file
+#SBATCH --error=srun_outs_ft/rs/rs_%j.err                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
@@ -41,6 +41,5 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-
-    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file.json
+    $HOME/dev/climatem/scripts/main_picabu.py --config-path single_param_file_new.json
 

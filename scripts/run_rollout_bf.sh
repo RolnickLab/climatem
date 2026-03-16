@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=run_pf                                           # Set name of job
-#SBATCH --output=srun_outs_ft/ro_%j.out                                  # Set location of output file
-#SBATCH --error=srun_outs_ft/ro_%j.err                                    # Set location of error file
+#SBATCH --output=srun_outs_ft/ro/ro_%j.out                                  # Set location of output file
+#SBATCH --error=srun_outs_ft/ro/ro_%j.err                                    # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
@@ -30,7 +30,7 @@ export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
 
 echo "=== calling accelerate"
-exp_ids=("test_debug_trace/var_ts_scen_piControl_nlinmix_True_nlindyn_True_tau_5_z_90_futt_1_ldec_1_lr_0.0001_bs_128_20260311_141027")
+exp_ids=("test_debug_small/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_90_lr_0.0001_bs_128_20260313_080329")
 
 for exp_id in "${exp_ids[@]}"
 do
@@ -45,6 +45,6 @@ do
         --num_processes=1 \
         --num_machines=1 \
         --gpu_ids='all' \
-        $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "$exp_id" --iter-id 600
+        $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "$exp_id" --iter-id 200000
 done
     

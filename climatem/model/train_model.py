@@ -409,7 +409,6 @@ class TrainingLatent:
 
                 torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
 
-
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
 
@@ -675,7 +674,7 @@ class TrainingLatent:
             self.optimizer.step() if self.optim_params.optimizer == "rmsprop" else self.optimizer.step()
         ), self.train_params.lr
         # projection of the gradient for w
-        if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
+        if not self.no_w_constraint:
             with torch.no_grad():
                 self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
 
@@ -1482,6 +1481,7 @@ class TrainingLatent:
 
         assert y_true.dim() == 3
         assert y_pred.dim() == 3
+        # print("y_pred shape", y_pred.shape)
 
         if y_true.size(-1) == self.lat * self.lon:
 
@@ -1515,6 +1515,8 @@ class TrainingLatent:
             fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
 
         spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
+        # print("spectral_loss shape", spectral_loss.shape)
+        # print("spectral_loss shape final", torch.mean(spectral_loss))
         # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
 
         # Calculate the power spectrum

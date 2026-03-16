@@ -921,7 +921,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
     def encode(self, x, i):
 
-        mask = super().get_encode_mask(x.shape[0])
+        mask = super().get_encode_mask()
         mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
 
         j_values = torch.arange(self.d_z, device=x.device).expand(
@@ -951,7 +951,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
     def decode(self, z, i):
 
-        mask = super().get_decode_mask(z.shape[0])
+        mask = super().get_decode_mask()
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 
         # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x
