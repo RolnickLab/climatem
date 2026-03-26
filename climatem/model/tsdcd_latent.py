@@ -1,5 +1,5 @@
 # Adapted from the original code for CDSD, Brouillard et al., 2024.
-
+# Hierachical Model (x-> z-> z_global) or (x-> z1-> z2)
 from collections import OrderedDict
 from math import pi
 
@@ -202,6 +202,7 @@ class LatentTSDCD(nn.Module):
         d: int,  # Number of variables
         d_x: int,  # Dimension of observations
         d_z: int,  # Dimension of latent space
+        d_z_global: int,  # Dimension of global latent space, fixed as 1
         tau: int,  # Number of timesteps as input
         instantaneous: bool,
         nonlinear_mixing: bool,
@@ -235,6 +236,7 @@ class LatentTSDCD(nn.Module):
             d: number of features
             d_x: number of grid locations
             d_z: number of latent variables
+            d_z_global: number of global latent variables
             tau: size of the timewindow
             instantaneous: if True, models instantaneous connections
 
@@ -267,6 +269,7 @@ class LatentTSDCD(nn.Module):
         self.d = d
         self.d_x = d_x
         self.d_z = d_z
+        self.d_z2 = d_z_global
         self.tau = tau
         self.instantaneous = instantaneous
         self.nonlinear_mixing = nonlinear_mixing
@@ -329,6 +332,7 @@ class LatentTSDCD(nn.Module):
         if self.nonlinear_mixing:
             print("NON-LINEAR MIXING")
             # NOTE:(seb) using the noloop version of non-linear here to make it much faster.
+            # Local autoencoder, encode z from x
             self.autoencoder = NonLinearAutoEncoderUniqueMLP_noloop(
                 d,
                 d_x,
@@ -339,18 +343,32 @@ class LatentTSDCD(nn.Module):
                 embedding_dim=self.position_embedding_dim,
                 gt_w=None,
             )
+            # Global autoencoder, encode z_global from z
+            self.autoencoder_global = NonLinearAutoEncoderUniqueMLP_noloop(
+                d,
+                d_z,
+                self.d_z2,
+                self.num_hidden_mixing,
+                self.num_layers_mixing,
+                tied=tied_w,
+                embedding_dim=self.position_embedding_dim,
+                gt_w=None,
+            )
         else:
             # print('Using linear mixing')
             print("LINEAR MIXING")
             self.autoencoder = LinearAutoEncoder(d, d_x, d_z, tied=tied_w)
+            self.autoencoder_global = LinearAutoEncoder(d, d_z, self.d_z2, tied=tied_w)
 
         # if debug_gt_w:
         #     self.decoder.w = gt_w
 
         if self.transition_param_sharing:
+            # Local transition model, transit from z^{<t} and z2^{t}
             self.transition_model = TransitionModelParamSharing(
                 self.d,
                 self.d_z,
+                self.d_z2,
                 self.total_tau,
                 self.nonlinear_dynamics,
                 self.num_layers,
@@ -362,13 +380,23 @@ class LatentTSDCD(nn.Module):
             self.transition_model = TransitionModel(
                 self.d,
                 self.d_z,
+                self.d_z2,
                 self.total_tau,
                 self.nonlinear_dynamics,
                 self.num_layers,
                 self.num_hidden,
                 self.num_output,
             )
-
+        # Global transition model, single latent: no mask, no parameter-sharing
+        self.transition_model_global = TransitionModelNoMask(
+            self.d,
+            self.d_z2,
+            self.total_tau,
+            self.nonlinear_dynamics,
+            self.num_layers,
+            self.num_hidden,
+            self.num_output,
+        )
         # print("We are setting the Mask here.")
         self.mask = Mask(
             d,
@@ -432,8 +460,77 @@ class LatentTSDCD(nn.Module):
 
         return z, mu, std
 
-    def transition(self, z, mask):
+    def encode_global(self, z):
+        """
+        Encode Z into latent variables Z2 (higher level).
+        Args:
+            z (Tensor): Shape (B, T, D_z), where T = tau + 1 corresponds to the
+                temporal window [t - tau, ..., t - 1, t].
 
+        Returns:
+            z2 (Tensor): Shape (B, T, D_z), higher-level latent representation
+                inferred from z at each time step.
+            mu (Tensor): Shape (B, D_z), mean of the approximate posterior
+                q(z2_t | z_t) at the final time step t.
+            std (Tensor): Shape (B, D_z), standard deviation of the approximate
+                posterior q(z2_t | z_t) at the final time step t.
+        """
+        b = z.size(0)
+        z2 = torch.zeros(b, self.tau + 1, self.d, self.d_z2)
+        mu = torch.zeros(b, self.d, self.d_z2)
+        std = torch.zeros(b, self.d, self.d_z2)
+
+        for i in range(self.d):
+            for t in range(self.tau + 1):
+                q_mu, q_logvar = self.autoencoder_global(z[:, t, i], i, encode=True)  # q_mu: shape (b, d_z)
+                # reparam trick - here we sample from a Gaussian...every time
+                q_std = torch.exp(0.5 * q_logvar)
+                z2[:, t, i] = q_mu + q_std * self.distr_encoder(0, 1, size=q_mu.size())
+            mu[:, i] = q_mu
+            std[:, i] = q_std
+        return z2, mu, std
+
+    def transition_global(self, z):
+        """
+        Transition model for z2, fully conencted mask
+        Args:
+            z (Tensor): Shape (B, T, D_z2), where T = tau corresponds to the
+                temporal window [t - tau, ..., t - 1].
+
+        Returns:
+            mu (Tensor): Shape (B, D_z2), mean of the predictive distribution
+                p(z2_t | z2_{<t}).
+            std (Tensor): Shape (B, D_z2), standard deviation of the predictive
+                distribution p(z2_t | z2_{<t}).
+        """
+        b = z.size(0)
+        mu = torch.zeros(b, self.d, self.d_z2)
+        std = torch.zeros(b, self.d, self.d_z2)
+        # transition2 doesn't consider parameter sharing because only a single latent
+        # TODO Can we remove this for loop
+        for i in range(self.d):
+            pz_params = torch.zeros(b, self.d_z2, 1)
+            for k in range(self.d_z2):
+                pz_params[:, k] = self.transition_model_global(z[:, :, i][:, :, :, None], i, k)
+            mu[:, i] = pz_params[:, :, 0]
+            std[:, i] = torch.exp(0.5 * self.transition_model_global.logvar[i])
+
+        return mu, std
+
+    def transition(self, z, z_global, mask):
+        """
+        Transition model for z (sparse mask). z transit from its history and current z_global
+        Args:
+            z (Tensor): Shape (B, T, D_z), where T = tau corresponds to the
+                temporal window [t - tau, ..., t - 1].
+            z_global (Tensor): Shape (B, 1, D_z2), at the time step t.
+
+        Returns:
+            mu (Tensor): Shape (B, D_z), mean of the predictive distribution
+                p(z_t | z_{<t}, z2_t).
+            std (Tensor): Shape (B, D_z), standard deviation of the predictive
+                distribution p(z_t | z_{<t}, z2_t).
+        """
         b = z.size(0)
         mu = torch.zeros(b, self.d, self.d_z)
         std = torch.zeros(b, self.d, self.d_z)
@@ -453,13 +550,13 @@ class LatentTSDCD(nn.Module):
 
             if self.transition_param_sharing:
                 pz_params = self.transition_model(
-                    z[:, :, i][:, :, :, None], mask[:, :, i * self.d_z : (i + 1) * self.d_z], i
+                    z[:, :, i][:, :, :, None], z_global, mask[:, :, i * self.d_z : (i + 1) * self.d_z], i
                 )
             else:
                 pz_params = torch.zeros(b, self.d_z, 1)
                 for k in range(self.d_z):
                     pz_params[:, k] = self.transition_model(
-                        z[:, :, i][:, :, :, None], mask[:, :, i * self.d_z + k], i, k
+                        z[:, :, i][:, :, :, None], z_global, mask[:, :, i * self.d_z + k], i, k
                     )
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
@@ -468,14 +565,13 @@ class LatentTSDCD(nn.Module):
         return mu, std
 
     def decode(self, z):
+        """Decode x from z."""
 
         mu = torch.zeros(z.size(0), self.d, self.d_x)
         std = torch.zeros(z.size(0), self.d, self.d_x)
 
         # TODO: Can we remove this for loop
         for i in range(self.d):
-            # px_mu, px_logvar = self.encoder_decoder(z[:, i], i, encoder=False)
-
             px_mu, px_logvar = self.autoencoder(z[:, i], i, encode=False)
             if px_mu.ndim == mu.ndim:  # In case of linear mixing with one variable, second dimension is too much
                 # Check that linear autoencoder corresponds to PF when multi varia/bles
@@ -492,15 +588,25 @@ class LatentTSDCD(nn.Module):
 
         # sample Zs (based on X)
         z, q_mu_y, q_std_y = self.encode(x, y)
+        z2, q_mu_z2, q_std_z2 = self.encode_global(z)
         # if self.debug_gt_z:
         #     z = gt_z
 
-        # get params of the transition model p(z^t | z^{<t})
+        # get params of the global transition model p(z2^t | z2^{<t})
+        # get params of the transition model p(z^t | z^{<t}, z2^t)
         mask = self.mask(b)
         if self.instantaneous:
-            pz_mu, pz_std = self.transition(z.clone(), mask)
+            """
+            Q: self.transition_global(z2.clone())?
+            """
+            pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())
+            pz_mu, pz_std = self.transition(z.clone(), z2[:, -1], mask)
         else:
-            pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+            pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())
+            """
+            Q: pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu, mask) ?
+            """
+            pz_mu, pz_std = self.transition(z[:, :-1].clone(), z2[:, -1], mask)
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
 
@@ -513,43 +619,37 @@ class LatentTSDCD(nn.Module):
             eps = 1e-6
             q_std_y_safe = q_std_y.clamp(min=eps)
             pz_std_safe = pz_std.clamp(min=eps)
-            kl_raw = (
+            kl_raw_z = (
                 0.5 * (torch.log(pz_std_safe**2) - torch.log(q_std_y_safe**2))
                 + 0.5 * (q_std_y_safe**2 + (q_mu_y - pz_mu) ** 2) / pz_std_safe**2
                 - 0.5
             )
+            # TO DO: KL_Z2 term
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
             recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
+
             # compute the KL, the reconstruction and the ELBO
-            # kl = distr.kl_divergence(q, p).mean()
-            kl_raw = (
+            kl_raw_z = (
                 0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2))
                 + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
                 - 0.5
             )
+            kl_raw_z2 = (
+                0.5 * (torch.log(pz2_std**2) - torch.log(q_std_z2**2))
+                + 0.5 * (q_std_z2**2 + (q_mu_z2 - pz2_mu) ** 2) / pz2_std**2
+                - 0.5
+            )
 
-        kl = torch.sum(kl_raw, dim=[2]).mean()
-        # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
-        # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
+        kl_local = torch.sum(kl_raw_z, dim=[2]).mean()
+        kl_global = torch.sum(kl_raw_z2, dim=[2]).mean()
+
+        kl = kl_local + kl_global
         assert kl >= 0, f"KL={kl} has to be >= 0"
 
         elbo = recons - kl
 
         return elbo, recons, kl, px_mu
-
-    # def predict(self, x, y):
-    #    b = x.size(0)
-
-    #    with torch.no_grad():
-    #        # sample Zs (based on X)
-    #        z, q_mu_y, q_std_y = self.encode(x, y)
-    #
-    #        # get params of the transition model p(z^t | z^{<t})
-    #        mask = self.mask(b)
-    #        pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
-    #        px_mu, px_std = self.decode(pz_mu)
-    #    return px_mu, y
 
     def predict_pxmu_pxstd(self, x, y):
 
@@ -559,14 +659,18 @@ class LatentTSDCD(nn.Module):
         b = x.size(0)
 
         # sample Zs (based on X)
-        z, q_mu_y, q_std_y = self.encode(x, y)
+        z, _, _ = self.encode(x, y)
+        z2, _, _ = self.encode_global(z)
 
-        # get params of the transition model p(z^t | z^{<t})
+        # get params of the global transition model p(z2^t | z2^{<t})
+        # get params of the transition model p(z^t | z^{<t}, z2^t)
         mask = self.mask(b)
         if self.instantaneous:
-            pz_mu, pz_std = self.transition(z.clone(), mask)
+            z2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())
+            pz_mu, _ = self.transition(z.clone(), z2_mu, mask)
         else:
-            pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+            pz2_mu, _ = self.transition_global(z2[:, :-1].clone())  # (b,1,d_z2)
+            pz_mu, _ = self.transition(z[:, :-1].clone(), pz2_mu, mask)
 
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
@@ -588,19 +692,22 @@ class LatentTSDCD(nn.Module):
         # NOTE: we are not using y here. We encode using both x and y,
         # but then we discard the latents from the y encoding.
 
-        z, q_mu_y, q_std_y = self.encode(x, y)
+        z, _, _ = self.encode(x, y)
+        z2, _, _ = self.encode_global(z)
 
         mask = self.mask(b)
 
         if self.instantaneous:
-            pz_mu, pz_std = self.transition(z.clone(), mask)
+            pz2_mu, _ = self.transition_global(z2[:, :-1].clone())
+            pz_mu, pz_std = self.transition(z.clone(), pz2_mu.clone(), mask)
         else:
-            pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+            pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())  # (b,1,d_z2)
+            pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu.clone(), mask)
 
         # decode
-        px_mu, px_std = self.decode(pz_mu)
+        px_mu, _ = self.decode(pz_mu)
 
-        return px_mu, y, z, pz_mu, pz_std
+        return px_mu, y, z, pz_mu, pz_std, pz2_mu
 
     def predict_counterfactual(self, x, y, counterfactual_z_index, counterfactual_z_value):
 
@@ -614,7 +721,8 @@ class LatentTSDCD(nn.Module):
 
         b = x.size(0)
 
-        z, q_mu_y, q_std_y = self.encode(x, y)
+        z, _, _ = self.encode(x, y)
+        z2, _, _ = self.encode_global(z)
 
         print("This is the shape of the latents that we are going to intervene on.", z.shape)
         print(
@@ -639,12 +747,14 @@ class LatentTSDCD(nn.Module):
         mask = self.mask(b)
 
         if self.instantaneous:
-            pz_mu, pz_std = self.transition(z.clone(), mask)
+            pz2_mu, _ = self.transition_global(z2[:, :-1].clone())
+            pz_mu, pz_std = self.transition(z.clone(), pz2_mu, mask)
         else:
-            pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+            pz2_mu, _ = self.transition_global(z2[:, :-1].clone())  # (b,1,d_z2)
+            pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu, mask)
 
         # decode
-        px_mu, px_std = self.decode(pz_mu)
+        px_mu, _ = self.decode(pz_mu)
 
         return px_mu, y, z, pz_mu, pz_std
 
@@ -662,15 +772,18 @@ class LatentTSDCD(nn.Module):
 
         with torch.no_grad():
             # sample Zs (based on X)
-            z, q_mu_y, q_std_y = self.encode(x, y)
+            z, _, _ = self.encode(x, y)
+            z2, _, _ = self.encode_global(z)
 
             # get params of the transition model p(z^t | z^{<t})
             mask = self.mask(b)
 
             if self.instantaneous:
-                pz_mu, pz_std = self.transition(z.clone(), mask)
+                pz2_mu, _ = self.transition_global(z2[:, :-1].clone())
+                pz_mu, pz_std = self.transition(z.clone(), pz2_mu, mask)
             else:
-                pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+                pz2_mu, _ = self.transition_global(z2[:, :-1].clone())  # (b,1,d_z2)
+                pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu, mask)
 
             # here I am taking the approach of sampling from the Z distributions, and then decoding.
             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
@@ -679,7 +792,7 @@ class LatentTSDCD(nn.Module):
             # TODO: Remove this for loop
             for i in range(num_samples):
                 z_samples[i] = self.distr_transition(pz_mu, pz_std).sample()
-                samples_from_zs[i], some_decoded_samples_std = self.decode(z_samples[i])
+                samples_from_zs[i], _ = self.decode(z_samples[i])
 
                 # some_decoded_samples_mu, some_decoded_samples_std = self.decode(z_samples[i])
 
@@ -722,14 +835,17 @@ class LatentTSDCD(nn.Module):
         with torch.no_grad():
             # sample Zs (based on X)
             z, q_mu_y, q_std_y = self.encode(x, y)
+            z2, q_mu_z2, q_std_z2 = self.encode_global(z)
 
             # get params of the transition model p(z^t | z^{<t})
             mask = self.mask(b)
 
             if self.instantaneous:
-                pz_mu, pz_std = self.transition(z.clone(), mask)
+                pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())
+                pz_mu, pz_std = self.transition(z.clone(), pz2_mu, mask)
             else:
-                pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask)
+                pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())  # (b,1,d_z2)
+                pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu, mask)
 
             # here I am taking the approach of sampling from the Z distributions, and then decoding.
             #             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
@@ -945,8 +1061,8 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         del embedded_x
         del mask_
-
-        mu = self.encoder(x_).squeeze()
+        # Global encoding: dim=1, the encoded feature dim will be squeezed, so use squeeze(-1) to keep the feature dimension!
+        mu = self.encoder(x_).squeeze(-1)
 
         return mu, self.logvar_encoder
 
@@ -989,8 +1105,8 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
             return self.decode(x, i)
 
 
-class TransitionModel(nn.Module):
-    """Models the transitions between the latent variables Z with neural networks."""
+class TransitionModelNoMask(nn.Module):
+    """Models the transitions between the latent variables Z2 with neural networks."""
 
     def __init__(
         self,
@@ -1034,57 +1150,98 @@ class TransitionModel(nn.Module):
         else:
             print("LINEAR DYNAMICS")
             self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau, self.num_output) for i in range(d * d_z))
-        # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
 
-    def forward(self, z, mask, i, k):
+    def forward(
+        self,
+        z,
+        i,
+        k,
+    ):
         """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
         ..., G_{tau-k} * z_{t-k})"""
+        # z: (b, tau, d_z, 1)
+        flat_z = z.view(z.size(0), -1)
+        param_z = self.nn[i * self.d_z + k](flat_z)
+        return param_z
 
-        # works well for original prediction when we do not do instantaneous! :)
-        # e.g.     val_mse, val_smape = prediction_original(trainer, True)
 
-        # t_total = torch.max(self.tau, z_past.size(1))  # TODO: find right dim
-        # param_z = torch.zeros(z_past.size(0), 2)
+class TransitionModel(nn.Module):
+    """Models the transitions between the latent variables Z with neural networks."""
 
-        # print("In the forward of the transition model, and trying to ascertain which way the information flows through the mask.")
-        # print("The mask is of size: ", mask.size())
-        # print("The z is of size: ", z.size())
+    def __init__(
+        self,
+        d: int,
+        d_z: int,
+        d_z_global: int,
+        tau: int,
+        nonlinear_dynamics: bool,
+        num_layers: int,
+        num_hidden: int,
+        num_output: int = 2,
+    ):
+        """
+        Args:
+            d: number of features
+            d_z: number of latent variables
+            d_z_global: number of global latent variable
+            tau: size of the timewindow
+            num_layers: number of layers for the neural networks
+            num_hidden: number of hidden units
+            num_output: number of outputs
+        """
+        super().__init__()
+        self.d = d  # number of variables
+        self.d_z = d_z
+        self.d_z2 = d_z_global
+        self.tau = tau
+        output_var = False
 
-        # print the unique values and their counts in mask:
-        # print("The unique values of mask are: ", torch.unique(mask))
-        # print("The counts of the unique values of mask are: ", torch.unique(mask, return_counts=True))
+        # initialize NNs
+        self.nonlinear_dynamics = nonlinear_dynamics
+        self.num_layers = num_layers
+        self.num_hidden = num_hidden
+        input_dim = (d * d_z * tau) + (d * self.d_z2 * 1)
+        if output_var:
+            self.num_output = num_output
+        else:
+            self.num_output = 1
+            # self.logvar = torch.ones(1)  * 0. # nn.Parameter(torch.ones(d) * 0.1)
+            # self.logvar = nn.Parameter(torch.ones(d) * -4)
+            self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
+        if self.nonlinear_dynamics:
+            print("NON LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(MLP(num_layers, num_hidden, input_dim, self.num_output) for i in range(d * d_z))
+        else:
+            print("LINEAR DYNAMICS")
+            self.nn = nn.ModuleList(MLP(0, 0, input_dim, self.num_output) for i in range(d * d_z))
+        # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
 
-        # print the first few elements of z
+    def forward(self, z, z_global, mask, i, k):
+        """
+        Returns the params of N(z_t | z_{<t}, z2_t) for a specific feature i and latent variable k NN(G_{tau-1} *
+        z_{t-1}, ..., G_{tau-k} * z_{t-k})
 
+        Input: z: (b, tau, d, dz) - History of z1 (t-tau, ...t-2, t-1)
+        mask: (b, tau, d, dz) - Adjacency mask for z1
+        z2: (b, 1, d, dz2) - Current step of z2 (t)
+        """
+        batch_size = z.size(0)
         z = z.view(mask.size())
 
-        # print("The z is now, after z.view() of size: ", z.size())
+        # 1. Process z1 history (t-tau, ...t-2, t-1): apply mask and flatten
+        # (b, tau, d, dz) -> (b, tau * d * dz)
+        masked_z_history = (mask * z).view(batch_size, -1)
 
-        # print("what is mask * z shape? ", (mask * z).size())
+        # 2. Process current z2 (t): flatten without masking
+        # (b, 1, d, dz2) -> (b, 1*d * dz2)
+        flat_z2 = z_global.view(batch_size, -1)
 
-        masked_z = (mask * z).view(z.size(0), -1)
+        # 3. Concatenate along the feature dimension
+        # Result shape: (b, (tau*d*dz) + (1*d*dz2))
+        combined_input = torch.cat([masked_z_history, flat_z2], dim=1)
 
-        # print("mask * z is of size: ", (mask * z).size())
-        # print("The masked_z is of size: ", masked_z.size())
-
-        # print the first few elements of masked_z
-        # print("The first few elements of masked_z are: ", masked_z[0, :10])
-
-        # print all the unique values of masked_z, and the number of unique values.
-        # print("The unique values of masked_z are: ", torch.unique(masked_z))
-
-        # count the number of very small values in masked_z
-        # print("The number of very small values in masked_z are: ", torch.sum(masked_z < 0.0001))
-
-        # print("What is i, self_d_z, k? ", i, self.d_z, k)
-        # print("What is i * self.d_z + k? ", i * self.d_z + k)
-        # print("What is self.nn[i * self.d_z + k]?", self.nn[i * self.d_z + k])
-
-        param_z = self.nn[i * self.d_z + k](masked_z)
-
-        # print("What is the shape of param_z?", param_z.size())
-
-        # param_z = self.nn(masked_z)
+        # 4. Predict params for N(z1_t | z1_{<t}, z2_t)
+        param_z = self.nn[i * self.d_z + k](combined_input)
 
         return param_z
 
@@ -1098,6 +1255,7 @@ class TransitionModelParamSharing(nn.Module):
         self,
         d: int,
         d_z: int,
+        d_z_global: int,
         tau: int,
         nonlinear_dynamics: bool,
         num_layers: int,
@@ -1118,6 +1276,7 @@ class TransitionModelParamSharing(nn.Module):
         super().__init__()
         self.d = d  # number of variables
         self.d_z = d_z
+        self.d_z2 = d_z_global
         self.tau = tau
         output_var = False
 
@@ -1127,7 +1286,7 @@ class TransitionModelParamSharing(nn.Module):
         self.num_hidden = num_hidden
         self.embedding_dim = embedding_dim
         self.embedding_transition = nn.Embedding(d_z, embedding_dim)
-
+        input_dim = (d * d_z * tau) + (d * self.d_z2 * 1)
         if output_var:
             self.num_output = num_output
         else:
@@ -1138,23 +1297,28 @@ class TransitionModelParamSharing(nn.Module):
         if self.nonlinear_dynamics:
             print("NON LINEAR DYNAMICS")
             self.nn = nn.ModuleList(
-                MLP(num_layers, num_hidden, d * d_z * tau + embedding_dim, self.num_output) for i in range(d)
+                MLP(num_layers, num_hidden, input_dim + embedding_dim, self.num_output) for i in range(d)
             )
         else:
             print("LINEAR DYNAMICS")
-            self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau + embedding_dim, self.num_output) for i in range(d))
+            self.nn = nn.ModuleList(MLP(0, 0, input_dim + embedding_dim, self.num_output) for i in range(d))
         # self.nn = MLP(num_layers, num_hidden, d * k * k, self.num_output)
 
-    def forward(self, z, mask, i):
-        """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
-        ..., G_{tau-k} * z_{t-k})"""
+    def forward(self, z, z_global, mask, i):
+        """Returns the params of N(z_t | z_{<t}, z2_t) for a specific feature i and latent variable k NN(G_{tau-1} *
+        z_{t-1}, ..., G_{tau-k} * z_{t-k})"""
+        batch_size = z.shape[0]
 
         j_values = torch.arange(self.d_z, device=z.device).expand(
-            z.shape[0], -1
+            batch_size, -1
         )  # create a 2D tensor with shape (x.shape[0], self.d_z)
         embedded_z = self.embedding_transition(j_values)
-        masked_z = (mask * z).transpose(3, 2).reshape((z.shape[0], -1, self.d_z)).transpose(2, 1)
-        z_ = torch.cat((masked_z, embedded_z), dim=2)
+        masked_z = (mask * z).transpose(3, 2).reshape((batch_size, -1, self.d_z)).transpose(2, 1)
+
+        flat_z2 = z_global.view(batch_size, -1)
+        flat_z2_expanded = flat_z2.unsqueeze(1).expand(-1, self.d_z, -1)
+
+        z_ = torch.cat((masked_z, embedded_z, flat_z2_expanded), dim=2)
 
         param_z = self.nn[i](z_)
 
@@ -1280,3 +1444,71 @@ class GEVDistribution(Distribution):
         else:
             # 0 < xi < 0.5 — currently not implemented
             return torch.tensor(float("nan"), device=self.mu.device)
+
+
+if __name__ == "__main__":
+
+    device = "cuda:0"
+    var = ["ts"]
+    tau = 5
+    d_x = 9
+    d = len(var)
+    future_time_steps = 1
+    num_input = d * tau
+    model = LatentTSDCD(
+        num_layers=2,
+        num_hidden=8,
+        num_input=num_input,
+        num_output=2,
+        num_layers_mixing=2,
+        num_hidden_mixing=16,
+        position_embedding_dim=100,
+        transition_param_sharing=False,
+        position_embedding_transition=100,
+        coeff_kl=1,
+        d=d,
+        # Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
+        distr_z0="gaussian",
+        distr_encoder="gaussian",
+        distr_transition="gaussian",
+        distr_decoder="gaussian",
+        d_x=d_x,
+        d_z=90,
+        d_z_global=1,
+        tau=tau,
+        instantaneous=False,
+        nonlinear_dynamics=True,
+        nonlinear_mixing=True,
+        tied_w=False,
+        fixed=False,
+    )
+    model = model.to(device)
+    batch_size = 1
+    x = torch.randn(batch_size, tau, 1, d_x).to(device)
+    y = torch.randn(batch_size, future_time_steps, d_x).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer.zero_grad()
+
+    for i in range(10):
+        elbo, recons, kl1, kl2, preds = model(x, y, gt_z=None, iteration=i)
+
+        print(
+            f"{i}: elbo {elbo.item():.4f}, recons {recons.item():.4f}, kl_z1 {kl1.item():.4f}, kl_z2 {kl2.item():.4f}"
+        )
+        loss = -elbo
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+    print(f"Forward: {preds[0]}")
+    print(f"Ground truth: {y[0]}")
+
+    with torch.no_grad():
+        px_mu, y, z, pz_mu, pz_std = model.predict(x, y)
+        print(f"Prediction: {px_mu[0]}")
+        px_mu, y, z, pz_mu, pz_std = model.predict_counterfactual(x, y, 1, 0.1)
+        print(f"predict_counterfactual: {px_mu[0]}")
+        samples_from_xs, samples_from_zs, y = model.predict_sample(x, y, 2)
+        print(samples_from_xs.shape)
+        print(f"predict_sample: {samples_from_xs[0]}")
+        samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering(x, y, 2)
+        print(f"predict_sample_bayesianfiltering: {samples_from_xs[0]}")

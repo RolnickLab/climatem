@@ -1,9 +1,10 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/test_debug_small/",
+        "exp_path": "$SCRATCH/results/small_debug_hierarchical/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
+        "d_z_global": 1,
         "d_x": 3072,
         "lon": 144, 
         "lat": 96,    
@@ -85,7 +86,7 @@
         "use_sparsity_constraint": true,
         "binarize_transition": true,
         "crps_coeff": 1,
-        "spectral_coeff": 500,
+        "spectral_coeff": 1000,
         "temporal_spectral_coeff": 2000,
         "coeff_kl": 1,
 
@@ -94,7 +95,7 @@
         "fraction_highest_wavenumbers": 0.5,
         "fraction_lowest_wavenumbers": null,
         "take_log_spectra": true,
-        "take_spherical_harmonics": true,
+        "take_spherical_harmonics": false,
         "scheduler_spectra": null,
 
         "reg_coeff": 0.12801,

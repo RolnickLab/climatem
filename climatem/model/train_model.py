@@ -589,7 +589,7 @@ class TrainingLatent:
             kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
             # Shall we do this if instantaneous??
             if not self.instantaneous:
-                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+                y_pred, y_spare, z_spare, pz_mu, pz_std, pz2_mu = self.model.predict(x_bis, y[:, k])
             else:
                 y_pred = y_pred_recons
             y_pred_all[:, k] = y_pred
@@ -746,7 +746,10 @@ class TrainingLatent:
             np.save(self.save_path / "x_true_recons_train.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_train.npy", y.cpu().detach().numpy())
             np.save(self.save_path / "y_pred_recons_train.npy", y_pred_all.cpu().detach().numpy())
-
+            print(
+                f"The prediction pz2_mu is {torch.mean(pz2_mu).item():.6f}; "
+                f"The global mean Y_true is {torch.mean(y).item():.6f}"
+            )
             # also carry out autoregressive predictions
             mse, smape, y_original, y_original_pred, y_original_recons, x_original = (
                 self.autoregress_prediction_original(valid=False, timesteps=10)
@@ -882,7 +885,7 @@ class TrainingLatent:
                 nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
                 recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
                 kl += (self.optim_params.loss_decay_future_timesteps**k) * kl_bis
-                y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k])
+                y_pred, y_spare, z_spare, pz_mu, pz_std, pz2_mu = self.model.predict(x_bis, y[:, k])
                 y_pred_all[:, k] = y_pred
                 x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
                 # print(f"y_pred_recons shape {y_pred_recons.shape}")
@@ -1015,8 +1018,23 @@ class TrainingLatent:
         # This can be cut if we want faster training...
 
         if self.iteration % self.plot_params.print_freq == 0:
+            global_mean_true = y.mean(dim=-1).cpu().detach().numpy()
+            global_mean_pred = pz2_mu.cpu().detach().numpy()
+            np.savez(
+                self.save_path / f"global_mean_bias_{self.iteration}.npz",
+                global_mean_true=global_mean_true,
+                global_mean_pred=global_mean_pred,
+            )
+            np.save(
+                self.save_path / f"decoder_mat_{self.iteration}.npy",
+                self.model.autoencoder.get_w_decoder().cpu().detach().numpy(),
+            )
+            print(
+                f"The prediction pz2_mu is {torch.mean(pz2_mu).item():.6f}; "
+                f"The global mean Y_true is {torch.mean(y).item():.6f}"
+            )
 
-            print(f"Iteration {self.iteration}, Ortho constraint {h_ortho}")
+            # print(f"Iteration {self.iteration}, Ortho constraint {h_ortho}")
             np.save(
                 self.save_path / f"decoder_mat_{self.iteration}.npy",
                 self.model.autoencoder.get_w_decoder().cpu().detach().numpy(),
@@ -1673,7 +1691,7 @@ class TrainingLatent:
 
             # ensure these are correct
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std, pz2_mu = self.model.predict(x, y)
 
                 # Here we predict, but taking 100 samples from the latents
                 # TODO: make this into an argument
@@ -1718,7 +1736,7 @@ class TrainingLatent:
                 # then predict the next timestep
                 # y at this point is pointless!!!
                 with torch.no_grad():
-                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std, pz2_mu = self.model.predict(x, y)
 
                 # append the prediction
                 predictions.append(y_pred)
@@ -1816,7 +1834,7 @@ class TrainingLatent:
 
             # swap
             with torch.no_grad():
-                y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                y_pred, y, z, pz_mu, pz_std, pz2_mu = self.model.predict(x, y)
 
                 # predict and take 100 samples too
                 samples_from_xs, samples_from_zs, y = self.model.predict_sample(x, y, 100)
@@ -1849,7 +1867,7 @@ class TrainingLatent:
 
                 with torch.no_grad():
                     # then predict the next timestep
-                    y_pred, y, z, pz_mu, pz_std = self.model.predict(x, y)
+                    y_pred, y, z, pz_mu, pz_std, pz2_mu = self.model.predict(x, y)
 
                 np.save(self.save_path / f"val_x_ar_{i}.npy", x.detach().cpu().numpy())
                 np.save(self.save_path / f"val_y_ar_{i}.npy", y.detach().cpu().numpy())

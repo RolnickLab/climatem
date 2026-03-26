@@ -10,6 +10,7 @@ class expParams:
         _target_: str = "climatem.data_loader.climate_datamodule.ClimateDataModule",
         latent: bool = True,  # Are you using latent variables or not (if not, learn causal variables between all observations)
         d_z: int = 90,  # Latent dimension
+        d_z_global: int = 1,  # higher-level latent dimension
         d_x: int = 6250,  # Observation dimension
         lon: int = 144,  # Longitude
         lat: int = 96,  # Latitude
@@ -24,6 +25,7 @@ class expParams:
         self.exp_path = exp_path
         self._target_ = _target_
         self.latent = latent
+        self.d_z_global = d_z_global
         self.d_z = d_z
         self.d_x = d_x
         self.lon = lon
