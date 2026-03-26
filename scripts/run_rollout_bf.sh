@@ -16,7 +16,7 @@ module purge
 
 # 1. Load the required modules
 module --quiet load python/3.10
-
+module load cuda/12.4.1
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
 source $HOME/envs/env_emulator_climatem/bin/activate
@@ -30,7 +30,7 @@ export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
 
 echo "=== calling accelerate"
-exp_ids=("test_debug_small/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_90_lr_0.0001_bs_128_20260313_080329")
+exp_ids=("test_debug_small/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_90_lr_0.0001_bs_128_20260325_094703")
 
 for exp_id in "${exp_ids[@]}"
 do

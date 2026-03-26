@@ -1,10 +1,16 @@
 # Adapting to do training across multiple GPUs with huggingface accelerate.
+import os
+
+import healpy as hp
+import jax
 import numpy as np
+import s2fft
 import torch
 import torch.distributions as dist
 
 # we use accelerate for distributed training
 from geopy import distance
+from jax2torch import jax2torch
 
 # from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import ProfilerActivity
@@ -14,7 +20,23 @@ from climatem.model.prox import monkey_patch_RMSprop
 from climatem.model.utils import ALM
 from climatem.plotting.plot_model_output import Plotter
 
+os.environ["JAX_PLATFORMS"] = "cuda"
+
+# Prevent JAX from pre-allocating all GPU memory (important for Torch compatibility)
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 euler_mascheroni = 0.57721566490153286060
+
+# def flm_to_psd(flm, L):
+#     # flm shape: (batch, L, 2*L-1)
+#     # The center of the last dim (L-1) is m=0
+#     psd_list = []
+#     for l in range(L):
+#         # Extract m from -l to +l
+#         m_modes = flm[:, l, L-1-l : L+l]
+#         # C_l = 1/(2l+1) * sum(|f_lm|^2)
+#         power = torch.sum(torch.abs(m_modes)**2, dim=-1) / (2 * l + 1)
+#         psd_list.append(power)
+#     return torch.stack(psd_list, dim=1) # Result shape: (batch, L)
 
 
 class TrainingLatent:
@@ -223,6 +245,13 @@ class TrainingLatent:
                     self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
                 else:
                     self.sparsity_normalization = self.tau * self.d_z * self.d_z
+
+        nside = hp.npix2nside(self.d_x)
+        lmax = 3 * nside - 1
+        L = lmax + 1
+        self.spherical_weights = (2 * torch.arange(L) + 1).unsqueeze(0)  # unsqueeze the batch dimension
+        batched_sht = jax.vmap(lambda f: s2fft.forward(f, L=L, nside=nside, sampling="healpix", method="jax"))
+        self.torch_sht = jax2torch(batched_sht)
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -625,6 +654,7 @@ class TrainingLatent:
                     y[:, k],
                     y_pred_all[:, k],
                     take_log=self.optim_params.take_log_spectra,
+                    take_spherical_harmonics=self.optim_params.take_spherical_harmonics,
                 )
 
         # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
@@ -919,6 +949,7 @@ class TrainingLatent:
                         y[:, k],
                         y_pred_all[:, k],
                         take_log=self.optim_params.take_log_spectra,
+                        take_spherical_harmonics=self.optim_params.take_spherical_harmonics,
                     )
 
             # Remove this component if instantaneous and tau = 0 - actually have a minimum tau for this or set coeff to 0
@@ -1257,10 +1288,8 @@ class TrainingLatent:
 
     def adj_transition_variance(self) -> float:
         adj = self.model.get_adj()
-
-        h = torch.norm(adj - torch.square(adj), p=1) / self.sparsity_normalization
-        assert torch.is_tensor(h)
-
+        h = torch.sum(torch.minimum(adj, 1 - adj)) / self.sparsity_normalization
+        # assert torch.is_tensor(h)
         return h
 
     def get_sparsity_violation(self, lower_threshold, upper_threshold) -> float:
@@ -1456,7 +1485,7 @@ class TrainingLatent:
 
             return crps
 
-    def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True):
+    def get_spatial_spectral_loss(self, y_true, y_pred, take_log=True, take_spherical_harmonics=False):
         """
         Calculate the spectral loss between the true values and the predicted values. We need to calculate the spectra
         of thhe true values and the predicted values, and then determine an appropriate metric to compare them.
@@ -1494,30 +1523,49 @@ class TrainingLatent:
             # calculate the spectra of the predicted values
             fft_pred = torch.fft.rfft(y_pred, dim=3)
 
-        elif y_true.size(-1) == self.d_x:
-
-            y_true = y_true
+        elif y_true.size(-1) == self.d_x:  # y_true shape(b, 1, d_x)
+            y_true = y_true  # torch.float32
             y_pred = y_pred
+            if take_spherical_harmonics:
+                # loss on coefficient: Sensitive to the orientation/phase of the features on the sphere. raw alm -> prefered
+                # loss on psd: Only sensitive to the "size" of the features, not where they are.
+                alm_pred = self.torch_sht(y_pred[:, 0, :])  # first squeeze the time dimension
+                alm_true = self.torch_sht(
+                    y_true[:, 0, :]
+                )  # (128, 48, 95) (batch_size, harmonic degree l, harmonic order m), alm is zero padded, nonzeros: [:,l, L-1-l : L+l]
+                # alm_pred = (torch.sum(torch.abs(alm_pred)**2, dim=-1)/self.spherical_weights).unsqueeze(1) #c (128, 1, 48)
+                # alm_true = (torch.sum(torch.abs(alm_true)**2, dim=-1)/self.spherical_weights).unsqueeze(1) #c
+                # print("first 3 psd pred: ",alm_pred[0,0,:3], "gt:", alm_true[0,0,:3])
+                # print("last 3 psd pred: ",alm_pred[0,0,-3:], "gt:",alm_true[0,0,-3:])
+                if take_log:
+                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-4, torch.abs(alm_true) < 1e-4)
+                    alm_true = torch.where(idx_pos, 0.0, alm_true)  # uc
+                    alm_pred = torch.where(idx_pos, 0.0, alm_pred)  # uc
+                    alm_true = torch.log(torch.abs(alm_true) + 1e-4)  # uc
+                    alm_pred = torch.log(torch.abs(alm_pred) + 1e-4)  # uc
+                # element-wise difference, sum over the harmonic order dimension, weighted by harmonic degree, the batch dim is kept and no time dim
+                spectral_loss = (
+                    torch.sum(torch.abs(alm_pred - alm_true), dim=-1) / self.spherical_weights
+                )  # (b,L)/(1,L) -> (b,L) #uc
+                # take the mean over batch
+                # spectral_loss = torch.mean(torch.abs(alm_pred - alm_true), dim=0) #c
 
-            # calculate the spectra of the true values
-            # note we calculate the spectra across space, and then take the mean across the batch
-            fft_true = torch.fft.rfft(y_true, dim=2)
-            # calculate the spectra of the predicted values
-            fft_pred = torch.fft.rfft(y_pred, dim=2)
+            else:  # 1D FFT
+                # calculate the spectra of the true values
+                # note we calculate the spectra across space, and then take the mean across the batch
+                fft_true = torch.fft.rfft(y_true, dim=2)
+                # calculate the spectra of the predicted values
+                fft_pred = torch.fft.rfft(y_pred, dim=2)
+                if take_log:
+                    idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
+                    fft_true = torch.where(idx_pos, 0.0, fft_true)
+                    fft_pred = torch.where(idx_pos, 0.0, fft_pred)
+                    fft_true = torch.log(torch.abs(fft_true) + 1e-4)
+                    fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
+                # taking the mean over batch, mean absolute loss
+                spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
         else:
             raise ValueError("The size of the input is a surprise, and should be addressed here.")
-
-        if take_log:
-            idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
-            fft_true = torch.where(idx_pos, fft_true, 0.0)
-            fft_pred = torch.where(idx_pos, fft_pred, 0.0)
-            fft_true = torch.log(torch.abs(fft_true) + 1e-4)
-            fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
-
-        spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
-        # print("spectral_loss shape", spectral_loss.shape)
-        # print("spectral_loss shape final", torch.mean(spectral_loss))
-        # spectral_loss = torch.mean(torch.nan_to_num(spectral_loss, 0), dim=0)
 
         # Calculate the power spectrum
         if self.optim_params.fraction_highest_wavenumbers is not None:
@@ -1528,7 +1576,6 @@ class TrainingLatent:
             spectral_loss = spectral_loss[
                 :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
             ]
-
         return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):

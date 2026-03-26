@@ -49,6 +49,9 @@ jupyter-contrib-nbextensions = "^0.7.0"
 notebook = "^7.3.2"
 jupyterlab-widgets = "^3.0.13"
 healpy = "^1.19.0"
+s2fft = "1.3.0"
+jax = "0.4.29"
+jax2torch = "^0.0.7"
 
 [tool.poetry.group.dev.dependencies]
 # Optional dependencies that need to be installed with poetry

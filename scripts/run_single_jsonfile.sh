@@ -16,7 +16,7 @@ module purge
 
 # 1. Load the required modules
 module --quiet load python/3.10
-
+module load cuda/12.4.1
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
 source $HOME/envs/env_emulator_climatem/bin/activate
 # 3. Enable expandable allocator to avoid fragmentation
@@ -29,6 +29,7 @@ export MASTER_ADDR="127.0.0.1"
 
 export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
+export JAX_ENABLE_X64=0
 
 echo "=== calling accelerate"
 

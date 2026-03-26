@@ -197,12 +197,8 @@ def main(
         name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}"
     else:
         name = f"{start_name}_{second_name_name}_{train_params.valid_freq}_var_{data_var_ids_str}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}"
-
-    exp_path = exp_path / name
-
-    if exp_path.exists():
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        exp_path = exp_path.parent / f"{exp_path.name}_{timestamp}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    exp_path = exp_path / f"{name}_{timestamp}"
 
     os.makedirs(exp_path, exist_ok=False)
     print(f"The experiment name is {exp_path}")
@@ -458,4 +454,5 @@ if __name__ == "__main__":
     )
 
     main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params, rollout_params)
-
+    timestamp_end = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"the run finished at {timestamp_end}")

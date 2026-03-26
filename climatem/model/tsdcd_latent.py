@@ -152,6 +152,7 @@ class MLP(nn.Module):
         self.num_hidden = num_hidden
         self.num_input = num_input
         self.num_output = num_output
+        self.use_grad_project = True
 
         module_dict = OrderedDict()
 
@@ -184,15 +185,15 @@ class LatentTSDCD(nn.Module):
 
     def __init__(
         self,
-        num_layers: int,  # sz: transition model
-        num_hidden: int,  # sz: transition model
+        num_layers: int,
+        num_hidden: int,
         num_input: int,
         num_output: int,
-        num_layers_mixing: int,  # sz: encoder/decoder
+        num_layers_mixing: int,
         num_hidden_mixing: int,
         position_embedding_dim: int,
         transition_param_sharing: bool,
-        position_embedding_transition: int,  # sz: 1NN per location, after sharing: 1NN for all locations
+        position_embedding_transition: int,
         coeff_kl: float,
         distr_z0: str,
         distr_encoder: str,
@@ -520,7 +521,6 @@ class LatentTSDCD(nn.Module):
         else:
             px_distr = self.distr_decoder(px_mu, px_std)
             recons = torch.mean(torch.sum(px_distr.log_prob(y), dim=[1, 2]))
-            # sz: log_theta p​(y∣z): 0<p<1, so log p < 0
             # compute the KL, the reconstruction and the ELBO
             # kl = distr.kl_divergence(q, p).mean()
             kl_raw = (
@@ -864,11 +864,12 @@ class NonLinearAutoEncoder(nn.Module):
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
+        self.use_grad_project = True
 
-        unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
+        unif = (1 - 0.4) * torch.rand(size=(d, d_x, d_z)) + 0.2
         self.w = nn.Parameter(unif / torch.as_tensor(d_z))
         if not tied:
-            unif = (1 - 0.1) * torch.rand(size=(d, d_z, d_x)) + 0.1
+            unif = (1 - 0.4) * torch.rand(size=(d, d_z, d_x)) + 0.2
             self.w_encoder = nn.Parameter(unif / torch.as_tensor(d_x))
 
         # self.logvar_encoder = nn.Parameter(torch.ones(d) * -1)
@@ -890,7 +891,7 @@ class NonLinearAutoEncoder(nn.Module):
         return self.w_encoder
 
     def select_encoder_mask(self, mask, i, j):
-        return mask
+        return mask[i, j]
 
     def get_decode_mask(self):
         return self.w
