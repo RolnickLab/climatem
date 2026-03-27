@@ -3,7 +3,7 @@
         "exp_path": "$SCRATCH/results/small_debug_hierarchical/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
-        "d_z": 90,
+        "d_z": 60,
         "d_z_global": 1,
         "d_x": 3072,
         "lon": 144, 
@@ -87,7 +87,7 @@
         "binarize_transition": true,
         "crps_coeff": 1,
         "spectral_coeff": 1000,
-        "temporal_spectral_coeff": 2000,
+        "temporal_spectral_coeff": 1000,
         "coeff_kl": 1,
 
         "loss_decay_future_timesteps": 1,

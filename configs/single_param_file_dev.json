@@ -1,9 +1,10 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/test_debug_small_dev/",
+        "exp_path": "$SCRATCH/results/small_debug_hierarchical_dev/",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 90,
+        "d_z_global": 1,
         "d_x": 3072,
         "lon": 144, 
         "lat": 96,    
@@ -37,8 +38,8 @@
         "map_to_healpix": true,
         "global_normalization": true,
         "seasonality_removal": true,
-        "batch_size": 128,
-        "eval_batch_size": 128,
+        "batch_size": 2,
+        "eval_batch_size": 2,
         "channels_last": false,
         "load_train_into_mem": true,
         "load_test_into_mem": true,
@@ -56,9 +57,9 @@
         "lr": 0.0001,
         "lr_scheduler_epochs": [10000, 25000, 50000],
         "lr_scheduler_gamma": 1,    
-        "max_iteration": 2,
-        "patience": 5000,
-        "patience_post_thresh": 50,
+        "max_iteration": 10,
+        "patience": 5,
+        "patience_post_thresh": 5,
         "valid_freq": 1
     },
     "model_params": {
@@ -85,14 +86,14 @@
         "use_sparsity_constraint": true,
         "binarize_transition": false,
         "crps_coeff": 1,
-        "spectral_coeff": 2000,
-        "temporal_spectral_coeff": 2000,
+        "spectral_coeff": 1000,
+        "temporal_spectral_coeff": 1000,
         "coeff_kl": 1,
 
         "loss_decay_future_timesteps": 1,
 
         "fraction_highest_wavenumbers": 0.5,
-        "fraction_lowest_wavenumbers": 0.95,
+        "fraction_lowest_wavenumbers": null,
         "take_log_spectra": true,
         "take_spherical_harmonics": true,
         "scheduler_spectra": null,
@@ -109,14 +110,14 @@
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
         "ortho_h_threshold": 1e-2,
-        "ortho_min_iter_convergence": 1000,
+        "ortho_min_iter_convergence": 2,
 
         "sparsity_mu_init": 0.01,
         "sparsity_mu_mult_factor": 1.2,
         "sparsity_omega_gamma": 0.01,
         "sparsity_omega_mu": 0.95,
         "sparsity_h_threshold": 1e-4,
-        "sparsity_min_iter_convergence": 1000,
+        "sparsity_min_iter_convergence": 2,
         
         "sparsity_upper_threshold": 0.5,
 
@@ -125,7 +126,7 @@
         "acyclic_omega_gamma": 0.01,
         "acyclic_omega_mu": 0.9,
         "acyclic_h_threshold": 1e-08,
-        "acyclic_min_iter_convergence": 1000,
+        "acyclic_min_iter_convergence": 2,
         "mu_acyclic_init": null,
         "h_acyclic_threshold": null,
 

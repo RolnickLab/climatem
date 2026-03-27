@@ -1021,7 +1021,7 @@ class TrainingLatent:
             global_mean_true = y.mean(dim=-1).cpu().detach().numpy()
             global_mean_pred = pz2_mu.cpu().detach().numpy()
             np.savez(
-                self.save_path / f"global_mean_bias_{self.iteration}.npz",
+                self.save_path / f"global_mean_bias_valid_{self.iteration}.npz",
                 global_mean_true=global_mean_true,
                 global_mean_pred=global_mean_pred,
             )
@@ -1549,22 +1549,21 @@ class TrainingLatent:
                 # loss on psd: Only sensitive to the "size" of the features, not where they are.
                 alm_pred = self.torch_sht(y_pred[:, 0, :])  # first squeeze the time dimension
                 alm_true = self.torch_sht(
-                    y_true[:, 0, :]
+                    y_true[:, 0, :]  # small numbers ~1e-3
                 )  # (128, 48, 95) (batch_size, harmonic degree l, harmonic order m), alm is zero padded, nonzeros: [:,l, L-1-l : L+l]
                 # alm_pred = (torch.sum(torch.abs(alm_pred)**2, dim=-1)/self.spherical_weights).unsqueeze(1) #c (128, 1, 48)
                 # alm_true = (torch.sum(torch.abs(alm_true)**2, dim=-1)/self.spherical_weights).unsqueeze(1) #c
-                # print("first 3 psd pred: ",alm_pred[0,0,:3], "gt:", alm_true[0,0,:3])
-                # print("last 3 psd pred: ",alm_pred[0,0,-3:], "gt:",alm_true[0,0,-3:])
                 if take_log:
-                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-4, torch.abs(alm_true) < 1e-4)
+                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-6, torch.abs(alm_true) < 1e-6)
                     alm_true = torch.where(idx_pos, 0.0, alm_true)  # uc
                     alm_pred = torch.where(idx_pos, 0.0, alm_pred)  # uc
-                    alm_true = torch.log(torch.abs(alm_true) + 1e-4)  # uc
-                    alm_pred = torch.log(torch.abs(alm_pred) + 1e-4)  # uc
+                    alm_true = torch.log(torch.abs(alm_true) + 1e-6)  # uc
+                    alm_pred = torch.log(torch.abs(alm_pred) + 1e-6)  # uc
                 # element-wise difference, sum over the harmonic order dimension, weighted by harmonic degree, the batch dim is kept and no time dim
                 spectral_loss = (
                     torch.sum(torch.abs(alm_pred - alm_true), dim=-1) / self.spherical_weights
-                )  # (b,L)/(1,L) -> (b,L) #uc
+                )  # (b,L)/(1,L) -> (b,L) #uc #
+
                 # take the mean over batch
                 # spectral_loss = torch.mean(torch.abs(alm_pred - alm_true), dim=0) #c
 
@@ -1574,6 +1573,10 @@ class TrainingLatent:
                 fft_true = torch.fft.rfft(y_true, dim=2)
                 # calculate the spectra of the predicted values
                 fft_pred = torch.fft.rfft(y_pred, dim=2)
+                # print("first 3 coeff abs pred: ",torch.abs(fft_pred[0,0,:3]), "gt:", torch.abs(fft_true[0,0,:3]))
+                # print("last 3 coeff abd pred: ",torch.abs(fft_pred[0,0,-3:]), "gt:",torch.abs(fft_true[0,0,-3:]))
+                # first 3 coeff abs pred:  tensor([589.1636,   3.4940,   1.7884], grad_fn=<AbsBackward0>) gt: tensor([1256.4561,  630.6737,  329.0944])
+                # last 3 coeff abd pred:  tensor([3.0352, 0.7688, 0.7086], grad_fn=<AbsBackward0>) gt: tensor([ 9.5667, 24.2259,  0.1348])
                 if take_log:
                     idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
                     fft_true = torch.where(idx_pos, 0.0, fft_true)
@@ -1594,7 +1597,7 @@ class TrainingLatent:
             spectral_loss = spectral_loss[
                 :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
             ]
-        return torch.mean(spectral_loss)
+        return torch.mean(spectral_loss)  # spherical and 1d fft loss are at the same scale
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
         """
