@@ -224,7 +224,7 @@ def particle_filter_weighting_bayesian(
                     # print(f"should be npp, np, bs")
 
             else:
-                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x_reshaped, y_reshaped)
+                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std, pz2_mu = model.predict(x_reshaped, y_reshaped)
             
             if not batch_memory: 
                 samples_from_zs = samples_from_zs.reshape((samples_from_zs.shape[0], x.shape[0], x.shape[1], samples_from_zs.shape[2], samples_from_zs.shape[3]))

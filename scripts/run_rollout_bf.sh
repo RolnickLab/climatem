@@ -30,7 +30,7 @@ export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
 
 echo "=== calling accelerate"
-exp_ids=("test_debug_small/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_90_lr_0.0001_bs_128_20260325_094703")
+exp_ids=("small_debug_hierarchical/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_60_lr_0.0001_bs_128_20260327_114004")
 
 for exp_id in "${exp_ids[@]}"
 do

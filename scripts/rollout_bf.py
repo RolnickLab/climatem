@@ -141,6 +141,7 @@ def main(
         distr_decoder="gaussian",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
+        d_z_global=experiment_params.d_z_global,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
         nonlinear_dynamics=model_params.nonlinear_dynamics,
