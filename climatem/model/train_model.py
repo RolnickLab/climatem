@@ -247,7 +247,7 @@ class TrainingLatent:
                     self.sparsity_normalization = self.tau * self.d_z * self.d_z
 
         nside = hp.npix2nside(self.d_x)
-        lmax = 3 * nside - 1
+        lmax = 2 * nside - 1  # default: 3
         L = lmax + 1
         self.spherical_weights = (2 * torch.arange(L) + 1).unsqueeze(0)  # unsqueeze the batch dimension
         batched_sht = jax.vmap(lambda f: s2fft.forward(f, L=L, nside=nside, sampling="healpix", method="jax"))
@@ -1538,11 +1538,13 @@ class TrainingLatent:
                 # print("first 3 psd pred: ",alm_pred[0,0,:3], "gt:", alm_true[0,0,:3])
                 # print("last 3 psd pred: ",alm_pred[0,0,-3:], "gt:",alm_true[0,0,-3:])
                 if take_log:
-                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-4, torch.abs(alm_true) < 1e-4)
-                    alm_true = torch.where(idx_pos, 0.0, alm_true)  # uc
-                    alm_pred = torch.where(idx_pos, 0.0, alm_pred)  # uc
-                    alm_true = torch.log(torch.abs(alm_true) + 1e-4)  # uc
-                    alm_pred = torch.log(torch.abs(alm_pred) + 1e-4)  # uc
+                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-6, torch.abs(alm_true) < 1e-6)
+                    # idx_pos = torch.abs(alm_true) < 1e-6
+                    alm_true = torch.where(idx_pos, 0.0, alm_true)
+                    alm_pred = torch.where(idx_pos, 0.0, alm_pred)
+                    alm_true = torch.log(torch.abs(alm_true) + 1e-6)
+                    alm_pred = torch.log(torch.abs(alm_pred) + 1e-6)
+
                 # element-wise difference, sum over the harmonic order dimension, weighted by harmonic degree, the batch dim is kept and no time dim
                 spectral_loss = (
                     torch.sum(torch.abs(alm_pred - alm_true), dim=-1) / self.spherical_weights
@@ -1576,6 +1578,9 @@ class TrainingLatent:
             spectral_loss = spectral_loss[
                 :, : round(self.optim_params.fraction_lowest_wavenumbers * spectral_loss.shape[1])
             ]
+        if self.iteration % self.plot_params.print_freq == 0:
+            print("Mean spectral_loss:", torch.mean(spectral_loss))
+
         return torch.mean(spectral_loss)
 
     def get_temporal_spectral_loss(self, x, y_true, y_pred):
