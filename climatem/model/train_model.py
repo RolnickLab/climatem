@@ -1554,7 +1554,8 @@ class TrainingLatent:
                 # alm_pred = (torch.sum(torch.abs(alm_pred)**2, dim=-1)/self.spherical_weights).unsqueeze(1) #c (128, 1, 48)
                 # alm_true = (torch.sum(torch.abs(alm_true)**2, dim=-1)/self.spherical_weights).unsqueeze(1) #c
                 if take_log:
-                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-6, torch.abs(alm_true) < 1e-6)
+                    # idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-6, torch.abs(alm_true) < 1e-6)
+                    idx_pos = torch.abs(alm_true) < 1e-6
                     alm_true = torch.where(idx_pos, 0.0, alm_true)  # uc
                     alm_pred = torch.where(idx_pos, 0.0, alm_pred)  # uc
                     alm_true = torch.log(torch.abs(alm_true) + 1e-6)  # uc
