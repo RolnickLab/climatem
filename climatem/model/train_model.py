@@ -1538,8 +1538,8 @@ class TrainingLatent:
                 # print("first 3 psd pred: ",alm_pred[0,0,:3], "gt:", alm_true[0,0,:3])
                 # print("last 3 psd pred: ",alm_pred[0,0,-3:], "gt:",alm_true[0,0,-3:])
                 if take_log:
-                    idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-6, torch.abs(alm_true) < 1e-6)
-                    # idx_pos = torch.abs(alm_true) < 1e-6
+                    # idx_pos = torch.logical_or(torch.abs(alm_pred) < 1e-6, torch.abs(alm_true) < 1e-6)
+                    idx_pos = torch.abs(alm_true) < 1e-6
                     alm_true = torch.where(idx_pos, 0.0, alm_true)
                     alm_pred = torch.where(idx_pos, 0.0, alm_pred)
                     alm_true = torch.log(torch.abs(alm_true) + 1e-6)
