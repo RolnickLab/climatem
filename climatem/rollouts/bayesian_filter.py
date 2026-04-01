@@ -1,6 +1,11 @@
 import numpy as np
 import torch
 from tqdm import trange
+from jax2torch import jax2torch
+import jax
+import s2fft
+import healpy as hp
+
 
 def calculate_fft_mean_std_across_all_noresm(datamodule, accelerator):
 
@@ -27,6 +32,41 @@ def calculate_fft_mean_std_across_all_noresm(datamodule, accelerator):
     return y_true_fft_mean, y_true_fft_std
 
 
+
+def calculate_shm_mean_std_across_all_noresm(datamodule, accelerator):
+    # Start again at the beginning of the dataloader.
+    train_dataloader = iter(datamodule.train_dataloader(accelerator))
+
+    # iterate through the data and append all the y values together
+    y_all = []
+    for i in range(len(train_dataloader)):
+        _, y_whole_dataloader = next(train_dataloader)
+        y_all.append(y_whole_dataloader[:, 0])
+    y_all = torch.cat(y_all, dim=0)
+    y_all = torch.nan_to_num(y_all) #(torch.Size([4608, 1, 3072])
+    n, t = y_all.shape[0], y_all.shape[1]
+
+    # make sure we reset the dataloader
+    train_dataloader = iter(datamodule.train_dataloader(accelerator))
+
+    nside = hp.npix2nside(y_all.shape[2])
+    lmax =  2 * nside - 1  # default: 3 * nside - 1
+    L = lmax + 1
+    
+    spherical_weights = (2 * torch.arange(L) + 1).unsqueeze(0)  # unsqueeze the batch dimension
+    batched_sht = jax.vmap(lambda f: s2fft.forward(f, L=L, nside=nside, sampling="healpix", method="jax"))
+    torch_sht = jax2torch(batched_sht)
+    y_all = y_all.view(-1, y_all.shape[-1])
+
+    alm_true = torch_sht(y_all)
+    y_true_flm_data = torch.sum(torch.abs(alm_true)**2, dim=-1)/spherical_weights
+    y_true_flm_data = y_true_flm_data.reshape(n, t, y_true_flm_data.shape[-1])
+    
+    # calculate the mean and std of the fft of the true data across all the data
+    y_true_flm_mean = y_true_flm_data.mean(dim=0)
+    y_true_flm_std = y_true_flm_data.std(dim=0)
+
+    return y_true_flm_mean, y_true_flm_std
 
 def logscore_the_samples_for_spatial_spectra_bayesian(
     y_true_fft_mean,
@@ -79,6 +119,66 @@ def logscore_the_samples_for_spatial_spectra_bayesian(
     # score = ...
     return spatial_spectra_score
 
+def logscore_the_samples_for_spherical_spatial_spectra_bayesian(
+    y_true_fft_mean,
+    y_true_fft_std,
+    y_pred_samples,
+    coords: np.ndarray,
+    sigma: float = 1.0,
+    num_particles: int = 100,
+    batch_size: int = 64,
+    distribution_spatial_spectra: str = "laplace",
+    tempering: bool = False,
+):
+    """
+    Calculate the spatial spectra of the true values and the predicted values, and then calculate a score between them.
+    This is a measure of how well the model is predicting the spatial spectra of the true values.
+
+    Args:
+        true_values: torch.Tensor, observed values in a batch
+        y_pred: torch.Tensor, a selection of predicted values
+        num_particles: int, the number of samples that have been taken from the model
+    """
+    # print("y_pred_samples",y_pred_samples.shape) #500, 8, 1, 3072
+    nside = hp.npix2nside(y_pred_samples.shape[3])
+    b, n, t = y_pred_samples.shape[0], y_pred_samples.shape[1], y_pred_samples.shape[2]
+    lmax =  2 * nside - 1  
+    L = lmax + 1
+    spherical_weights = (2 * torch.arange(L) + 1).unsqueeze(0)  # unsqueeze the batch dimension
+    batched_sht = jax.vmap(lambda f: s2fft.forward(f, L=L, nside=nside, sampling="healpix", method="jax"))
+    torch_sht = jax2torch(batched_sht)
+    y_pred_samples = y_pred_samples.reshape(-1, y_pred_samples.shape[-1]) 
+    alm_pred = torch_sht(y_pred_samples)
+    fft_pred = torch.sum(torch.abs(alm_pred)**2, dim=-1) / spherical_weights
+    fft_pred = fft_pred.reshape(b,n,t, fft_pred.shape[-1]) 
+
+    # extend fft_true so it is the same value but extended to the same shape as fft_pred
+    fft_true = y_true_fft_mean.repeat(num_particles, batch_size, 1, 1)
+    fft_true_std = y_true_fft_std.repeat(num_particles, batch_size, 1, 1)
+
+    if fft_pred.dim() == fft_true.dim() + 1:
+#         print("I am flattening the preds here.")
+        fft_pred = torch.flatten(fft_pred, start_dim=0, end_dim=1)
+
+    assert fft_true.shape == fft_pred.shape
+    assert fft_true_std.shape == fft_pred.shape
+    
+    if distribution_spatial_spectra == "laplace":
+        spatial_spectra_score = torch.abs((fft_pred - fft_true) / (fft_true_std))
+    elif distribution_spatial_spectra == "gaussian":
+        spatial_spectra_score = ((fft_pred - fft_true) ** 2) / (2 * fft_true_std**2)
+
+#     print("Spatial spectra score shape before summing:", spatial_spectra_score.shape)
+
+    spatial_spectra_score = -torch.sum(spatial_spectra_score, dim=(2, 3))
+    if tempering: 
+#         spatial_spectra_score /= y_true_fft_mean.shape[1]
+        # print(f"shape of FFT mean is {y_true_fft_mean.shape} and dim 1 is {y_true_fft_mean.shape[1]}")
+        spatial_spectra_score /= np.sqrt(y_true_fft_mean.shape[1])
+
+#     print("The spatial spectra score shape should be (num_particles, num_batch_size):", spatial_spectra_score.shape)
+    # score = ...
+    return spatial_spectra_score
 
 def particle_filter_weighting_bayesian(
     model,
@@ -91,6 +191,7 @@ def particle_filter_weighting_bayesian(
     num_particles_per_particle: int = 10,
     timesteps: int = 120,
     score: str = "variance",
+    spherics: bool = False,
     save_dir: str = None,
     save_name: str = None,
     batch_size: int = 16,
@@ -243,7 +344,16 @@ def particle_filter_weighting_bayesian(
         # Update the weights, where we want the weights to increase as the score improves
 
         if score == "spatial_spectra":
-            new_weights = score_the_samples_for_spatial_spectra(
+            if spherics:
+                new_weights = score_the_samples_for_spherical_spatial_spectra(
+                y,
+                samples_from_zs,
+                coords=coordinates,
+                num_particles=num_particles * num_particles_per_particle,
+                mid_latitudes=True,
+            )
+            else:
+                new_weights = score_the_samples_for_spatial_spectra(
                 y,
                 samples_from_zs,
                 coords=coordinates,
@@ -264,7 +374,18 @@ def particle_filter_weighting_bayesian(
             # print(f"y_true_fft_mean shape {y_true_fft_mean.shape}")
             # This is [K*L, batch size, 1, 6250]--> Is this expected?
             # Then fft_true shape after repeating: torch.Size([K*L, batch size, 1, 3126]
-            scores_spatial_spectra = logscore_the_samples_for_spatial_spectra_bayesian(
+            if spherics:
+                scores_spatial_spectra = logscore_the_samples_for_spherical_spatial_spectra_bayesian(
+                y_true_fft_mean,
+                y_true_fft_std,
+                samples_from_zs,
+                coords=coordinates,
+                num_particles=num_particles * num_particles_per_particle,
+                batch_size=batch_size,
+                tempering=tempering,
+            )
+            else:
+                scores_spatial_spectra = logscore_the_samples_for_spatial_spectra_bayesian(
                 y_true_fft_mean,
                 y_true_fft_std,
                 samples_from_zs,

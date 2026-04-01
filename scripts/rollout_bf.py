@@ -14,7 +14,7 @@ import torch
 
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
 from climatem.model.tsdcd_latent import LatentTSDCD
-from climatem.rollouts.bayesian_filter import calculate_fft_mean_std_across_all_noresm, logscore_the_samples_for_spatial_spectra_bayesian, particle_filter_weighting_bayesian
+from climatem.rollouts.bayesian_filter import calculate_fft_mean_std_across_all_noresm, calculate_shm_mean_std_across_all_noresm, logscore_the_samples_for_spatial_spectra_bayesian, particle_filter_weighting_bayesian
 from climatem.config import *
 from climatem.utils import parse_args, update_config_withparse
 
@@ -187,14 +187,17 @@ def main(
     os.makedirs(save_path, exist_ok=True)
 
     # seed = 1
-    save_path = save_path / f"bs_{rollout_params.batch_size}_np_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_t_{rollout_params.num_timesteps}_sc_{rollout_params.score}_temp_{rollout_params.tempering}_iter{iter_id}"
+    save_path = save_path / f"bs_{rollout_params.batch_size}_np_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_t_{rollout_params.num_timesteps}_sc_{rollout_params.score}_temp_{rollout_params.tempering}_iter{iter_id}_spherical{str(optim_params.take_spherical_harmonics)}"
     os.makedirs(save_path, exist_ok=True)
 
     
 
     model_path = exp_path #/ "training_results"
 
-    y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, accelerator)
+    if optim_params.take_spherical_harmonics:
+        y_true_fft_mean, y_true_fft_std = calculate_shm_mean_std_across_all_noresm(datamodule, accelerator)
+    else:
+        y_true_fft_mean, y_true_fft_std = calculate_fft_mean_std_across_all_noresm(datamodule, accelerator)
     print("y_true_fft_mean shape:", y_true_fft_mean.shape)
     print("y_true_fft_std shape:", y_true_fft_std.shape)
 
@@ -253,6 +256,7 @@ def main(
             num_particles_per_particle=rollout_params.num_particles_per_particle,
             timesteps=rollout_params.num_timesteps,
             score=rollout_params.score,
+            spherics=optim_params.take_spherical_harmonics,
             save_dir=save_path,
             save_name=f"trajectory_iteration",
             batch_size=rollout_params.batch_size,
