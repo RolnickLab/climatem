@@ -898,7 +898,7 @@ class LatentTSDCD(nn.Module):
             samples_from_xs = self.distr_decoder(px_mu.repeat(new_shape), px_std.repeat(new_shape)).sample()
 
         if with_zs_logprob:
-            return samples_from_xs, samples_from_zs, y, z_samples_logprob
+            return samples_from_xs, samples_from_zs, y, z_samples_logprob, pz2_mu
         return samples_from_xs, samples_from_zs, y
         # return px_mu, y, z, pz_mu, pz_std
 

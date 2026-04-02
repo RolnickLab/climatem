@@ -124,7 +124,7 @@ def particle_filter_weighting_bayesian(
                 print(f"y shape {y.shape}")
 
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs = (
+                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs, _ = (
                         model.predict_sample_bayesianfiltering(
                             x, y, num_particles * num_particles_per_particle, with_zs_logprob=True,
                         )
@@ -137,19 +137,24 @@ def particle_filter_weighting_bayesian(
                     batch_size = x.shape[0]
                     samples_from_zs = []
                     logscore_samples_fromzs = []
+                    pred_global=[]
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch = (
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch, pz2_mu = (
                             model.predict_sample_bayesianfiltering(
                                 x[k][None], y[k][None], num_particles * num_particles_per_particle, with_zs_logprob=True,
                             )
                         )
+                        print("esamples_from_zs_batch", samples_from_zs_batch.shape)
+                        print("epz2_mu", pz2_mu.shape)
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze(2)
                         if tempering: 
                             logscore_samples_fromzs_batch /= np.sqrt(model.d_z)
                         samples_from_zs.append(samples_from_zs_batch)
+                        pred_global.append(pz2_mu)
                         logscore_samples_fromzs.append(logscore_samples_fromzs_batch)
                     samples_from_zs = torch.cat(samples_from_zs, dim=1)
+                    pred_global = torch.cat(pred_global, dim=1)
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)[None]
 
 #                 print(f"unused_samples_from_xs shape {unused_samples_from_xs.shape}")
@@ -184,7 +189,7 @@ def particle_filter_weighting_bayesian(
             # print(f"y_reshaped.shape {y_reshaped.shape}")
             if score == "log_bayesian":
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs = (
+                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs, _ = (
                         model.predict_sample_bayesianfiltering(
                             x_reshaped, y_reshaped, num_particles_per_particle, with_zs_logprob=True,
                         )
@@ -195,14 +200,18 @@ def particle_filter_weighting_bayesian(
                         logscore_samples_fromzs /= np.sqrt(model.d_z)
                     logscore_samples_fromzs = logscore_samples_fromzs.reshape((logscore_samples_fromzs.shape[0], x.shape[0], x.shape[1]))
                 else:
+
                     samples_from_zs = []
                     logscore_samples_fromzs = []
+                    pred_global = [] 
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch = (
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch, pz2_mu = (
                             model.predict_sample_bayesianfiltering(
                                 x[:, k], y[k].repeat(x.shape[0], 1, 1), num_particles_per_particle, with_zs_logprob=True,
                             )
                         ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
+                        print("samples_from_zs_batch", samples_from_zs_batch.shape)
+                        print("pz2_mu", pz2_mu.shape)
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze()
                         if tempering: 
@@ -211,9 +220,12 @@ def particle_filter_weighting_bayesian(
                         # print(f"logscore_samples_fromzs_batch shape {logscore_samples_fromzs_batch.shape}")
                         # print(f"should be npp*np")
                         logscore_samples_fromzs.append(logscore_samples_fromzs_batch[:, None])
-                        samples_from_zs.append(samples_from_zs_batch[:, :, None])
+                        samples_from_zs.append(samples_from_zs_batch[:, :, None]) #??
+                        pred_global.append(pz2_mu[:, :, None])#??
                     samples_from_zs = torch.cat(samples_from_zs, dim=2)
-                    # print(f"samples_from_zs.shape {samples_from_zs.shape}")
+                    pred_global =torch.cat(pred_global, dim=2) #??
+                    print(f"samples_from_zs.shape {samples_from_zs.shape}")
+                    print(f"pred_global.shape {pred_global.shape}")
                     # print("should be npp*np*bs*1*6250")
                     # samples_from_zs = samples_from_zs.reshape((-1, samples_from_zs.shape[2], samples_from_zs.shape[3], samples_from_zs.shape[4]))
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)
@@ -224,7 +236,7 @@ def particle_filter_weighting_bayesian(
                     # print(f"should be npp, np, bs")
 
             else:
-                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x_reshaped, y_reshaped)
+                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std, pz2_mu = model.predict(x_reshaped, y_reshaped)
             
             if not batch_memory: 
                 samples_from_zs = samples_from_zs.reshape((samples_from_zs.shape[0], x.shape[0], x.shape[1], samples_from_zs.shape[2], samples_from_zs.shape[3]))
@@ -258,6 +270,7 @@ def particle_filter_weighting_bayesian(
                 # In correct dimension?? should be
                 logscore_samples_fromzs = torch.flatten(logscore_samples_fromzs, start_dim=0, end_dim=1)
                 samples_from_zs = torch.flatten(samples_from_zs, start_dim=0, end_dim=1)
+                pred_global =torch.flatten(pred_global, start_dim=0, end_dim=1) #??
 #             else:
 #                 samples_from_zs = samples_from_zs.unsqueeze(2)
             # print(f"samples_from_zs shape {samples_from_zs.shape}")
@@ -332,7 +345,9 @@ def particle_filter_weighting_bayesian(
         # assert torch.all(resampled_indices_array == resampled_indices_array2)
 
         selected_samples = samples_from_zs[resampled_indices, torch.arange(batch_size)]
+        selected_pred_global = pred_global = [resampled_indices, torch.arange(batch_size)] #??
         np.save(save_dir / f"{save_name}_{_}.npy", selected_samples.detach().cpu().numpy())
+        np.save(save_dir / f"pz2mu_{_}.npy", selected_pred_global.detach().cpu().numpy())
 #         print("Saved the selected samples with name:", f"{save_name}_{_}.npy")
 
         if _ == 0:
