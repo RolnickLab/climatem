@@ -88,7 +88,7 @@
         "crps_coeff": 1,
         "spectral_coeff": 1000,
         "temporal_spectral_coeff": 1000,
-        "coeff_kl": 1,
+        "coeff_kl": 100,
 
         "loss_decay_future_timesteps": 1,
 
@@ -109,7 +109,7 @@
         "ortho_mu_mult_factor": 1.2,
         "ortho_omega_gamma": 0.01,
         "ortho_omega_mu": 0.9,
-        "ortho_h_threshold": 1e-2,
+        "ortho_h_threshold": 1e-3,
         "ortho_min_iter_convergence": 1000,
 
         "sparsity_mu_init": 0.01,
