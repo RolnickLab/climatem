@@ -1,5 +1,22 @@
-# Here we have a quick main where we are testing data loading with different ensemble members and ideally with different climate models.
+"""Main training entry point for the ClimatEM causal discovery model.
+
+This script parses a JSON configuration file (via ``--config-path``), builds
+the data module, model, and trainer objects, then launches training through
+HuggingFace Accelerate.  It is typically invoked with::
+
+    accelerate launch scripts/main_picabu.py --config-path <config>.json
+
+Workflow
+--------
+1. Parse CLI arguments and load the JSON config.
+2. Instantiate all parameter dataclasses (``expParams``, ``dataParams``, etc.).
+3. Build a ``CausalClimateDataModule`` for temporal-causal sequences.
+4. Construct the ``LatentTSDCD`` model.
+5. Hand both to ``TrainingLatent`` which runs the ALM optimisation loop.
+6. Compute and save final metrics (SHD, precision, recall, MCC).
+"""
 import json
+import logging
 import os
 import time
 import warnings
@@ -9,6 +26,14 @@ import numpy as np
 import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
+
+# Ensure INFO logs are emitted to console even when no handlers are pre-configured.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    force=True,
+)
+logger = logging.getLogger(__name__)
 
 from climatem.config import *
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
@@ -33,18 +58,30 @@ class Bunch:
     def to_dict(self):
         return self.__dict__
 
-    # def fancy_print(self, prefix=''):
-    #     str_list = []
-    #     for key, val in self.__dict__.items():
-    #         str_list.append(prefix + f"{key} = {val}")
-    #     return '\n'.join(str_list)
-
 
 def main(
     experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params
 ):
-    """
-    :param hp: object containing hyperparameter values
+    """Build the datamodule, model, and trainer, then run the full training loop.
+
+    Parameters
+    ----------
+    experiment_params : expParams
+        Experiment-level settings (paths, GPU flag, random seed, latent dims).
+    data_params : dataParams
+        Data loading settings (paths, scenarios, variables, batch size).
+    gt_params : gtParams
+        Ground-truth debugging flags (whether to use GT graph/latents/weights).
+    train_params : trainParams
+        Training hyper-parameters (learning rate, iterations, patience).
+    model_params : modelParams
+        Model architecture settings (layers, hidden dims, dynamics type).
+    optim_params : optimParams
+        Optimisation settings (loss coefficients, ALM penalties).
+    plot_params : plotParams
+        Plotting frequency and options.
+    savar_params : savarParams
+        Synthetic SAVAR data generation parameters.
     """
     t0 = time.time()
 
@@ -66,11 +103,11 @@ def main(
     device = torch.device("cuda" if (torch.cuda.is_available() and experiment_params.gpu) else "cpu")
 
     if data_params.data_format == "hdf5":
-        print("IS HDF5")
+        logger.info("IS HDF5")
         return
     else:
         if model_params.instantaneous and experiment_params.tau == 0:
-            print("Using instantaneous connections")
+            logger.info("Using instantaneous connections")
             tau = experiment_params.tau + 1
         else:
             tau = experiment_params.tau
@@ -112,6 +149,7 @@ def main(
             seasonality_removal=data_params.seasonality_removal,
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
+            forcing_conditioning=data_params.forcing_conditioning,
             # Below SAVAR data arguments
             time_len=savar_params.time_len,
             comp_size=savar_params.comp_size,
@@ -119,6 +157,11 @@ def main(
             n_per_col=savar_params.n_per_col,
             difficulty=savar_params.difficulty,
             seasonality=savar_params.seasonality,
+            periods=savar_params.periods,
+            amplitudes=savar_params.amplitudes,
+            phases=savar_params.phases,
+            yearly_jitter_amp=savar_params.yearly_jitter_amp,
+            yearly_jitter_phase=savar_params.yearly_jitter_phase,
             overlap=savar_params.overlap,
             is_forced=savar_params.is_forced,
             f_1=savar_params.f_1,
@@ -129,6 +172,25 @@ def main(
             linearity=savar_params.linearity,
             poly_degrees=savar_params.poly_degrees,
             plot_original_data=savar_params.plot_original_data,
+            use_separate_forcings=savar_params.use_separate_forcings,
+            forcing_amplification=savar_params.forcing_amplification,
+            aerosol_scale = savar_params.aerosol_scale,
+            aerosol_spatial_contrast = savar_params.aerosol_spatial_contrast,
+            aerosol_ramp_up_time = savar_params.aerosol_ramp_up_time,
+            aerosol_peak_time = savar_params.aerosol_peak_time,
+            aerosol_decline_time = savar_params.aerosol_decline_time,
+            # Forcing causal structure parameters
+            n_co2_latents=savar_params.n_co2_latents,
+            n_aerosol_latents=savar_params.n_aerosol_latents,
+            co2_effect_strength=savar_params.co2_effect_strength,
+            aerosol_effect_strength=savar_params.aerosol_effect_strength,
+            # Background state parameters
+            enable_background=savar_params.enable_background,
+            background_strength=savar_params.background_strength,
+            background_strength_mode=savar_params.background_strength_mode,
+            background_smoothness=savar_params.background_smoothness,
+            background_timescale_rho=savar_params.background_timescale_rho,
+            background_n_modes=savar_params.background_n_modes
         )
         datamodule.setup()
 
@@ -137,21 +199,25 @@ def main(
 
     # WE SHOULD REMOVE THIS, and initialize with params
     d = len(data_params.in_var_ids)
-    print(f"Using {d} variables")
+    logger.info(f"Using {d} variables")
+    # num_input = (number of variables) * (time lags) * (spatial neighbourhood width).
+    # With instantaneous connections we include the current time step (tau + 1);
+    # the neighbourhood spans tau_neigh steps on each side plus the centre (2*tau_neigh + 1).
     if model_params.instantaneous:
         num_input = d * (experiment_params.tau + 1) 
     else:
         num_input = d * (experiment_params.tau) 
 
     # set the model
-    model = LatentTSDCD(
-        num_layers=model_params.num_layers,
-        num_hidden=model_params.num_hidden,
-        num_input=num_input,
-        num_output=2,  # This should be parameterized somewhere?
+        model = LatentTSDCD(
+            num_layers=model_params.num_layers,
+            num_hidden=model_params.num_hidden,
+            num_input=num_input,
+            num_output=2,  # 2 outputs per latent: mean and variance of a Gaussian distribution
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
         position_embedding_dim=model_params.position_embedding_dim,
+        reduce_encoding_pos_dim=model_params.reduce_encoding_pos_dim,
         transition_param_sharing=model_params.transition_param_sharing,
         position_embedding_transition=model_params.position_embedding_transition,
         coeff_kl=optim_params.coeff_kl,
@@ -177,7 +243,14 @@ def main(
         # also
         fixed=model_params.fixed,
         fixed_output_fraction=model_params.fixed_output_fraction,
-    )
+            use_exogenous=model_params.use_exogenous,
+            d_y_co2=model_params.d_y_co2,
+            d_y_aerosol=model_params.d_y_aerosol,
+            use_forced_latents=model_params.use_forced_latents,
+            n_forced_latents_co2=model_params.n_forced_latents_co2,
+            n_forced_latents_aerosol=model_params.n_forced_latents_aerosol,
+            forcing_arch=model_params.forcing_arch,
+        )
 
     # Make folder to save run results
     exp_path = Path(experiment_params.exp_path)
@@ -212,7 +285,6 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
-    hp["savar_params"] = savar_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
@@ -240,10 +312,11 @@ def main(
         accelerator,
         wandbname=name,
         profiler=False,
+        profiler_path="./log",
     )
 
     # where is the model at this point?
-    print("Where is my model?", next(trainer.model.parameters()).device)
+    logger.info("Where is my model? %s", next(trainer.model.parameters()).device)
 
     valid_loss = trainer.train_with_QPM()
 
@@ -323,9 +396,9 @@ def main(
 
     # assert that trainer.model is in eval mode
     if trainer.model.training:
-        print("Model is in train mode")
+        logger.info("Model is in train mode")
     else:
-        print("Model is in eval mode")
+        logger.info("Model is in eval mode")
 
     # NOTE: just dummies here for now
     # train_mse, train_smape, val_mse, val_smape = 10.0, 10.0, 10.0, 10.0
@@ -400,14 +473,14 @@ if __name__ == "__main__":
     # get user's scratch directory:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
-    print ("new data path:", params["data_params"]["data_dir"])
+    logger.info("new data path: %s", params["data_params"]["data_dir"])
 
     params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)
-    print ("new exp path:", params["exp_params"]["exp_path"])
+    logger.info("new exp path: %s", params["exp_params"]["exp_path"])
 
     # get directory of project via current file (aka .../climatem/scripts/main_picabu.py)
     params["data_params"]["icosahedral_coordinates_path"] = params["data_params"]["icosahedral_coordinates_path"].replace("$CLIMATEMDIR", root_path.absolute().as_posix())
-    print ("new icosahedron path:", params["data_params"]["icosahedral_coordinates_path"])
+    logger.info("new icosahedron path: %s", params["data_params"]["icosahedral_coordinates_path"])
 
     experiment_params = expParams(**params["exp_params"])
     data_params = dataParams(**params["data_params"])
@@ -427,7 +500,13 @@ if __name__ == "__main__":
 
         #Below is coherent with savar data generation 
         if savar_params.use_correct_hyperparams:
-            experiment_params.d_z = int(savar_params.n_per_col**2)
+            n_climate_latents = int(savar_params.n_per_col**2)
+            if model_params.use_forced_latents:
+                experiment_params.d_z = n_climate_latents + model_params.n_forced_latents_co2 + model_params.n_forced_latents_aerosol
+            else:
+                experiment_params.d_z = n_climate_latents
+            if not savar_params.is_forced:
+                model_params.use_exogenous = False
             if savar_params.difficulty == "easy":
                 optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*experiment_params.tau) #expected N out of N^2*tau total links
             if savar_params.difficulty == "med_easy":
@@ -448,4 +527,3 @@ if __name__ == "__main__":
     )
 
     main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params)
-

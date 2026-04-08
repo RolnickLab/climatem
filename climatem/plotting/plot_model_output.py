@@ -1,19 +1,20 @@
-# Collection of plotting functions for plotting the results of experiments.
+"""Visualization for model training output: loss curves, learned causal graphs, encoder/decoder diagnostics, and forcing analysis."""
 
 import os
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.patches import Patch
 
+from climatem.model.metrics import mcc_latent
 from climatem.synthetic_data.utils import permute_matrices
+from climatem.utils import get_logger
 
-# from climatem.model.metrics import mcc_latent
+logger = get_logger(__name__)
 
 
 def moving_average(a: np.ndarray, n: int = 10):
@@ -37,7 +38,11 @@ def moving_average(a: np.ndarray, n: int = 10):
 
 
 class Plotter:
+    """Base plotter for model training output, providing learning-curve, adjacency-matrix, and region-map
+    visualizations."""
+
     def __init__(self):
+        """Initialize Plotter with empty MCC score history and latent-variable assignment history."""
         self.mcc = []
         self.assignments = []
 
@@ -61,6 +66,7 @@ class Plotter:
             np.save(learner.plots_path / "graphs.npy", adj)
 
     def load(self, exp_path, data_loader):
+        """Load saved decoder/encoder weights, adjacency matrices, log-variances, losses, and ground-truth from disk."""
         # load matrix W of the decoder and encoder
         self.w = np.load(exp_path / "w_decoder.npy")
         self.w_encoder = np.load(exp_path / "w_encoder.npy")
@@ -285,9 +291,9 @@ class Plotter:
 
     def plot_sparsity(self, learner, save=False):
         """
-        Main plotting function.
+        Plot learning curves including sparsity constraints, adjacency matrices, and encoder/decoder weights.
 
-        Plot the learning curves and if the ground-truth is known the adjacency and adjacency through time.
+        Extended version of plot() that adds sparsity-specific penalties (ortho, sparsity, variance).
         """
 
         np.save(learner.plots_path / "coordinates.npy", learner.coordinates)
@@ -310,7 +316,6 @@ class Plotter:
                 plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
             )
-            # NOTE:(seb) adding here capacity to plot the new sparsity constraint!
             losses = [  # {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
@@ -367,47 +372,37 @@ class Plotter:
                 path=learner.plots_path,
             )
 
-        # Load gt mode weights
-        if learner.plot_params.savar:
-            savar_folder = learner.data_params.data_dir
-            # Get the gt mode weights
-            modes_gt = np.load(f"{savar_folder}/{learner.datamodule.savar_name}_mode_weights.npy")
-            if learner.iteration == 500:
-                savar_data = np.load(f"{savar_folder}/{learner.datamodule.savar_name}.npy")
-                savar_anim_path = f"{savar_folder}/{learner.datamodule.savar_name}_original_savar_data.gif"
-                self.plot_original_savar(savar_data, learner.lat, learner.lon, savar_anim_path)
-
-        # TODO: plot the prediction vs gt
-        # plot_compare_prediction(x, x_hat)
+        # Prediction-vs-ground-truth plotting is handled by plot_compare_predictions_* methods
+        # called from the training loop rather than here.
 
         # plot the adjacency matrix (learned vs ground-truth)
-        # Here if SAVAR, learner should have GT and gt_dag should be the SAVAR GT
-        adj = learner.model.get_adj().cpu().detach().numpy()
-        # if not learner.no_gt:
-        #     if learner.latent:
-        #         # for latent models, find the right permutation of the latent
-        #         adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-        #         adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
-        #         # variables using MCC
-        #         if learner.debug_gt_z:
-        #             gt_dag = learner.gt_dag
-        #             gt_w = learner.gt_w
-        #             self.mcc.append(1.0)
-        #             self.assignments.append(np.arange(learner.gt_dag.shape[1]))
-        #         else:
-        #         score, cc_program_perm, assignments, z, z_hat, x = mcc_latent(learner.model, learner.data)
-        #         permutation = np.zeros((learner.gt_dag.shape[1], learner.gt_dag.shape[1]))
-        #         permutation[np.arange(learner.gt_dag.shape[1]), assignments[1]] = 1
-        #         self.mcc.append(score.item())
-        #         self.assignments.append(assignments[1])
+        adj = learner.model.module.get_adj().cpu().detach().numpy()
+        if not learner.no_gt:
+            if learner.latent:
+                # for latent models, find the right permutation of the latent
+                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+                # variables using MCC
+                if learner.debug_gt_z:
+                    gt_dag = learner.gt_dag
+                    gt_w = learner.gt_w
+                    self.mcc.append(1.0)
+                    self.assignments.append(np.arange(learner.gt_dag.shape[1]))
+                else:
+                    score, cc_program_perm, assignments, z, z_hat, x = mcc_latent(learner.model, learner.data)
+                    permutation = np.zeros((learner.gt_dag.shape[1], learner.gt_dag.shape[1]))
+                    permutation[np.arange(learner.gt_dag.shape[1]), assignments[1]] = 1
+                    self.mcc.append(score.item())
+                    self.assignments.append(assignments[1])
 
-        #         gt_dag = permutation.T @ learner.gt_dag @ permutation
-        #         gt_w = learner.gt_w
-        #         # TODO: put back
-        #         # adj_w = adj_w[:, :, assignments[1]]
-        #         # adj_w2 = adj_w2[:, assignments[1], :]
-        #         adj_w2 = np.swapaxes(adj_w2, 1, 2)
-        #         self.save_mcc_and_assignement(learner.plots_path)
+                    gt_dag = permutation.T @ learner.gt_dag @ permutation
+                    gt_w = learner.gt_w
+                    # Permutation of decoder/encoder columns disabled: alignment is
+                    # now handled by spatial-centroid matching in SavarPlotter.
+                    # adj_w = adj_w[:, :, assignments[1]]
+                    # adj_w2 = adj_w2[:, assignments[1], :]
+                    adj_w2 = np.swapaxes(adj_w2, 1, 2)
+                self.save_mcc_and_assignement(learner.plots_path)
 
         #         # draw learned mixing fct vs GT
         #         if learner.model_params.nonlinear_mixing:
@@ -427,37 +422,20 @@ class Plotter:
         adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
         adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
-        # this is where this was before, but I have now added the argument names for myself
-        no_gt = not learner.plot_params.savar
-        if learner.plot_params.savar:
-            self.plot_adjacency_matrix(
-                learner,
-                mat1=adj,
-                # Below savar dag
-                mat2=learner.datamodule.savar_gt_adj,
-                modes_gt=modes_gt,
-                modes_inferred=adj_w,
-                path=learner.plots_path,
-                name_suffix="transition",
-                savar=True,
-                no_gt=no_gt,
-                iteration=learner.iteration,
-                plot_through_time=learner.plot_params.plot_through_time,
-            )
-        else:
-            self.plot_adjacency_matrix(
-                learner,
-                mat1=adj,
-                mat2=gt_dag,
-                modes_gt=gt_w,
-                modes_inferred=adj_w,
-                path=learner.plots_path,
-                name_suffix="transition",
-                savar=False,
-                no_gt=no_gt,
-                iteration=learner.iteration,
-                plot_through_time=learner.plot_params.plot_through_time,
-            )
+        # Plot adjacency matrix
+        self.plot_adjacency_matrix(
+            learner,
+            mat1=adj,
+            mat2=gt_dag,
+            modes_gt=gt_w,
+            modes_inferred=adj_w,
+            path=learner.plots_path,
+            name_suffix="transition",
+            savar=False,
+            no_gt=learner.no_gt,
+            iteration=learner.iteration,
+            plot_through_time=learner.plot_params.plot_through_time,
+        )
 
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
@@ -466,19 +444,10 @@ class Plotter:
             self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", True)
             # plot the encoder matrix W_2
             gt_w2 = gt_w
-            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", True)
-            # if not no_gt:
-            #     self.plot_adjacency_through_time_w(
-            #         learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
-            #     )
-            if learner.plot_params.savar:
-                self.plot_savar_feature_maps(
-                    learner,
-                    adj_w,
-                    coordinates=learner.coordinates,
-                    iteration=learner.iteration,
-                    plot_through_time=learner.plot_params.plot_through_time,
-                    path=learner.plots_path,
+            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", learner.no_gt)
+            if not learner.no_gt:
+                self.plot_adjacency_through_time_w(
+                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
                 )
             else:
                 self.plot_regions_map(
@@ -492,6 +461,11 @@ class Plotter:
                 )
 
     def plot_learned_mixing(self, z, z_hat, w, gt_w, x, path):
+        """
+        Plot learned vs ground-truth nonlinear mixing functions for the first few observed variables.
+
+        Saves learned_mixing_x{i}.png.
+        """
         n_first = 5
 
         for i in range(n_first):
@@ -794,6 +768,7 @@ class Plotter:
         plt.close()
 
     def plot_compare_regions():
+        """Placeholder for region comparison visualization (not yet implemented)."""
         pass
 
     # need to fix this plot so it works well for multiple variables
@@ -885,64 +860,6 @@ class Plotter:
         plt.close()
 
     # TO REWRITE PROPERLY AND PROPAGATE
-    def plot_savar_feature_maps(
-        self,
-        learner,
-        w_adj,
-        coordinates: np.ndarray,
-        iteration: int,
-        plot_through_time: bool,
-        path,
-    ):
-
-        grid_shape = (learner.lat, learner.lon)
-        w_adj = w_adj[0]  # Now w_adj_mean should be (lat*lon, num_latents)
-        d_z = w_adj.shape[1]
-
-        # w_adj_mean = self.permute_latents(w_adj_mean, grid_shape)
-        # Create a combined plot showing all features
-        combined_map_n_rows, combined_map_n_columns = int(np.sqrt(d_z + 1)) + 1, int(np.sqrt(d_z + 1)) + 1
-        fig, axs = plt.subplots(
-            nrows=combined_map_n_rows,
-            ncols=combined_map_n_columns,
-            figsize=(combined_map_n_columns * 3, combined_map_n_rows * 3),
-        )
-
-        ax = axs.flat[0]
-        im = ax.imshow(
-            learner.datamodule.savar_gt_noise + learner.datamodule.savar_gt_modes, cmap="viridis"
-        )  # , vmin=vmin, vmax=vmax)
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        plt.colorbar(im, cax=cax)
-        ax.set_title("Ground-Truth", fontsize="large")
-        ax.tick_params(axis="both", labelsize="large")
-
-        for i in range(d_z):
-            ax = axs.flat[i + 1]
-            feature_data = w_adj[:, i]
-            data = feature_data.reshape(grid_shape)
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            im = ax.imshow(data, cmap="viridis")  # , vmin=vmin, vmax=vmax)
-            # cbar = plt.colorbar(im, cax=cax)
-            plt.colorbar(im, cax=cax)
-            ax.set_title(f"Feature {i}", fontsize="large")
-            ax.tick_params(axis="both", labelsize="large")
-
-        for ax in axs.flat[d_z + 1 :]:
-            fig.delaxes(ax)
-
-        fig.tight_layout()
-
-        if plot_through_time:
-            fname = f"spatial_aggregation_{iteration}.png"
-        else:
-            fname = "spatial_aggregation.png"
-
-        plt.savefig(path / fname)
-        plt.close()
-
     def get_centroid(self, xs, ys):
         """
         http://www.geomidpoint.com/example.html
@@ -1084,148 +1001,233 @@ class Plotter:
         np.save(learner.plots_path / f"adj_encoder_w_{learner.iteration}.npy", adj_encoder_w)
         np.save(learner.plots_path / f"adj_w_{learner.iteration}.npy", adj_w)
 
-    # SH: edited to do plot through time, without changing the function name
-    # simply follow the lead of the function above, and try to plot through time.
+    def _plot_adjacency_single_time(self, fig, mat1, mat2_aligned, effective_no_gt, forcing_indices=None):
+        """Plot rectangular adjacency matrices for single timestep (tau=1)."""
+        n_climate, n_co2, n_aerosol, row_labels, col_labels = self._get_forcing_layout(mat1.shape[1], forcing_indices)
+        has_forcing = n_co2 + n_aerosol > 0
+
+        nrows = 1 if effective_no_gt else 3
+        titles = ["Learned", "Ground Truth", "Difference"]
+
+        axes = fig.subplots(nrows=nrows, ncols=1)
+        for row in range(nrows):
+            ax = axes if effective_no_gt else axes[row]
+            ax.set_title(titles[row])
+
+            if row == 0:
+                rgb = self._create_colored_rect_adjacency(mat1[0], n_climate, n_co2, n_aerosol)
+                ax.imshow(rgb, aspect="auto", interpolation="nearest")
+            elif row == 1:
+                rgb = self._create_colored_rect_adjacency(mat2_aligned[0][::-1], n_climate, n_co2, n_aerosol)
+                ax.imshow(rgb, aspect="auto", interpolation="nearest")
+            elif row == 2:
+                diff = mat1[0][:n_climate, : len(col_labels)] - mat2_aligned[0][::-1][:n_climate, : len(col_labels)]
+                sns.heatmap(
+                    diff,
+                    ax=ax,
+                    cbar=False,
+                    vmin=-1,
+                    vmax=1,
+                    cmap="RdBu_r",
+                    center=0,
+                    xticklabels=False,
+                    yticklabels=False,
+                )
+
+            if row < 2:
+                ax.set_yticks(range(n_climate))
+                ax.set_yticklabels(row_labels, fontsize=7)
+                ax.set_xticks(range(len(col_labels)))
+                ax.set_xticklabels(col_labels, fontsize=7, rotation=45)
+                if has_forcing:
+                    ax.axvline(x=n_climate - 0.5, color="black", linewidth=1.5)
+                    if n_co2 > 0 and n_aerosol > 0:
+                        ax.axvline(x=n_climate + n_co2 - 0.5, color="black", linewidth=0.8, linestyle=":")
+
+    def _get_forcing_layout(self, n_latents, forcing_indices=None):
+        """
+        Compute layout info from forcing_indices.
+
+        Returns:
+            n_climate, n_co2, n_aerosol, row_labels (climate only), col_labels (all sources)
+        """
+        if forcing_indices is not None:
+            co2_idx = forcing_indices.get("co2", [])
+            aerosol_idx = forcing_indices.get("aerosol", [])
+            n_co2 = len(co2_idx)
+            n_aerosol = len(aerosol_idx)
+            n_climate = n_latents - n_co2 - n_aerosol
+        else:
+            n_climate = n_latents
+            n_co2 = 0
+            n_aerosol = 0
+
+        row_labels = [f"C{i+1}" for i in range(n_climate)]
+        col_labels = [f"C{i+1}" for i in range(n_climate)]
+        if n_co2 == 1:
+            col_labels.append("CO2")
+        else:
+            col_labels += [f"CO2_{i}" for i in range(n_co2)]
+        col_labels += [f"A{i+1}" for i in range(n_aerosol)]
+
+        return n_climate, n_co2, n_aerosol, row_labels, col_labels
+
+    def _create_colored_rect_adjacency(self, adj_matrix, n_climate, n_co2, n_aerosol):
+        """
+        Create rectangular RGB adjacency image: rows=climate targets, cols=all sources.
+
+        Colors: Climate->Climate = Blue, CO2->Climate = Red, Aerosol->Climate = Orange.
+        """
+        n_total = n_climate + n_co2 + n_aerosol
+        n_rows = n_climate
+        n_cols = min(n_total, adj_matrix.shape[1])
+        rect = adj_matrix[:n_rows, :n_cols]
+
+        rgb = np.ones((n_rows, n_cols, 3))
+        adj_norm = np.clip(np.abs(rect), 0, 1)
+
+        for i in range(n_rows):
+            for j in range(n_cols):
+                val = adj_norm[i, j]
+                if val < 0.01:
+                    continue
+                if j < n_climate:
+                    rgb[i, j] = [1 - val, 1 - val, 1.0]  # Blue
+                elif j < n_climate + n_co2:
+                    rgb[i, j] = [1.0, 1 - val, 1 - val]  # Red
+                else:
+                    rgb[i, j] = [1.0, 0.65 + 0.35 * (1 - val), 1 - val]  # Orange
+
+        return rgb
+
+    def _plot_adjacency_through_time(self, fig, mat1, mat2_aligned, effective_no_gt, tau, forcing_indices=None):
+        """Plot rectangular adjacency matrices: rows=climate targets, cols=all sources."""
+        n_climate, n_co2, n_aerosol, row_labels, col_labels = self._get_forcing_layout(mat1.shape[1], forcing_indices)
+        has_forcing = n_co2 + n_aerosol > 0
+
+        subfig_names = [
+            f"Learned ({n_climate} climate"
+            + (f" + {n_co2} CO2 + {n_aerosol} aerosol" if n_co2 + n_aerosol > 0 else "")
+            + ")",
+            "Ground Truth",
+            "Difference",
+        ]
+
+        nrows = 1 if effective_no_gt else 3
+
+        subfigs = fig.subfigures(nrows=nrows, ncols=1)
+        for row in range(nrows):
+            subfig = subfigs if nrows == 1 else subfigs[row]
+            subfig.suptitle(subfig_names[row])
+
+            axes = subfig.subplots(nrows=1, ncols=tau)
+            for i in range(tau):
+                ax = axes[i]
+                ax.set_title(f"t-{i+1}")
+                mat_idx = tau - i - 1
+
+                if row == 0:
+                    rgb = self._create_colored_rect_adjacency(mat1[mat_idx], n_climate, n_co2, n_aerosol)
+                    ax.imshow(rgb, aspect="auto", interpolation="nearest")
+                elif row == 1 and mat2_aligned is not None:
+                    rgb = self._create_colored_rect_adjacency(mat2_aligned[mat_idx], n_climate, n_co2, n_aerosol)
+                    ax.imshow(rgb, aspect="auto", interpolation="nearest")
+                elif row == 2 and mat2_aligned is not None:
+                    diff = (
+                        mat1[mat_idx][:n_climate, : len(col_labels)]
+                        - mat2_aligned[mat_idx][:n_climate, : len(col_labels)]
+                    )
+                    ax.imshow(diff, aspect="auto", interpolation="nearest", vmin=-1, vmax=1, cmap="RdBu_r")
+
+                # Labels and separator lines
+                if i == 0:
+                    ax.set_yticks(range(n_climate))
+                    ax.set_yticklabels(row_labels, fontsize=7)
+                else:
+                    ax.set_yticks([])
+                ax.set_xticks(range(len(col_labels)))
+                ax.set_xticklabels(col_labels, fontsize=6, rotation=45)
+                # Separator between climate and forcing columns
+                if has_forcing:
+                    ax.axvline(x=n_climate - 0.5, color="black", linewidth=1.5)
+                    if n_co2 > 0 and n_aerosol > 0:
+                        ax.axvline(x=n_climate + n_co2 - 0.5, color="black", linewidth=0.8, linestyle=":")
+
+        legend_elements = [
+            Patch(facecolor="blue", edgecolor="black", label="Climate \u2192 Climate"),
+            Patch(facecolor="red", edgecolor="black", label="CO2 \u2192 Climate"),
+            Patch(facecolor="orange", edgecolor="black", label="Aerosol \u2192 Climate"),
+        ]
+        fig.legend(handles=legend_elements, loc="upper right", fontsize=8, framealpha=0.9)
+
     def plot_adjacency_matrix(
         self,
-        learner,
-        mat1: np.ndarray,
-        mat2: np.ndarray,
-        modes_gt,
-        modes_inferred,
-        path,
-        name_suffix: str,
-        savar,
+        learner=None,
+        mat1: np.ndarray = None,
+        mat2: np.ndarray = None,
+        modes_gt=None,
+        modes_inferred=None,
+        path=None,
+        name_suffix: str = "",
+        savar: bool = False,
         no_gt: bool = False,
         iteration: int = 0,
         plot_through_time: bool = True,
     ):
-        """Plot the adjacency matrices learned and compare it to the ground truth,
-        the first dimension of the matrix should be the time (tau)
-        Args:
-          mat1: learned adjacency matrices
-          mat2: ground-truth adjacency matrices
-          path: path where to save the plot
-          name_suffix: suffix for the name of the plot
-          no_gt: if True, does not use the ground-truth graph
         """
+        Plot the adjacency matrices learned and compare it to the ground truth.
 
-        lat = learner.lat
-        lon = learner.lon
+        The first dimension of the matrix should be the time (tau).
+
+        Args:
+            mat1: learned adjacency matrices
+            mat2: ground-truth adjacency matrices
+            path: path where to save the plot
+            name_suffix: suffix for the name of the plot
+            no_gt: if True, does not use the ground-truth graph
+        """
+        mat1 = np.array(mat1, copy=True)
         tau = mat1.shape[0]
+        effective_no_gt = no_gt or mat2 is None
+        forcing_indices = None
+        if learner is not None and hasattr(learner, "datamodule"):
+            forcing_indices = getattr(learner.datamodule, "forcing_indices", None)
+
+        mat2_aligned = None
+        if mat2 is not None:
+            mat2 = np.array(mat2, copy=True)
+            if mat2.shape[0] >= tau:
+                mat2_aligned = mat2[-tau:]
+            else:
+                mat2_aligned = mat2
 
         if savar and modes_gt is not None and modes_inferred is not None:
+            lat = None
+            lon = None
+            if learner is not None and hasattr(learner, "exp_params"):
+                lat = getattr(learner.exp_params, "lat", None)
+                lon = getattr(learner.exp_params, "lon", None)
+            if lat is not None and lon is not None:
+                mat1 = permute_matrices(
+                    lat,
+                    lon,
+                    modes_inferred,
+                    modes_gt,
+                    mat1,
+                    tau,
+                )
+            else:
+                logger.warning("Skipping SAVAR permutation in adjacency plot: lat/lon not available.")
 
-            mat1 = permute_matrices(
-                lat,
-                lon,
-                modes_inferred,
-                modes_gt,
-                mat1,
-                tau,
-            )
-
-        subfig_names = [
-            f"Learned, latent dimensions = {mat1.shape[1], mat1.shape[2]}",
-            "Ground Truth",
-            "Difference: Learned - GT",
-        ]
-
+        # Create figure
         fig = plt.figure(constrained_layout=True)
         fig.suptitle("Adjacency matrices: learned vs ground-truth")
 
-        if no_gt:
-            nrows = 1
-        else:
-            nrows = 3
-
+        # Plot based on number of timesteps
         if tau == 1:
-            axes = fig.subplots(nrows=nrows, ncols=1)
-            for row in range(nrows):
-                if no_gt:
-                    ax = axes
-                else:
-                    ax = axes[row]
-                # axes.set_title(f"t - {i+1}")
-                if row == 0:
-                    sns.heatmap(
-                        mat1[0], ax=ax, cbar=False, vmin=-1, vmax=1, cmap="Blues", xticklabels=False, yticklabels=False
-                    )
-                elif row == 1:
-                    sns.heatmap(
-                        mat2[0][::-1],
-                        ax=ax,
-                        cbar=False,
-                        vmin=-1,
-                        vmax=1,
-                        cmap="Blues",
-                        xticklabels=False,
-                        yticklabels=False,
-                    )
-                elif row == 2:
-                    sns.heatmap(
-                        mat1[0] - mat2[0][::-1],
-                        ax=ax,
-                        cbar=False,
-                        vmin=-1,
-                        vmax=1,
-                        cmap="Blues",
-                        xticklabels=False,
-                        yticklabels=False,
-                    )
-
+            self._plot_adjacency_single_time(fig, mat1, mat2_aligned, effective_no_gt, forcing_indices)
         else:
-            subfigs = fig.subfigures(nrows=nrows, ncols=1)
-            for row in range(nrows):
-                if nrows == 1:
-                    subfig = subfigs
-                else:
-                    subfig = subfigs[row]
-                subfig.suptitle(f"{subfig_names[row]}")
-
-                axes = subfig.subplots(nrows=1, ncols=tau)
-                for i in range(tau):
-                    axes[i].set_title(f"t - {i+1}")
-                    if row == 0:
-                        sns.heatmap(
-                            mat1[tau - i - 1],
-                            ax=axes[i],
-                            cbar=False,
-                            vmin=-1,
-                            vmax=1,
-                            cmap="Blues",
-                            xticklabels=False,
-                            yticklabels=False,
-                        )
-                        # add a horizontal line every 50 columns
-                        for j in range(0, mat1.shape[1], 50):
-                            axes[i].axhline(y=j, color="black", linewidth=0.4)
-                        # add a vertical line every 50 columns
-                        for j in range(0, mat1.shape[1], 50):
-                            axes[i].axvline(x=j, color="black", linewidth=0.4)
-
-                    elif row == 1:
-                        sns.heatmap(
-                            mat2[i],
-                            ax=axes[i],
-                            cbar=False,
-                            vmin=-1,
-                            vmax=1,
-                            cmap="Blues",
-                            xticklabels=False,
-                            yticklabels=False,
-                        )
-                    elif row == 2:
-                        sns.heatmap(
-                            mat1[tau - i - 1] - mat2[i],
-                            ax=axes[i],
-                            cbar=False,
-                            vmin=-1,
-                            vmax=1,
-                            cmap="Blues",
-                            xticklabels=False,
-                            yticklabels=False,
-                        )
+            self._plot_adjacency_through_time(fig, mat1, mat2_aligned, effective_no_gt, tau, forcing_indices)
 
         # new
         if plot_through_time:
@@ -1403,6 +1405,11 @@ class Plotter:
         fig.clf()
 
     def save_mcc_and_assignement(self, exp_path):
+        """
+        Save MCC score history and latent assignment history to disk, and plot MCC over time.
+
+        Saves mcc.npy, assignments.npy, and mcc.png.
+        """
         np.save(exp_path / "mcc", np.array(self.mcc))
         np.save(exp_path / "assignments", np.array(self.assignments))
         if len(self.mcc) > 1:
@@ -1411,180 +1418,3 @@ class Plotter:
             plt.title("MCC score through time")
             fig.savefig(exp_path / "mcc.png")
             fig.clf()
-
-    def plot_original_savar(self, data, lat, lon, path):
-        """Plotting the original savar data."""
-        print(f"data shape {data.shape}")
-        # Get the dimensions
-        time_steps = data.shape[1]
-        data_reshaped = data.T.reshape((time_steps, lat, lon))
-
-        # Calculate the average over the time axis
-        avg_data = np.mean(data_reshaped, axis=0)
-
-        # Determine the global min and max from the averaged data for consistent color scaling
-        vmin = np.min(avg_data)
-        vmax = np.max(avg_data)
-
-        fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
-        cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
-        # cbar = fig.colorbar(cax, ax=ax)
-
-        def animate(i):
-            cax.set_data(data_reshaped[i])
-            ax.set_title(f"Time step: {i+1}")
-            return (cax,)
-
-        # Create an animation
-        ani = animation.FuncAnimation(fig, animate, frames=100, blit=True)
-
-        # Save the animation as a video file
-        ani.save(path, writer="pillow", fps=10)
-
-        plt.close()
-
-    # # Below are functions used for plotting savar results / metrics. Not used yet but could be useful / integrated into the savar pipeline
-
-    # def plot_original_savar(self, data, lon, lat, path):
-    #     """Plotting the original savar data."""
-    #     print(f"data shape {data.shape}")
-    #     # Get the dimensions
-    #     time_steps = data.shape[0]
-    #     data_reshaped = data.T.reshape((time_steps, lat, lon))
-
-    #     # Calculate the average over the time axis
-    #     avg_data = np.mean(data_reshaped, axis=0)
-
-    #     # Determine the global min and max from the averaged data for consistent color scaling
-    #     vmin = np.min(avg_data)
-    #     vmax = np.max(avg_data)
-
-    #     fig, ax = plt.subplots(figsize=(lon / 10, lat / 10))
-    #     cax = ax.imshow(data_reshaped[0], aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
-    #     cbar = fig.colorbar(cax, ax=ax)
-
-    #     def animate(i):
-    #         cax.set_data(data_reshaped[i])
-    #         ax.set_title(f"Time step: {i+1}")
-    #         return (cax,)
-
-    #     # Create an animation
-    #     ani = animation.FuncAnimation(fig, animate, frames=100, blit=True)
-
-    #     fname = "original_savar_data.gif"
-    #     # Save the animation as a video file
-    #     ani.save(os.path.join(path, fname), writer="pillow", fps=10)
-
-    #     plt.close()
-
-    # def compute_time_averaged_pixel_error(self, learner, cdsd_data, savar_data, iteration, path):
-    #     """
-    #     Computes the pixel error between time-averaged SAVAR ground truth and reconstructed CDSD latent variables.
-
-    #     Args:
-    #         cdsd_data (numpy.ndarray): CDSD latent variables of shape (1, lon*lat, d_z).
-    #         savar_data (numpy.ndarray): SAVAR ground truth data of shape (time_steps, lat, lon).
-
-    #     Returns:
-    #         float: The mean squared error between time-averaged SAVAR and reconstructed CDSD.
-    #     """
-    #     # Step 1: Time-average the SAVAR data over time_steps
-    #     savar_avg = np.mean(savar_data, axis=0)  # Shape becomes (lat, lon)
-
-    #     # Step 2: Reshape cdsd_data to (lat, lon, d_z) based on savar spatial dimensions
-    #     lat, lon = savar_avg.shape
-    #     d_z = cdsd_data.shape[2]
-
-    #     # Assuming lon*lat matches the savar grid
-    #     cdsd_reshaped = cdsd_data.reshape(lat, lon, d_z)  # Shape becomes (lat, lon, d_z)
-
-    #     # Step 3: Reconstruct CDSD by summing over the latent dimension (d_z)
-    #     cdsd_reconstructed = np.sum(cdsd_reshaped, axis=2)  # Shape becomes (lat, lon)
-
-    #     # Step 4: Compute pixel-wise error (Mean Squared Error)
-    #     pixel_error = np.mean((cdsd_reconstructed - savar_avg) ** 2)
-
-    #     print(f"Pixel error: {pixel_error}")
-
-    #     combined_min = min(np.min(cdsd_reconstructed), np.min(savar_avg))
-    #     combined_max = max(np.max(cdsd_reconstructed), np.max(savar_avg))
-
-    #     # Step 5: Plot both the reconstructed CDSD data and the time-averaged SAVAR data
-    #     fig, axes = plt.subplots(1, 2, figsize=(learner.hp.compute_pixel_figsize_x, learner.hp.compute_pixel_figsize_y))
-
-    #     # Plot the reconstructed CDSD data
-    #     im1 = axes[0].imshow(cdsd_reconstructed, cmap="viridis", aspect="auto", vmin=combined_min, vmax=combined_max)
-    #     axes[0].set_title(f"Reconstructed CDSD Data (Pixel Error: {pixel_error:.4f})")
-    #     axes[0].set_xlabel("Longitude")
-    #     axes[0].set_ylabel("Latitude")
-    #     plt.colorbar(im1, ax=axes[0], label="Reconstructed Value")
-
-    #     # Plot the time-averaged SAVAR data
-    #     im2 = axes[1].imshow(savar_avg, cmap="viridis", aspect="auto", vmin=combined_min, vmax=combined_max)
-    #     axes[1].set_title("Time-Averaged SAVAR Data")
-    #     axes[1].set_xlabel("Longitude")
-    #     axes[1].set_ylabel("Latitude")
-    #     plt.colorbar(im2, ax=axes[1], label="SAVAR Value")
-    #     plt.tight_layout()
-
-    #     fname = f"cdsd_reconstructed_{iteration}.png"
-
-    #     plt.savefig(os.path.join(path, fname))
-    #     plt.close()
-
-    #     return pixel_error
-
-    # def calculate_mcc_with_savar(self, cdsd_data, savar_data):
-    #     """
-    #     Calculates the Mean Correlation Coefficient (MCC) between discovered latents (CDSD) and ground truth SAVAR data,
-    #     where SAVAR data is reshaped and projected into the same number of latents as the CDSD discovered data.
-
-    #     Args:
-    #         cdsd_latents (numpy array): Discovered latent variables from CDSD with shape (n_samples, n_latents).
-    #         savar_data (numpy array): Ground-truth SAVAR data with shape (time_steps, longitude, latitude).
-    #         num_latents (int): The number of latent variables (e.g., 3 in your case).
-
-    #     Returns:
-    #         float: The Mean Correlation Coefficient (MCC) between the CDSD latents and projected SAVAR latents.
-    #     """
-    #     num_latents = cdsd_data.shape[2]
-
-    #     # Reshape SAVAR data from (time_steps, longitude, latitude) to (time_steps, longitude * latitude)
-    #     time_steps, lat, lon = savar_data.shape
-    #     savar_data_reshaped = savar_data.reshape(time_steps, lon * lat)
-
-    #     # Apply ICA
-    #     ica = FastICA(n_components=num_latents)
-    #     savar_latents = ica.fit_transform(savar_data_reshaped.T).T
-    #     print(savar_latents.shape)
-
-    #     # Now, reshape the latents back into (time_steps, lat, lon, num_latents)
-    #     savar_latents_reshaped = savar_latents.reshape(num_latents, lat, lon)
-
-    #     for i in range(num_latents):
-    #         plt.figure(figsize=(6, 6))  # Create a new figure for each latent
-    #         latent_component = savar_latents_reshaped[i]  # Shape: (lat, lon)
-    #         plt.imshow(latent_component, cmap="viridis", aspect="auto")
-    #         plt.title(f"Latent {i + 1} after PCA")
-    #         plt.colorbar()
-    #         plt.show()  # Show each plot separately
-
-    #     # Ensure CDSD latents and SAVAR latents have the same shape
-    #     assert cdsd_data.shape == savar_latents.shape, "CDSD and SAVAR latent representations must have the same shape"
-
-    #     # Number of latent variables
-    #     n_latents = cdsd_data.shape[1]
-
-    #     # Compute the correlation matrix between each latent variable of CDSD and SAVAR
-    #     correlation_matrix = np.corrcoef(cdsd_data, savar_latents, rowvar=False)[:n_latents, n_latents:]
-
-    #     # Use the Hungarian algorithm to find the best matching between CDSD and SAVAR latents
-    #     row_ind, col_ind = linear_sum_assignment(-np.abs(correlation_matrix))
-
-    #     # Extract the corresponding correlations
-    #     matched_correlations = correlation_matrix[row_ind, col_ind]
-
-    #     # Calculate the Mean Correlation Coefficient (MCC)
-    #     mcc = np.mean(np.abs(matched_correlations))
-
-    #     return mcc

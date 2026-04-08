@@ -1,4 +1,13 @@
+"""
+Evaluation utilities for comparing learned causal graphs against ground truth.
+
+Provides functions to compute standard causal-discovery metrics -- Structural Hamming Distance (SHD), precision, recall,
+and F1 -- between inferred and ground-truth adjacency matrices.  Also includes helpers for permuting matrices to align
+latent orderings, plotting adjacency heatmaps, and extracting human-readable latent equations from adjacency structures.
+"""
+
 import json
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -7,9 +16,32 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import f1_score, precision_score, recall_score
 
+logger = logging.getLogger(__name__)
+
 
 def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
+    """
+    Find the permutation that best aligns inferred modes to ground-truth modes.
 
+    Alignment is based on the 2-D grid location of the maximum value of each
+    spatial mode.  The permutation minimises the sum of squared Euclidean
+    distances between the peak locations of ground-truth and inferred modes.
+
+    Parameters
+    ----------
+    mat_adj_w : np.ndarray
+        Inferred mode weight matrix, shape ``(lat*lon, n_modes)``.
+    modes_gt : np.ndarray
+        Ground-truth mode weights, shape ``(n_modes, lat, lon)``.
+    lat, lon : int
+        Spatial grid dimensions.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array of length ``n_modes`` mapping each ground-truth mode
+        index to the best-matching inferred mode index.
+    """
     mat_adj_w = mat_adj_w.reshape((lat, lon, mat_adj_w.shape[1])).transpose((2, 0, 1))
 
     idx_gt = np.where(modes_gt == modes_gt.max((1, 2))[:, None, None])
@@ -25,7 +57,28 @@ def get_permutation_list(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
 
 
 def get_permutation_list_hardcoded_100(mat_adj_w, modes_gt, lat, lon):  # , remove_n_latents=0
+    """
+    Compute mode permutation for exactly 100 modes on a 10x10 spatial grid.
 
+    This is a specialised (and possibly dead-code) variant of
+    ``get_permutation_list`` that assumes 100 modes laid out on a 10x10 grid
+    of 10x10 spatial patches.  Each mode is matched by finding the maximum
+    activation within its expected patch.
+
+    Parameters
+    ----------
+    mat_adj_w : np.ndarray
+        Inferred mode weight matrix, shape ``(lat*lon, 100)``.
+    modes_gt : np.ndarray
+        Ground-truth mode weights, shape ``(100, lat, lon)``.
+    lat, lon : int
+        Spatial grid dimensions (expected to be 100 each).
+
+    Returns
+    -------
+    list of int
+        Permutation mapping ground-truth mode indices to inferred mode indices.
+    """
     mat_adj_w = mat_adj_w.reshape((lat, lon, mat_adj_w.shape[1])).transpose((2, 0, 1))
 
     permutation_list = []
@@ -68,7 +121,7 @@ def permute_matrix(matrix, permutation):
     return permuted_matrix
 
 
-def load_and_permute_all_matrices(csv_files, permutation, remove_modes=[]):
+def load_and_permute_all_matrices(modes_inferred, modes_gt, adj_w, adj_gt, lat, lon, tau):
     """
     Loads and permutes multiple adjacency matrices, one for each time lag.
 
@@ -80,28 +133,46 @@ def load_and_permute_all_matrices(csv_files, permutation, remove_modes=[]):
         np.ndarray: A 3D NumPy array containing all permuted adjacency matrices
                     where the shape is (number_of_time_lags, n, n).
     """
-    permuted_matrices = []
+    # Find the permutation
+    modes_inferred = modes_inferred.reshape((lat, lon, modes_inferred.shape[-1])).transpose((2, 0, 1))
 
-    for csv_file in csv_files:
-        # Load the adjacency matrix
-        adjacency_matrix = load_adjacency_matrix(csv_file)
+    # Get the flat index of the maximum for each mode
+    idx_gt_flat = np.argmax(modes_gt.reshape(modes_gt.shape[0], -1), axis=1)  # shape: (n_modes,)
+    idx_inferred_flat = np.argmax(modes_inferred.reshape(modes_inferred.shape[0], -1), axis=1)  # shape: (n_modes,)
 
-        if len(remove_modes):
-            adjacency_matrix = np.delete(adjacency_matrix, remove_modes, 0)
-            adjacency_matrix = np.delete(adjacency_matrix, remove_modes, 1)
+    # Convert flat indices to 2D coordinates (row, col)
+    idx_gt = np.array([np.unravel_index(i, (lat, lon)) for i in idx_gt_flat])  # shape: (n_modes, 2)
+    idx_inferred = np.array([np.unravel_index(i, (lat, lon)) for i in idx_inferred_flat])  # shape: (n_modes, 2)
 
-        # Permute the adjacency matrix
-        permuted_matrix = permute_matrix(adjacency_matrix, permutation)
+    # Compute error matrix using squared Euclidean distance between indices which yields an (n_modes x n_modes) matrix
+    permutation_list = ((idx_gt[:, None, :] - idx_inferred[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+    logger.info("permutation_list: %s", permutation_list)
 
-        # Append the permuted matrix to the list
-        permuted_matrices.append(permuted_matrix)
+    # Permute
+    for k in range(tau):
+        adj_w[k] = adj_w[k][np.ix_(permutation_list, permutation_list)]
 
-    # Convert the list of permuted matrices to a NumPy array
-    return np.array(permuted_matrices)
+    logger.info("PERMUTED THE MATRICES")
+
+    return adj_w
 
 
 def binarize_matrix(A, threshold=0.5):
-    """Binarizes the adjacency matrix by applying a threshold."""
+    """
+    Binarise an adjacency matrix by applying a threshold.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Real-valued adjacency matrix.
+    threshold : float
+        Values strictly above this become 1; all others become 0.
+
+    Returns
+    -------
+    np.ndarray
+        Integer array with values in {0, 1}.
+    """
     return (A > threshold).astype(int)
 
 
@@ -193,12 +264,205 @@ def plot_adjacency_matrix(
     plt.close()
 
 
+def plot_adjacency_with_forcing_labels(
+    mat_inferred: np.ndarray,
+    mat_gt: np.ndarray,
+    forcing_indices: dict,
+    path: str,
+    name: str = "adjacency_with_labels",
+    threshold: float = 0.5,
+    tau_idx: int = 0,
+):
+    """
+    Plot adjacency matrices with labeled axes showing climate modes, CO2, and aerosol indices.
+
+    Args:
+        mat_inferred: Inferred adjacency matrices (tau x N x N)
+        mat_gt: Ground truth adjacency matrices (tau x N x N)
+        forcing_indices: Dict with 'co2', 'aerosol' index lists and 'n_total'
+        path: Path where to save the plot
+        name: Name of the plot file
+        threshold: Binarization threshold
+        tau_idx: Which time lag to plot (0-indexed)
+    """
+    co2_indices = forcing_indices.get("co2", [])
+    aerosol_indices = forcing_indices.get("aerosol", [])
+    n_total = forcing_indices.get("n_total", mat_inferred.shape[1])
+    n_climate = n_total - len(co2_indices) - len(aerosol_indices)
+
+    # Create labels for each index
+    labels = []
+    for i in range(n_total):
+        if i < n_climate:
+            labels.append(f"M{i}")
+        elif i in co2_indices:
+            labels.append("CO2")
+        elif i in aerosol_indices:
+            aero_idx = aerosol_indices.index(i)
+            labels.append(f"A{aero_idx}")
+
+    # Binarize matrices
+    mat_inferred_bin = binarize_matrix(mat_inferred[tau_idx], threshold)
+    mat_gt_bin = binarize_matrix(mat_gt[tau_idx], threshold)
+
+    # Create figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Plot inferred adjacency
+    axes[0].imshow(mat_inferred_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+    axes[0].set_title(f"Inferred Adjacency (t-{tau_idx+1})", fontsize=12)
+    axes[0].set_xticks(range(n_total))
+    axes[0].set_yticks(range(n_total))
+    axes[0].set_xticklabels(labels, fontsize=8)
+    axes[0].set_yticklabels(labels, fontsize=8)
+    axes[0].set_xlabel("Source (cause)")
+    axes[0].set_ylabel("Target (effect)")
+
+    # Plot ground truth adjacency
+    im2 = axes[1].imshow(mat_gt_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+    axes[1].set_title(f"Ground Truth Adjacency (t-{tau_idx+1})", fontsize=12)
+    axes[1].set_xticks(range(n_total))
+    axes[1].set_yticks(range(n_total))
+    axes[1].set_xticklabels(labels, fontsize=8)
+    axes[1].set_yticklabels(labels, fontsize=8)
+    axes[1].set_xlabel("Source (cause)")
+    axes[1].set_ylabel("Target (effect)")
+
+    # Add separating lines between climate modes and forcing latents
+    for ax in axes:
+        # Line between climate modes and CO2
+        ax.axhline(y=n_climate - 0.5, color="red", linewidth=1.5, linestyle="--")
+        ax.axvline(x=n_climate - 0.5, color="red", linewidth=1.5, linestyle="--")
+        # Line between CO2 and aerosols (if both exist)
+        if co2_indices and aerosol_indices:
+            co2_end = max(co2_indices) + 0.5
+            ax.axhline(y=co2_end, color="orange", linewidth=1, linestyle=":")
+            ax.axvline(x=co2_end, color="orange", linewidth=1, linestyle=":")
+
+    # Add colorbar
+    fig.colorbar(im2, ax=axes, shrink=0.6, label="Edge present")
+
+    # Add legend for regions
+    legend_text = (
+        f"M0-M{n_climate-1}: Climate Modes | CO2: CO2 Forcing | A0-A{len(aerosol_indices)-1}: Aerosol Forcings"
+    )
+    fig.text(0.5, 0.02, legend_text, ha="center", fontsize=10, style="italic")
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    plt.savefig(Path(path) / f"{name}.png", dpi=150)
+    plt.close()
+
+    logger.info(f"Saved labeled adjacency plot to {Path(path) / name}.png")
+
+
+def plot_adjacency_all_lags_with_labels(
+    mat_inferred: np.ndarray,
+    mat_gt: np.ndarray,
+    forcing_indices: dict,
+    path: str,
+    name: str = "adjacency_all_lags",
+    threshold: float = 0.5,
+):
+    """
+    Plot adjacency matrices for all time lags with labeled axes.
+
+    Args:
+        mat_inferred: Inferred adjacency matrices (tau x N x N)
+        mat_gt: Ground truth adjacency matrices (tau x N x N)
+        forcing_indices: Dict with 'co2', 'aerosol' index lists and 'n_total'
+        path: Path where to save the plot
+        name: Name of the plot file
+        threshold: Binarization threshold
+    """
+    tau = mat_inferred.shape[0]
+    co2_indices = forcing_indices.get("co2", [])
+    aerosol_indices = forcing_indices.get("aerosol", [])
+    n_total = forcing_indices.get("n_total", mat_inferred.shape[1])
+    n_climate = n_total - len(co2_indices) - len(aerosol_indices)
+
+    # Create labels
+    labels = []
+    for i in range(n_total):
+        if i < n_climate:
+            labels.append(f"M{i}")
+        elif i in co2_indices:
+            labels.append("CO2")
+        elif i in aerosol_indices:
+            aero_idx = aerosol_indices.index(i)
+            labels.append(f"A{aero_idx}")
+
+    # Create figure with 2 rows (inferred, gt) x tau columns
+    fig, axes = plt.subplots(2, tau, figsize=(4 * tau, 8))
+
+    if tau == 1:
+        axes = axes.reshape(2, 1)
+
+    for t in range(tau):
+        mat_inf_bin = binarize_matrix(mat_inferred[t], threshold)
+        mat_gt_bin = binarize_matrix(mat_gt[t], threshold)
+
+        # Inferred
+        axes[0, t].imshow(mat_inf_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+        axes[0, t].set_title(f"Inferred t-{t+1}", fontsize=10)
+        if t == 0:
+            axes[0, t].set_ylabel("Target")
+            axes[0, t].set_yticks(range(n_total))
+            axes[0, t].set_yticklabels(labels, fontsize=7)
+        else:
+            axes[0, t].set_yticks([])
+
+        # Ground truth
+        axes[1, t].imshow(mat_gt_bin, cmap="Blues", vmin=0, vmax=1, aspect="equal")
+        axes[1, t].set_title(f"GT t-{t+1}", fontsize=10)
+        axes[1, t].set_xlabel("Source")
+        axes[1, t].set_xticks(range(n_total))
+        axes[1, t].set_xticklabels(labels, fontsize=7, rotation=45)
+        if t == 0:
+            axes[1, t].set_ylabel("Target")
+            axes[1, t].set_yticks(range(n_total))
+            axes[1, t].set_yticklabels(labels, fontsize=7)
+        else:
+            axes[1, t].set_yticks([])
+
+        # Add separator lines
+        for row in range(2):
+            axes[row, t].axhline(y=n_climate - 0.5, color="red", linewidth=1, linestyle="--")
+            axes[row, t].axvline(x=n_climate - 0.5, color="red", linewidth=1, linestyle="--")
+
+    plt.suptitle("Adjacency Matrices by Time Lag (Red line separates climate modes from forcings)", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(Path(path) / f"{name}.png", dpi=150)
+    plt.close()
+
+    logger.info(f"Saved multi-lag adjacency plot to {Path(path) / name}.png")
+
+
 def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
-    """Evaluates the precision, recall, F1-score, and Structural Hamming Distance (SHD) between the inferred and ground
-    truth adjacency matrices."""
+    """
+    Evaluate precision, recall, F1, and SHD between inferred and ground-truth graphs.
+
+    Both matrices are binarised with the given *threshold* before comparison.
+
+    Parameters
+    ----------
+    A_inferred : np.ndarray
+        Inferred adjacency matrix (possibly real-valued).
+    A_ground_truth : np.ndarray
+        Ground-truth adjacency matrix.
+    threshold : float
+        Values strictly above this become 1; all others become 0.
+
+    Returns
+    -------
+    precision : float
+    recall : float
+    f1 : float
+    shd : int
+        Structural Hamming Distance (false positives + false negatives).
+    """
     # Binarize the matrices before comparison
     A_inferred_bin = binarize_matrix(A_inferred, threshold)
-    print(f"N inferred links: {A_inferred_bin.sum()}")
+    logger.info(f"N inferred links: {A_inferred_bin.sum()}")
     A_ground_truth_bin = binarize_matrix(A_ground_truth, threshold)
 
     # Flatten the matrices to make comparison easier
@@ -218,6 +482,144 @@ def evaluate_adjacency_matrix(A_inferred, A_ground_truth, threshold):
     return precision, recall, f1, shd
 
 
+def evaluate_adjacency_by_link_type(A_inferred, A_ground_truth, threshold, forcing_indices):
+    """
+    Evaluate adjacency matrix metrics separately for different link types.
+
+    Args:
+        A_inferred: Inferred adjacency matrices (tau x N x N)
+        A_ground_truth: Ground truth adjacency matrices (tau x N x N)
+        threshold: Binarization threshold
+        forcing_indices: Dict with 'co2', 'aerosol' index lists and 'n_total'
+
+    Returns:
+        Dict with metrics for each link type:
+        - 'overall': Overall metrics
+        - 'climate_to_climate': Climate mode ↔ Climate mode
+        - 'co2_to_climate': CO2 → Climate mode
+        - 'aerosol_to_climate': Aerosol → Climate mode
+        - 'forcing_autoreg': Forcing autoregressive (CO2→CO2, aerosol→aerosol)
+    """
+    A_inferred_bin = binarize_matrix(A_inferred, threshold)
+    A_ground_truth_bin = binarize_matrix(A_ground_truth, threshold)
+
+    co2_indices = set(forcing_indices.get("co2", []))
+    aerosol_indices = set(forcing_indices.get("aerosol", []))
+    n_total = forcing_indices.get("n_total", A_inferred.shape[1])
+    n_climate = n_total - len(co2_indices) - len(aerosol_indices)
+
+    results = {}
+
+    # Overall metrics
+    results["overall"] = _compute_metrics(A_inferred_bin.flatten(), A_ground_truth_bin.flatten())
+
+    # Climate ↔ Climate (indices 0 to n_climate-1)
+    climate_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    climate_mask[:, :n_climate, :n_climate] = True
+    results["climate_to_climate"] = _compute_metrics(A_inferred_bin[climate_mask], A_ground_truth_bin[climate_mask])
+
+    # CO2 → Climate (column indices in co2_indices, row indices in climate)
+    co2_to_climate_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    for co2_idx in co2_indices:
+        co2_to_climate_mask[:, :n_climate, co2_idx] = True
+    if co2_to_climate_mask.any():
+        results["co2_to_climate"] = _compute_metrics(
+            A_inferred_bin[co2_to_climate_mask], A_ground_truth_bin[co2_to_climate_mask]
+        )
+    else:
+        results["co2_to_climate"] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    # Aerosol → Climate (column indices in aerosol_indices, row indices in climate)
+    aerosol_to_climate_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    for aerosol_idx in aerosol_indices:
+        aerosol_to_climate_mask[:, :n_climate, aerosol_idx] = True
+    if aerosol_to_climate_mask.any():
+        results["aerosol_to_climate"] = _compute_metrics(
+            A_inferred_bin[aerosol_to_climate_mask], A_ground_truth_bin[aerosol_to_climate_mask]
+        )
+    else:
+        results["aerosol_to_climate"] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    # Forcing autoregressive (CO2→CO2, aerosol→aerosol diagonal)
+    forcing_autoreg_mask = np.zeros_like(A_inferred_bin, dtype=bool)
+    for idx in co2_indices | aerosol_indices:
+        forcing_autoreg_mask[:, idx, idx] = True
+    if forcing_autoreg_mask.any():
+        results["forcing_autoreg"] = _compute_metrics(
+            A_inferred_bin[forcing_autoreg_mask], A_ground_truth_bin[forcing_autoreg_mask]
+        )
+    else:
+        results["forcing_autoreg"] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    return results
+
+
+def _compute_metrics(inferred_flat, gt_flat):
+    """
+    Compute precision, recall, F1, and SHD from flattened binary arrays.
+
+    Parameters
+    ----------
+    inferred_flat : np.ndarray
+        Flattened binary inferred adjacency values.
+    gt_flat : np.ndarray
+        Flattened binary ground-truth adjacency values.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys ``'precision'``, ``'recall'``, ``'f1'``,
+        ``'shd'``, and ``'n_gt_links'``.
+    """
+    if len(inferred_flat) == 0:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "shd": 0, "n_gt_links": 0}
+
+    n_gt_links = int(gt_flat.sum())
+    n_inferred_links = int(inferred_flat.sum())
+
+    if n_gt_links == 0 and n_inferred_links == 0:
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0, "shd": 0, "n_gt_links": 0}
+    elif n_gt_links == 0:
+        return {"precision": 0.0, "recall": 1.0, "f1": 0.0, "shd": n_inferred_links, "n_gt_links": 0}
+    elif n_inferred_links == 0:
+        return {"precision": 1.0, "recall": 0.0, "f1": 0.0, "shd": n_gt_links, "n_gt_links": n_gt_links}
+
+    precision = float(precision_score(gt_flat, inferred_flat, zero_division=0))
+    recall = float(recall_score(gt_flat, inferred_flat, zero_division=0))
+    f1 = float(f1_score(gt_flat, inferred_flat, zero_division=0))
+
+    false_positives = int(np.sum((inferred_flat == 1) & (gt_flat == 0)))
+    false_negatives = int(np.sum((inferred_flat == 0) & (gt_flat == 1)))
+    shd = false_positives + false_negatives
+
+    return {"precision": precision, "recall": recall, "f1": f1, "shd": shd, "n_gt_links": n_gt_links}
+
+
+def print_evaluation_by_link_type(results):
+    """
+    Log evaluation metrics grouped by causal link type.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary returned by ``evaluate_adjacency_by_link_type``, mapping
+        link-type names (e.g. ``'climate_to_climate'``) to metric dicts.
+    """
+    logger.info("\n%s", "=" * 70)
+    logger.info("EVALUATION BY LINK TYPE")
+    logger.info("=" * 70)
+
+    for link_type, metrics in results.items():
+        logger.info("\n%s:", link_type.upper().replace("_", " "))
+        logger.info("  GT links: %s", metrics["n_gt_links"])
+        logger.info("  Precision: %.3f", metrics["precision"])
+        logger.info("  Recall:    %.3f", metrics["recall"])
+        logger.info("  F1:        %.3f", metrics["f1"])
+        logger.info("  SHD:       %s", metrics["shd"])
+
+    logger.info("\n%s", "=" * 70)
+
+
 def extract_adjacency_matrix(links_coeffs, N, tau):
     """
     Extract the ground truth adjacency matrices for each time lag from the links_coeffs.
@@ -235,23 +637,38 @@ def extract_adjacency_matrix(links_coeffs, N, tau):
     adj_matrices = np.zeros((tau, N, N))
 
     # Loop through each component and its links
-    for key, values in links_coeffs.items():
+    for target, values in links_coeffs.items():
         for link, coeff in values:
-            target_var, lag = link
+            source, lag = link
             time_lag = -lag  # Convert the negative lag to a positive index
             # Only consider lags that are within the specified time window (tau)
             if time_lag <= tau:
                 if abs(coeff) > 0.01:
-                    adj_matrices[time_lag - 1, key, target_var] = (
+                    adj_matrices[time_lag - 1, target, source] = (
                         1  # Fill the adjacency matrix at the appropriate time lag
                     )
                 else:
-                    adj_matrices[time_lag - 1, key, target_var] = 0
+                    adj_matrices[time_lag - 1, target, source] = 0
 
     return adj_matrices
 
 
 def extract_latent_equations(links_coeffs):
+    """
+    Convert a ``links_coeffs`` dictionary into human-readable latent equations.
+
+    Parameters
+    ----------
+    links_coeffs : dict
+        Mapping from latent variable index to a list of
+        ``((linked_var, lag), coefficient)`` tuples.
+
+    Returns
+    -------
+    dict
+        Mapping from latent variable index to a string equation, e.g.
+        ``"L0(t) = 0.5 * L1(t - 1) + 0.3 * L0(t - 2)"``.
+    """
     equations = {}
 
     for latent_var, links in links_coeffs.items():
@@ -267,6 +684,21 @@ def extract_latent_equations(links_coeffs):
 
 
 def extract_equations_from_adjacency(adj_matrices):
+    """
+    Derive human-readable latent equations from a stack of adjacency matrices.
+
+    Parameters
+    ----------
+    adj_matrices : np.ndarray
+        Adjacency matrices with shape ``(num_lags, num_latents, num_latents)``.
+        Non-zero entries indicate a causal link.
+
+    Returns
+    -------
+    dict
+        Mapping from latent variable index to a string equation built from
+        the non-zero entries of the adjacency matrices across all lags.
+    """
     num_lags, num_latents, _ = adj_matrices.shape  # 5 lags, 16 latents
 
     equations = {}
@@ -311,71 +743,106 @@ def main(csv_file, permutation):
 
 
 def save_equations_to_json(equations, filename):
+    """
+    Serialise a dictionary of latent equations to a JSON file.
+
+    Parameters
+    ----------
+    equations : dict
+        Mapping from latent variable index to equation string.
+    filename : str or Path
+        Destination file path.
+    """
     with open(filename, "w") as json_file:
         json.dump(equations, json_file, indent=4)
-    print(f"Equations saved to {filename}")
+    logger.info(f"Equations saved to {filename}")
 
 
 # Example usage:
+# NOTE: The paths below are hardcoded to a specific user/cluster environment.
+#       Adjust savar_path, results_path, and config_path to match your setup.
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
 
-    # Set parameters here
-    home_path = Path("$HOME")
-    tau = 5
-    threshold = 0.75
-    n_modes_gt = 25
-    difficulty = "easy"
-    iteration = 2999
-    comp_size = 25
+    threshold = 0.5
 
-    n_modes = n_modes_gt
+    # load your existing JSON config
+    config_path = Path("configs/single_param_file_savar.json")
+    with open(config_path, "r") as f:
+        cfg = json.load(f)
+
+    exp = cfg["exp_params"]
+    data = cfg["data_params"]
+    savar = cfg["savar_params"]
+
+    # pull out exactly the bits you used to hard-code
+    tau = exp["tau"]
+    n_modes = exp["d_z"]  # latent dim = number of modes
+    comp_size = savar["comp_size"]
+    time_len = savar["time_len"]
+    is_forced = savar["is_forced"]
+    seasonality = savar["seasonality"]
+    overlap = savar["overlap"]
+    difficulty = savar["difficulty"]
     lat = lon = int(np.sqrt(n_modes)) * comp_size
-    folder_results = home_path / f"predictions_{n_modes_gt}_{difficulty}"
-    savar_folder = home_path / Path("savar_data")
-    savar_fname = f"m_{n_modes_gt}_{difficulty}_savar_name"
-    run_name = "model_results_folder"
-    results_path = folder_results / f"{savar_fname}_{run_name}"
-    csv_files = [results_path / f"adjacency_transition_time_{i}_iteration_{iteration}.csv" for i in np.arange(5, 0, -1)]
+    noise_val = savar["noise_val"]
 
-    # Get the permuted adjacency matrices for all time lags
-    modes_gt = np.load(savar_folder / f"{savar_fname}_mode_weights.npy")
-    mat_adj_w = np.load(results_path / f"adj_w_iteration_{iteration}.npy")[0]
+    home_path = str(Path.home())
+    savar_path = "/my_projects/climatem/workspace/pfs7wor9/ka_qa4548-data/SAVAR_DATA_TEST"
+    results_path = Path(
+        "my_projects/climatem/workspace/pfs7wor9/ka_qa4548-results/SAVAR_DATA_TEST/var_savar_scenarios_piControl_nonlinear_False_tau_5_z_9_lr_0.001_bs_256_spreg_0_ormuinit_100000.0_spmuinit_0.1_spthres_0.05_fixed_False_num_ensembles_1_instantaneous_False_crpscoef_1_spcoef_0_tempspcoef_0_overlap_0.3_forcing_True"
+    )
 
-    if n_modes == 100:
-        # With lots of modes some modes are equal and the other function breaks. This function works for the specifics params of the 100 modes dataset.
-        permutation_list = get_permutation_list_hardcoded_100(mat_adj_w, modes_gt, lat, lon)
-    else:
-        permutation_list = get_permutation_list(mat_adj_w, modes_gt, lat, lon)
-    permuted_matrices = np.array(load_and_permute_all_matrices(csv_files, permutation_list))
+    # Load ground truthh modes
+    savar_folder = home_path + savar_path
+    savar_fname = f"modes_{n_modes}_tl_{time_len}_isforced_{is_forced}_difficulty_{difficulty}_noisestrength_{noise_val}_seasonality_{seasonality}_overlap_{overlap}"
+    # modes_gt_path = savar_folder / Path(f"/{savar_fname}_mode_weights.npy")
+    modes_gt = np.load(f"{savar_folder}/{savar_fname}_mode_weights.npy")
+
+    result_folder = home_path / results_path
+    # load CDSD results
+    cdsd_adj_inferred_path = result_folder / Path("plots/graphs.npy")
+    cdsd_modes_inferred_path = result_folder / Path("plots/w_decoder.npy")
+    modes_inferred = np.load(cdsd_modes_inferred_path)
+    adjacency_inferred = np.load(cdsd_adj_inferred_path)
+
+    # if n_modes == 100:
+    #     # With lots of modes some modes are equal and the other function breaks. This function works for the specifics params of the 100 modes dataset.
+    #     permutation_list = get_permutation_list(mat_adj_w, modes_gt, lat, lon)
+    # else:
+    #     permutation_list = get_permutation_list(mat_adj_w, modes_gt, lat, lon)
+    permuted_matrices = np.array(
+        load_and_permute_all_matrices(modes_inferred, modes_gt, adjacency_inferred, adjacency_inferred, lat, lon, tau)
+    )
 
     # Load parameters from npy file
-    params_file = savar_folder / f"{savar_fname}_parameters.npy"
+    params_file = f"{savar_folder}/{savar_fname}_parameters.npy"
     params = np.load(params_file, allow_pickle=True).item()
     links_coeffs = params["links_coeffs"]
 
-    gt_adj_list = extract_adjacency_matrix(links_coeffs, n_modes_gt, tau)
+    gt_adj_list = extract_adjacency_matrix(links_coeffs, n_modes, tau)
 
     plot_adjacency_matrix(
         mat1=binarize_matrix(permuted_matrices, threshold),
         mat2=gt_adj_list,
         mat3=gt_adj_list,
-        path=results_path,
+        path=result_folder,
         name=f"permuted_adjacency_thr_{threshold}",
         no_gt=False,
-        iteration=iteration,
+        iteration=20000,
         plot_through_time=True,
     )
 
-    save_equations_to_json(extract_latent_equations(links_coeffs), results_path / "gt_eq")
+    save_equations_to_json(extract_latent_equations(links_coeffs), result_folder / "gt_eq")
     save_equations_to_json(
         extract_equations_from_adjacency(binarize_matrix(permuted_matrices, threshold)),
-        results_path / f"thr_{threshold}_results_eq",
+        result_folder / f"thr_{threshold}_results_eq",
     )
 
     precision, recall, f1, shd = evaluate_adjacency_matrix(permuted_matrices, gt_adj_list, threshold)
-    print(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
+    logger.info(f"Precision: {precision}, Recall: {recall}, F1 Score: {f1}, SHD: {shd}")
     results = {"precision": precision, "recall": recall, "f1_score": f1, "shd": shd}
     # Save results as a JSON file
-    json_filename = results_path / f"thr_{threshold}_evaluation_results.json"
+    json_filename = result_folder / f"thr_{threshold}_evaluation_results.json"
     with open(json_filename, "w") as json_file:
         json.dump(results, json_file)

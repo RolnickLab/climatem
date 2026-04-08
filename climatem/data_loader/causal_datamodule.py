@@ -17,12 +17,39 @@ from climatem.data_loader.savar_dataset import SavarDataset
 
 
 class CausalDataset(torch.utils.data.Dataset):
-    def __init__(self, x, y):
+    def __init__(self, x, y, co2_forcing=None, aerosol_forcing=None, gt_co2_latent=None, gt_aerosol_latent=None):
         self.x = x
         self.y = y
+        self.co2_forcing = co2_forcing
+        self.aerosol_forcing = aerosol_forcing
+        self.gt_co2_latent = gt_co2_latent
+        self.gt_aerosol_latent = gt_aerosol_latent
 
     def __getitem__(self, index: int):
-        return self.x[index], self.y[index]
+        """
+        Return batch as dictionary if forcings are available, otherwise as tuple.
+
+        Returns:
+            dict: {'x': x, 'y': y, 'co2_forcing': co2, 'aerosol_forcing': aerosol,
+                   'gt_co2_latent': gt_co2, 'gt_aerosol_latent': gt_aerosol} if forcings present
+            tuple: (x, y) if forcings not present
+        """
+        if self.co2_forcing is not None and self.aerosol_forcing is not None:
+            result = {
+                "x": self.x[index],
+                "y": self.y[index],
+                "co2_forcing": self.co2_forcing[index],
+                "aerosol_forcing": self.aerosol_forcing[index],
+            }
+            # Add ground truth forcing latents if available
+            if self.gt_co2_latent is not None:
+                result["gt_co2_latent"] = self.gt_co2_latent[index]
+            if self.gt_aerosol_latent is not None:
+                result["gt_aerosol_latent"] = self.gt_aerosol_latent[index]
+            return result
+        else:
+            # Backward compatibility: return tuple if no forcings
+            return self.x[index], self.y[index]
 
     def __len__(self):
         return len(self.x)
@@ -36,7 +63,7 @@ class CausalClimateDataModule(ClimateDataModule):
     """
 
     def __init__(self, tau=5, future_timesteps=1, num_months_aggregated=1, train_val_interval_length=100, **kwargs):
-        super().__init__(self)
+        super().__init__(**kwargs)
 
         # kwargs are initialized as self.hparams by the Lightning module
         # WHat is this line? We cannot have different test vs train models
@@ -98,6 +125,11 @@ class CausalClimateDataModule(ClimateDataModule):
                     n_per_col=self.hparams.n_per_col,
                     difficulty=self.hparams.difficulty,
                     seasonality=self.hparams.seasonality,
+                    periods=self.hparams.periods,
+                    amplitudes=self.hparams.amplitudes,
+                    phases=self.hparams.phases,
+                    yearly_jitter_amp=self.hparams.yearly_jitter_amp,
+                    yearly_jitter_phase=self.hparams.yearly_jitter_phase,
                     overlap=self.hparams.overlap,
                     is_forced=self.hparams.is_forced,
                     f_1=self.hparams.f_1,
@@ -108,6 +140,26 @@ class CausalClimateDataModule(ClimateDataModule):
                     linearity=self.hparams.linearity,
                     poly_degrees=self.hparams.poly_degrees,
                     plot_original_data=self.hparams.plot_original_data,
+                    use_separate_forcings=self.hparams.use_separate_forcings,
+                    forcing_amplification=self.hparams.forcing_amplification,
+                    forcing_conditioning=self.hparams.forcing_conditioning,
+                    aerosol_scale=self.hparams.aerosol_scale,
+                    aerosol_spatial_contrast=self.hparams.aerosol_spatial_contrast,
+                    aerosol_ramp_up_time=self.hparams.aerosol_ramp_up_time,
+                    aerosol_peak_time=self.hparams.aerosol_peak_time,
+                    aerosol_decline_time=self.hparams.aerosol_decline_time,
+                    n_co2_latents=self.hparams.n_co2_latents,
+                    n_aerosol_latents=self.hparams.n_aerosol_latents,
+                    co2_effect_strength=self.hparams.co2_effect_strength,
+                    aerosol_effect_strength=self.hparams.aerosol_effect_strength,
+                    noise_ar1=self.hparams.noise_ar1,
+                    noise_ar1_rho=self.hparams.noise_ar1_rho,
+                    enable_background=self.hparams.enable_background,
+                    background_strength=self.hparams.background_strength,
+                    background_strength_mode=self.hparams.background_strength_mode,
+                    background_smoothness=self.hparams.background_smoothness,
+                    background_timescale_rho=self.hparams.background_timescale_rho,
+                    background_n_modes=self.hparams.background_n_modes,
                 )
                 self.savar_name = train_val_input4mips.savar_name
 
@@ -198,20 +250,50 @@ class CausalClimateDataModule(ClimateDataModule):
                 self.savar_gt_modes = train_val_input4mips.gt_modes
                 self.savar_gt_noise = train_val_input4mips.gt_noise
                 self.savar_gt_adj = train_val_input4mips.gt_adj
+                self.forcing_indices = getattr(train_val_input4mips, "forcing_indices", None)
+                # Store reference to SAVAR instance for later plotting
+                self.savar = train_val_input4mips
 
             train_x, train_y = train
             train_x = train_x.reshape((train_x.shape[0], train_x.shape[1], train_x.shape[2], -1))
             train_y = train_y.reshape((train_y.shape[0], train_y.shape[1], train_y.shape[2], -1))
 
+            # Get forcing data if available (only for SAVAR with dual exogenous forcings)
+            # For other datasets, getattr returns None and CausalDataset falls back to tuple mode
+            co2_forcing_train = getattr(train_val_input4mips, "co2_forcing_train", None)
+            aerosol_forcing_train = getattr(train_val_input4mips, "aerosol_forcing_train", None)
+            co2_forcing_valid = getattr(train_val_input4mips, "co2_forcing_valid", None)
+            aerosol_forcing_valid = getattr(train_val_input4mips, "aerosol_forcing_valid", None)
+
+            # Get ground truth forcing latents if available (for SAVAR with forcing latent supervision)
+            gt_co2_latent_train = getattr(train_val_input4mips, "gt_co2_latent_train", None)
+            gt_aerosol_latent_train = getattr(train_val_input4mips, "gt_aerosol_latent_train", None)
+            gt_co2_latent_valid = getattr(train_val_input4mips, "gt_co2_latent_valid", None)
+            gt_aerosol_latent_valid = getattr(train_val_input4mips, "gt_aerosol_latent_valid", None)
+
             self.d = train_x.shape[2]
-            self._data_train = CausalDataset(train_x, train_y)
+            self._data_train = CausalDataset(
+                train_x,
+                train_y,
+                co2_forcing=co2_forcing_train,
+                aerosol_forcing=aerosol_forcing_train,
+                gt_co2_latent=gt_co2_latent_train,
+                gt_aerosol_latent=gt_aerosol_latent_train,
+            )
             self.n_train = train_x.shape[0]
 
             if val is not None:
                 val_x, val_y = val
                 val_x = val_x.reshape((val_x.shape[0], val_x.shape[1], val_x.shape[2], -1))
                 val_y = val_y.reshape((val_y.shape[0], val_y.shape[1], val_y.shape[2], -1))
-                self._data_val = CausalDataset(val_x, val_y)
+                self._data_val = CausalDataset(
+                    val_x,
+                    val_y,
+                    co2_forcing=co2_forcing_valid,
+                    aerosol_forcing=aerosol_forcing_valid,
+                    gt_co2_latent=gt_co2_latent_valid,
+                    gt_aerosol_latent=gt_aerosol_latent_valid,
+                )
 
             self.coordinates = train_val_input4mips.coordinates
 
