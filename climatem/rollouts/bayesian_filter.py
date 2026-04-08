@@ -120,11 +120,11 @@ def particle_filter_weighting_bayesian(
         if _ == 0:
 #             print("This is the first timestep, so I am going to generate samples from the initial latents.")
             if score == "log_bayesian":
-                print(f"x shape {x.shape}")
-                print(f"y shape {y.shape}")
+                print(f"x shape {x.shape}") # (8, 5, 1, 3072)
+                print(f"y shape {y.shape}") #(8, 1, 3072)
 
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs = (
+                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs, pz2_mu = (
                         model.predict_sample_bayesianfiltering(
                             x, y, num_particles * num_particles_per_particle, with_zs_logprob=True,
                         )
@@ -137,20 +137,24 @@ def particle_filter_weighting_bayesian(
                     batch_size = x.shape[0]
                     samples_from_zs = []
                     logscore_samples_fromzs = []
+                    pz2_mu = []
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch = (
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch, pz2_mu_batch = (
                             model.predict_sample_bayesianfiltering(
                                 x[k][None], y[k][None], num_particles * num_particles_per_particle, with_zs_logprob=True,
                             )
                         )
+                        # samples_from_zs_batch ([500, 1, 1, 3072]) pz2_mu_batch torch.Size([1, 1, 1])
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze(2)
                         if tempering: 
                             logscore_samples_fromzs_batch /= np.sqrt(model.d_z)
                         samples_from_zs.append(samples_from_zs_batch)
                         logscore_samples_fromzs.append(logscore_samples_fromzs_batch)
-                    samples_from_zs = torch.cat(samples_from_zs, dim=1)
+                        pz2_mu.append(pz2_mu_batch)
+                    samples_from_zs = torch.cat(samples_from_zs, dim=1) #(500,8,1,3072)
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)[None]
+                    pz2_mu= torch.cat(pz2_mu, dim=0)[None] #(1,8,1,1)
 
 #                 print(f"unused_samples_from_xs shape {unused_samples_from_xs.shape}")
 #                 print(f"samples_from_zs shape {samples_from_zs.shape}")
@@ -184,7 +188,7 @@ def particle_filter_weighting_bayesian(
             # print(f"y_reshaped.shape {y_reshaped.shape}")
             if score == "log_bayesian":
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs = (
+                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs, pz2_mu = (
                         model.predict_sample_bayesianfiltering(
                             x_reshaped, y_reshaped, num_particles_per_particle, with_zs_logprob=True,
                         )
@@ -197,12 +201,16 @@ def particle_filter_weighting_bayesian(
                 else:
                     samples_from_zs = []
                     logscore_samples_fromzs = []
+                    pz2_mu=[]
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch = (
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch, pz2_mu_batch = (
                             model.predict_sample_bayesianfiltering(
                                 x[:, k], y[k].repeat(x.shape[0], 1, 1), num_particles_per_particle, with_zs_logprob=True,
                             )
                         ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
+                        # samples_from_zs_batch [10, 50, 3072]-> will select the best one particle out of 10
+                        # pz2_mu_batch [50, 1, 1]
+                    
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze()
                         if tempering: 
@@ -212,12 +220,13 @@ def particle_filter_weighting_bayesian(
                         # print(f"should be npp*np")
                         logscore_samples_fromzs.append(logscore_samples_fromzs_batch[:, None])
                         samples_from_zs.append(samples_from_zs_batch[:, :, None])
-                    samples_from_zs = torch.cat(samples_from_zs, dim=2)
-                    # print(f"samples_from_zs.shape {samples_from_zs.shape}")
+                        pz2_mu.append(pz2_mu_batch[:, None])
+                    samples_from_zs = torch.cat(samples_from_zs, dim=2) # shape (10, 50, 8, 1, 3072)
                     # print("should be npp*np*bs*1*6250")
                     # samples_from_zs = samples_from_zs.reshape((-1, samples_from_zs.shape[2], samples_from_zs.shape[3], samples_from_zs.shape[4]))
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)
                     logscore_samples_fromzs = logscore_samples_fromzs.reshape((-1, x.shape[0], x.shape[1]))
+                    pz2_mu = torch.cat(pz2_mu, dim=1)
                     # print(f"samples_from_zs shape {samples_from_zs.shape}")
                     # print(f"should be 85, 3, 1, 6250")
                     # print(f"logscore_samples_fromzs shape {logscore_samples_fromzs.shape}")
@@ -332,7 +341,11 @@ def particle_filter_weighting_bayesian(
         # assert torch.all(resampled_indices_array == resampled_indices_array2)
 
         selected_samples = samples_from_zs[resampled_indices, torch.arange(batch_size)]
+        if _ == 0:
+            pz2_mu = pz2_mu.repeat(num_particles, 1, 1, 1)
+        # selected_samples_global = pz2_mu[resampled_indices, torch.arange(batch_size)]
         np.save(save_dir / f"{save_name}_{_}.npy", selected_samples.detach().cpu().numpy())
+        np.save(save_dir / f"{save_name}_{_}_global.npy", pz2_mu.detach().cpu().numpy())
 #         print("Saved the selected samples with name:", f"{save_name}_{_}.npy")
 
         if _ == 0:
@@ -343,6 +356,8 @@ def particle_filter_weighting_bayesian(
 
         # now we just need to unsqueeze the selected samples, so that we can concatenate them to x
         selected_samples = selected_samples.unsqueeze(2)
+        # pz2_mu will not be reused for rollout
+        
 
 #         print("What is the shape of x, just before we concatenate?", x.shape)
 

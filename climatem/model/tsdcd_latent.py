@@ -644,7 +644,7 @@ class LatentTSDCD(nn.Module):
         kl_local = torch.mean(kl_raw_z, dim=[2]).mean()
         kl_global = torch.mean(kl_raw_z2, dim=[2]).mean()
 
-        kl = kl_local + kl_global
+        kl = (kl_local + kl_global) * self.coeff_kl
         assert kl >= 0, f"KL={kl} has to be >= 0"
 
         elbo = recons - kl

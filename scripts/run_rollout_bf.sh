@@ -45,6 +45,6 @@ do
         --num_processes=1 \
         --num_machines=1 \
         --gpu_ids='all' \
-        $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "$exp_id" --iter-id 200000
+        $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "$exp_id" --iter-id 200001
 done
     

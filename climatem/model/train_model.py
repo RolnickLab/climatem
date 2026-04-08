@@ -1579,13 +1579,12 @@ class TrainingLatent:
                 # first 3 coeff abs pred:  tensor([589.1636,   3.4940,   1.7884], grad_fn=<AbsBackward0>) gt: tensor([1256.4561,  630.6737,  329.0944])
                 # last 3 coeff abd pred:  tensor([3.0352, 0.7688, 0.7086], grad_fn=<AbsBackward0>) gt: tensor([ 9.5667, 24.2259,  0.1348])
                 if take_log:
-                    # idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
-                    # fft_true = torch.where(idx_pos, 0.0, fft_true)
-                    # fft_pred = torch.where(idx_pos, 0.0, fft_pred)
-                    fft_true = torch.log(torch.abs(fft_true))  # + 1e-6)
-                    fft_pred = torch.log(torch.abs(fft_pred))  # + 1e-6)
-                    fft_true = torch.nan_to_num(fft_true)
-                    fft_pred = torch.nan_to_num(fft_pred)
+                    idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
+                    # idx_pos =torch.abs(fft_true) < 1e-4
+                    fft_true = torch.where(idx_pos, 0.0, fft_true)
+                    fft_pred = torch.where(idx_pos, 0.0, fft_pred)
+                    fft_true = torch.log(torch.abs(fft_true) + 1e-4)
+                    fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
                 # taking the mean over batch, mean absolute loss
                 spectral_loss = torch.mean(torch.abs(fft_pred - fft_true), dim=0)
         else:
