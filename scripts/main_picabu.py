@@ -15,6 +15,7 @@ Workflow
 5. Hand both to ``TrainingLatent`` which runs the ALM optimisation loop.
 6. Compute and save final metrics (SHD, precision, recall, MCC).
 """
+from datetime import datetime
 import json
 import logging
 import os
@@ -266,11 +267,14 @@ def main(
     second_name_name = "NLL" if optim_params.udpate_ALM_using_nll else "AUG"
     
     if data_params.in_var_ids[0] == "savar":
-        name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_futt_{experiment_params.future_timesteps}_ldec_{optim_params.loss_decay_future_timesteps}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
+        name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}"
     else:
-        name = f"{start_name}_{second_name_name}_{train_params.valid_freq}_var_{data_var_ids_str}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}_ormuin_{optim_params.ortho_mu_init}_spmuin_{optim_params.sparsity_mu_init}_spth_{optim_params.sparsity_upper_threshold}_crpscoef_{optim_params.crps_coeff}_sspcoef_{optim_params.spectral_coeff}_tspcoef_{optim_params.temporal_spectral_coeff}_frachiwn_{optim_params.fraction_highest_wavenumbers}_nummix_hid_{model_params.num_hidden_mixing}_{model_params.num_layers_mixing}_{model_params.num_hidden}_{model_params.num_layers}_embdim_{model_params.position_embedding_dim}_trparamsh_{model_params.transition_param_sharing}_posembdimtr_{model_params.position_embedding_transition}"
-    exp_path = exp_path / name
-    os.makedirs(exp_path, exist_ok=True)
+        name = f"{start_name}_{second_name_name}_{train_params.valid_freq}_var_{data_var_ids_str}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    exp_path = exp_path / f"{name}_{timestamp}"
+
+    os.makedirs(exp_path, exist_ok=False)
+    print(f"The experiment name is {exp_path}")
 
     # create path to exp and save hyperparameters
     save_path = exp_path / "training_results"
