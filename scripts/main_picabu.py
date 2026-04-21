@@ -333,7 +333,7 @@ def main(
         modes_inferred = trainer.model.autoencoder.get_w_decoder().cpu().detach().numpy()
         adj_gt = datamodule.savar_gt_adj
 
-        modes_gt = np.load(f"{data_params.data_dir}/{datamodule.savar_name}_mode_weights.npy")
+        modes_gt = np.load(f"{data_params.data_dir}/{datamodule.savar_name}/mode_weights.npy")
         
         adj_permuted = permute_matrices(
             experiment_params.lat,

@@ -1,6 +1,6 @@
 { 
     "exp_params": {
-        "exp_path": "$SCRATCH/results/savar_data_new",
+        "exp_path": "$SCRATCH/results/savar_data_foring",
         "_target_": "emulator.src.datamodules.climate_datamodule.ClimateDataModule",  
         "latent": true,    
         "d_z": 4,
@@ -18,7 +18,7 @@
     "data_params": {
         "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
         "climateset_data": "$SCRATCH/data/icml_processed_data/picontrol/24_ni", 
-        "reload_climate_set_data": false,
+        "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["savar"],
         "out_var_ids": ["savar"],

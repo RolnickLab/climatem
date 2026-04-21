@@ -376,12 +376,12 @@ class Plotter:
         # called from the training loop rather than here.
 
         # plot the adjacency matrix (learned vs ground-truth)
-        adj = learner.model.module.get_adj().cpu().detach().numpy()
+        adj = learner.model.get_adj().cpu().detach().numpy()
         if not learner.no_gt:
             if learner.latent:
                 # for latent models, find the right permutation of the latent
-                adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
                 # variables using MCC
                 if learner.debug_gt_z:
                     gt_dag = learner.gt_dag

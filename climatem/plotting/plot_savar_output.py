@@ -2846,7 +2846,7 @@ class SavarPlotter(Plotter):
         forcing_indices = getattr(datamodule, "forcing_indices", None)
 
         if gt_adj is not None and forcing_indices is not None:
-            learned_adj = learner.model.module.get_adj().cpu().detach().numpy()
+            learned_adj = learner.model.get_adj().cpu().detach().numpy()
             self.plot_gt_vs_learned_forcing_effect(gt_adj, learned_adj, forcing_indices, path, iteration)
 
         # Forcing latent reconstruction (if model has forcing encoders)
@@ -2942,9 +2942,9 @@ class SavarPlotter(Plotter):
         modes_gt = self.prepare_savar_context(learner)
 
         # 3. Get adjacency matrices
-        adj = learner.model.module.get_adj().cpu().detach().numpy()
-        adj_w = learner.model.module.autoencoder.get_w_decoder().cpu().detach().numpy()
-        adj_w2 = learner.model.module.autoencoder.get_w_encoder().cpu().detach().numpy()
+        adj = learner.model.get_adj().cpu().detach().numpy()
+        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
 
         # 4. Plot SAVAR adjacency matrix with spatial alignment
         self.plot_adjacency_matrix_savar(
