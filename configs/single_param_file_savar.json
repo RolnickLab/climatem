@@ -18,7 +18,7 @@
     "data_params": {
         "data_dir": "$SCRATCH/data/SAVAR_DATA_TEST", 
         "climateset_data": "$SCRATCH/data/icml_processed_data/picontrol/24_ni", 
-        "reload_climate_set_data": true,
+        "reload_climate_set_data": false,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/vertex_lonlat_mapping.npy",
         "in_var_ids": ["savar"],
         "out_var_ids": ["savar"],
@@ -70,7 +70,14 @@
         "position_embedding_transition": 10,
         "fixed": false,
         "fixed_output_fraction": null,
-        "constraint_func": "trace"
+        "constraint_func": "trace",
+        "d_y_co2": 1,
+        "d_y_aerosol": 400,
+        "use_exogenous": true,
+        "use_forced_latents": false,
+        "n_forced_latents_co2": 1,
+        "n_forced_latents_aerosol": 2,
+        "forcing_arch": "baseline"
     },
     "optim_params": {
         "optimizer": "rmsprop",
