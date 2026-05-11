@@ -187,4 +187,3 @@ notebooks/rollouts/
 
 scripts/run_single_*.txt
 scripts/srun_outs_ft/
-scripts/*.sh
