@@ -595,7 +595,9 @@ class SavarPlotter(Plotter):
             if learner.datamodule.savar_gt_modes.ndim == 3
             else learner.datamodule.savar_gt_modes
         )
-        im = ax.imshow(learner.datamodule.savar_gt_noise + gt_modes_sum, cmap="viridis")
+        vmin = np.min(learner.datamodule.savar_gt_noise + gt_modes_sum)
+        vmax = np.max(learner.datamodule.savar_gt_noise + gt_modes_sum)
+        im = ax.imshow(learner.datamodule.savar_gt_noise + gt_modes_sum, vmin=vmin, vmax=vmax, cmap="viridis")
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plt.colorbar(im, cax=cax)
@@ -608,7 +610,7 @@ class SavarPlotter(Plotter):
             data = w_adj[:, latent_idx].reshape(grid_shape)
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
-            im = ax.imshow(data, cmap="viridis")
+            im = ax.imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
             plt.colorbar(im, cax=cax)
             ax.set_title(f"Climate Latent {latent_idx}", fontsize="large")
             ax.tick_params(axis="both", labelsize="large")
@@ -2929,12 +2931,23 @@ class SavarPlotter(Plotter):
                 {"name": "logvar decoder", "data": learner.logvar_decoder_tt, "s": "-"},
                 {"name": "logvar transition", "data": learner.logvar_transition_tt, "s": "-"},
             ]
+            predict_mean = [
+                {"name": "mu transition", "data": learner.transition_mu, "s": "-"},
+                {"name": "mu encoder", "data": learner.encoder_mu, "s": "-"},
+            ]
             self.plot_learning_curves2(
                 losses=logvar,
                 iteration=learner.iteration,
                 plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="logvar",
+            )
+            self.plot_learning_curves2(
+                losses=predict_mean,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+                path=learner.plots_path,
+                fname="predict_mean",
             )
 
         # 2. SAVAR-specific: prepare context and plot original data
