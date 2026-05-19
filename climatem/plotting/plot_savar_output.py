@@ -2931,23 +2931,12 @@ class SavarPlotter(Plotter):
                 {"name": "logvar decoder", "data": learner.logvar_decoder_tt, "s": "-"},
                 {"name": "logvar transition", "data": learner.logvar_transition_tt, "s": "-"},
             ]
-            predict_mean = [
-                {"name": "mu transition", "data": learner.transition_mu, "s": "-"},
-                {"name": "mu encoder", "data": learner.encoder_mu, "s": "-"},
-            ]
             self.plot_learning_curves2(
                 losses=logvar,
                 iteration=learner.iteration,
                 plot_through_time=learner.plot_params.plot_through_time,
                 path=learner.plots_path,
                 fname="logvar",
-            )
-            self.plot_learning_curves2(
-                losses=predict_mean,
-                iteration=learner.iteration,
-                plot_through_time=learner.plot_params.plot_through_time,
-                path=learner.plots_path,
-                fname="predict_mean",
             )
 
         # 2. SAVAR-specific: prepare context and plot original data
