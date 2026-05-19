@@ -1,0 +1,61 @@
+#!/bin/bash
+
+#SBATCH --job-name=run_pf                                           # Set name of job
+#SBATCH --output=srun_outs_ft/ro/ro_%j.out                                  # Set location of output file
+#SBATCH --error=srun_outs_ft/ro/ro_%j.err                                    # Set location of error file
+#SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
+#SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
+#SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
+#SBATCH --nodes=1                                                       # Ask for 4 CPUs
+#SBATCH --mem=128G                                                       # Ask for 32 GB of RAM
+#SBATCH --time=00:30:00                                                 # The job will run for 2 hours
+#SBATCH --partition=long                                                # Ask for long partition
+
+# 0. Clear the environment
+module purge
+
+# 1. Load the required modules
+module --quiet load python/3.10
+module load cuda/12.4.1
+
+# 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
+source $HOME/envs/env_emulator_climatem/bin/activate
+
+# 3. Get a unique port for this job based on the job ID
+export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
+export MASTER_ADDR="127.0.0.1"
+
+
+export TORCH_DISTRIBUTED_DEBUG=INFO
+export TORCH_CPP_LOG_LEVEL=INFO
+
+echo "=== calling accelerate"
+exp_id="small_debug_hierarchical/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_60_lr_0.0001_bs_128_20260327_114004"
+
+# for exp_id in "${exp_ids[@]}"
+# do
+#     echo "Running experiment: $exp_id"
+
+#     # Make sure to change program file path to correct dir
+#     accelerate launch \
+#         --machine_rank=$SLURM_NODEID \
+#         --num_cpu_threads_per_process=8 \
+#         --main_process_ip=$MASTER_ADDR \
+#         --main_process_port=$MASTER_PORT \
+#         --num_processes=1 \
+#         --num_machines=1 \
+#         --gpu_ids='all' \
+#         $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "$exp_id" --iter-id 200000
+# done
+echo "Running experiment: $exp_id"
+
+    # Make sure to change program file path to correct dir
+accelerate launch \
+    --machine_rank=$SLURM_NODEID \
+    --num_cpu_threads_per_process=8 \
+    --main_process_ip=$MASTER_ADDR \
+    --main_process_port=$MASTER_PORT \
+    --num_processes=1 \
+    --num_machines=1 \
+    --gpu_ids='all' \
+    $HOME/dev/climatem/scripts/rollout_bf_analysis.py --config-path params.json --exp-id "$exp_id" --iter-id 200007
