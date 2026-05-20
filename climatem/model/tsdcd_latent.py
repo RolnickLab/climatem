@@ -452,9 +452,6 @@ class LatentTSDCD(nn.Module):
                 d_y_aerosol_spatial=d_y_aerosol_spatial,
             )
 
-        # if debug_gt_w:
-        #     self.decoder.w = gt_w
-
         if self.transition_param_sharing:
             self.transition_model = TransitionModelParamSharing(
                 self.d,
@@ -764,6 +761,12 @@ class LatentTSDCD(nn.Module):
             pz_mu, pz_std = self.transition(z.clone(), mask, y_co2, y_aerosol)
         else:
             pz_mu, pz_std = self.transition(z[:, :-1].clone(), mask, y_co2, y_aerosol)
+
+        # self.transition_mu = pz_mu.abs().sum()
+        # self.encoder_mu = z[:, -1].abs().sum()
+        # if iteration%100==0:
+        #     print(f"Absolute Scale {iteration}: ", pz_mu.abs().sum() / z[:, -1].abs().sum())
+        #     print(f"Absolute STD {iteration}: ", pz_std.abs().sum() / q_std_y.abs().sum())
 
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
@@ -1275,6 +1278,7 @@ class NonLinearAutoEncoder(nn.Module):
         self.d_x = d_x
         self.d_z = d_z
         self.tied = tied
+        self.use_grad_project = True
 
         unif = (1 - 0.1) * torch.rand(size=(d, d_x, d_z)) + 0.1
         self.w = nn.Parameter(unif / torch.as_tensor(d_z))
@@ -1509,7 +1513,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
     def encode(self, x, i, forcing_co2=None, forcing_aerosol=None):
 
-        mask = super().get_encode_mask(x.shape[0])
+        mask = super().get_encode_mask()
         mu = torch.zeros((x.shape[0], self.d_z), device=x.device)
 
         j_values = torch.arange(self.d_z, device=x.device).expand(
@@ -1558,7 +1562,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
             forcing_co2: Raw CO2 forcing field for conditioning (NOT forcing latent!)
             forcing_aerosol: Raw aerosol forcing field for conditioning (NOT forcing latent!)
         """
-        mask = super().get_decode_mask(z.shape[0])
+        mask = super().get_decode_mask()
         mu = torch.zeros((z.shape[0], self.d_x), device=z.device)
 
         # Create a tensor of shape (z.shape[0], self.d_x) where each row is a sequence from 0 to self.d_x

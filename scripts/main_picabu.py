@@ -289,6 +289,7 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
+    hp["savar_params"] = savar_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 

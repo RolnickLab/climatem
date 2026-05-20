@@ -453,7 +453,8 @@ class TrainingLatent:
                 # TODO(dev): Propagate the path for saving coordinates and adjacency matrices
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
-                torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
+                # torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
+                torch.save(self.model.state_dict(), self.save_path / "model_last.pth")
 
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
@@ -924,6 +925,13 @@ class TrainingLatent:
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
             if self.iteration % self.plot_params.plot_freq == 0:
+                # for s in range(4):
+                #     weight_data = self.model.transition_model.nn[s].model.lin0.weight.data
+                #     print(f"Latent {s} W:")
+                #     print(weight_data)
+                #     bias_data = self.model.transition_model.nn[s].model.lin0.bias.data
+                #     print(f"Bias {s} W:")
+                #     print(bias_data)
                 if self.plot_params.savar:
                     # Use SAVAR-specific plotting for synthetic data
                     self.plotter.plot_compare_predictions_savar(
@@ -1630,7 +1638,6 @@ class TrainingLatent:
         if self.iteration > self.optim_params.schedule_sparsity:
 
             # first get the adj
-            adj = self.model.get_adj()
             adj = self.model.get_adj()
 
             sum_of_connections = torch.norm(adj, p=1) / self.sparsity_normalization

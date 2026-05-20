@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
 #SBATCH --nodes=1                                                       # Ask for 4 CPUs
 #SBATCH --mem=128G                                                       # Ask for 32 GB of RAM
-#SBATCH --time=2:00:00                                                 # The job will run for 2 hours
+#SBATCH --time=6:00:00                                                 # The job will run for 2 hours
 #SBATCH --partition=long                                                # Ask for long partition
 
 # 0. Clear the environment

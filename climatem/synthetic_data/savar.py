@@ -65,7 +65,7 @@ def normalize_transition_matrix(phi: np.ndarray, eps: float = 1e-8) -> np.ndarra
         # Sum of absolute values of all incoming links to mode j
         total = np.abs(phi[j, :, :]).sum()
         if total > eps:
-            phi_normalized[j, :, :] = phi[j, :, :] / total
+            phi_normalized[j, :, :] = phi[j, :, :] / (total + eps)
 
     return phi_normalized
 
@@ -1183,6 +1183,7 @@ class SAVAR:
         else:
             # No forcing - use raw coefficients (already bounded < 1 by create_links_coeffs)
             pass
+            # phi_climate_np= normalize_transition_matrix(phi_climate_np)
 
         phi_climate = torch.tensor(phi_climate_np, device=dev, dtype=dtype)
 
