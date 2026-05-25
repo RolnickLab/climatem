@@ -22,7 +22,7 @@ AERMON_VARIABLES = [
 GM_VARIABLES = [
     "ch4global",
 ]
-MODEL_DB_MAPPING = {"NorESM2-LM": "NCC"}
+MODEL_DB_MAPPING = {"NorESM2-LM": "NCC", "MPI-ESM1-2-LR": "MPI-M-local"}
 
 # TODO JK commenting: this should be done via the __init__.py
 # JB: This should be input to the json or params file, and

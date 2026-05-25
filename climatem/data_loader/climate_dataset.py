@@ -312,6 +312,7 @@ class ClimateDataset(torch.utils.data.Dataset):
     def split_data_by_interval(self, data, tau, ratio_train, interval_length=100):
         """Given a dataset and interval length, divide the data into intervals, then splits each interval into training
         and validation indices based on ratio."""
+
         assert interval_length <= data.shape[0], "interval length is longer than the data"
 
         idx_train, idx_valid = [], []
@@ -374,7 +375,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         if channels_last:
             # (n, t, lon, lat, n_vars) -> (n, t, n_vars, lon, lat)
-            data = data.transpose((0, 1, 4, 2, 3))
+            data = data.transpose((0, 1, 4, 2, 3))  # 3 4 2?
 
         # n = num_scenarios, t = n_years * 12
         # TODO: breaks if not same number of years in each scenario i.e. historical vs ssp
@@ -390,7 +391,7 @@ class ClimateDataset(torch.utils.data.Dataset):
 
         except ValueError:
             print(
-                "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral data!"
+                "I saw a ValueError and now I am reshaping the data differently, probably as I have icosahedral or healpix data!"
             )
 
             # print("Data shape before reshaping:", data.shape)
@@ -401,7 +402,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             # Now we don't split up the ensemble members
 
             data = data.reshape(1, num_years * self.seq_len, num_vars, -1)
-            # print("Data shape after reshaping:", data.shape)
+            print("Data shape after reshaping:", data.shape)
 
         if isinstance(num_months_aggregated, (int, np.integer)) and num_months_aggregated > 1:
             data = self.aggregate_months(data, num_months_aggregated)

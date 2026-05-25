@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPPING
+from climatem.data_loader.aimip_dataset import AIMIPDataset
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
@@ -82,7 +83,28 @@ class CausalClimateDataModule(ClimateDataModule):
             # Here add an option for SAVAR dataset
             # TODO: propagate "reload argument here"
             # TODO: make sure all arguments are propagated i.e. seasonality_removal, output_save_dir
-            if "savar" in self.hparams.in_var_ids:
+
+            if self.hparams.train_models == "MPI-ESM1-2-LR":
+                train_val_input4mips = AIMIPDataset(
+                    years=train_years,
+                    historical_years=train_historical_years,
+                    data_dir=self.hparams.data_dir,
+                    climate_model=self.hparams.train_models,
+                    num_ensembles=self.hparams.num_ensembles,
+                    variables=self.hparams.in_var_ids,
+                    scenarios=self.hparams.train_scenarios,
+                    channels_last=self.hparams.channels_last,
+                    openburning_specs=openburning_specs,
+                    mode="train+val",
+                    output_save_dir=self.hparams.output_save_dir,
+                    lon=self.hparams.lon,
+                    lat=self.hparams.lat,
+                    icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+                    global_normalization=self.hparams.global_normalization,
+                    seasonality_removal=self.hparams.seasonality_removal,
+                    reload_climate_set_data=self.hparams.reload_climate_set_data,
+                )
+            elif "savar" in self.hparams.in_var_ids:
                 train_val_input4mips = SavarDataset(
                     # Make sure these arguments are propagated
                     output_save_dir=self.hparams.output_save_dir,

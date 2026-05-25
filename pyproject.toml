@@ -49,6 +49,9 @@ jupyter-contrib-nbextensions = "^0.7.0"
 notebook = "^7.3.2"
 jupyterlab-widgets = "^3.0.13"
 healpy = "^1.19.0"
+h5netcdf = "^1.8.1"
+h5py = "^3.16.0"
+s3fs = "^2026.4.0"
 
 [tool.poetry.group.dev.dependencies]
 # Optional dependencies that need to be installed with poetry

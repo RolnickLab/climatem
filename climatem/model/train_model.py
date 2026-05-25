@@ -45,7 +45,13 @@ class TrainingLatent:
         self.model.to(accelerator.device)
         self.datamodule = datamodule
         self.data_loader_train = iter(datamodule.train_dataloader(accelerator=accelerator))
+        assert (
+            len(datamodule.train_dataloader(accelerator=accelerator)) > 0
+        ), "Training dataloader is empty. Please check your data loading and splitting."
         self.data_loader_val = iter(datamodule.val_dataloader())
+        assert (
+            len(datamodule.val_dataloader()) > 0
+        ), "Validation dataloader is empty. Please check your data loading and splitting."
         self.coordinates = datamodule.coordinates
         self.data_params = data_params
         self.exp_params = exp_params
