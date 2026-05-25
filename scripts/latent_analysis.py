@@ -139,7 +139,9 @@ class PerturbLatentTSDCD(LatentTSDCD):
         return px_mu, pz2_mu
     
     def predict_sample_bayesianfiltering_perturbed(self, x, y, iteration ,num_samples, with_zs_logprob: bool = False):
-
+        """
+        Perturb on pz2_mu
+        """
         b = x.size(0)
 
         with torch.no_grad():
@@ -170,16 +172,22 @@ class PerturbLatentTSDCD(LatentTSDCD):
                     pertrubed_value = pz2_mu[:, 0, 0].clone()
                     self.init = pz2_mu[:, 0, 0].clone()
                 else:
-                    if iteration <= 300:
+                    if iteration <= 150:
                         # phase 1: init -> -15
-                        alpha = iteration / 300.0
+                        alpha = iteration / 150.0
                         pertrubed_value = self.init + alpha * (-15 - self.init)
+
+                    elif iteration <= 450:
+                        # phase 2: -15 -> +15
+                        alpha = (iteration - 150) / 300.0
+                        pertrubed_value = (-15) + alpha * (15 - (-15))
+
                     else:
-                        # phase 2: -15 -> 0
-                        alpha = (iteration - 300) / 300.0
-                        pertrubed_value = (-15) + alpha * (0 - (-15))
-                   
-                pz2_mu[:, 0, 0] = -pertrubed_value
+                        # phase 3: +15 -> 0
+                        alpha = (iteration - 450) / 150.0
+                        pertrubed_value = (15) + alpha * (0 - 15)
+
+                pz2_mu[:, 0, 0] = pertrubed_value
                 pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu.clone(), mask)
             dim = pz_mu.ndim
             new_shape = [num_samples]
@@ -213,6 +221,80 @@ class PerturbLatentTSDCD(LatentTSDCD):
             return samples_from_xs, samples_from_zs, y, z_samples_logprob, pz2_mu
         return samples_from_xs, samples_from_zs, y
 
+    def predict_sample_bayesianfiltering_perturbed_x(self, x, y, iteration ,num_samples, with_zs_logprob: bool = False, perturbed_area=None):
+        """
+        Perturb on x
+        """
+
+        b = x.size(0)
+        if iteration == 0:
+            perturbed_value = x[..., perturbed_area].clone()
+            self.init = x[..., perturbed_area].clone()
+        else:
+            if iteration <= 150:
+                # phase 1: init -> -15
+                alpha = iteration / 150.0
+                perturbed_value = self.init + alpha * (-15 - self.init)
+                self.init_next = perturbed_value
+
+            elif iteration <= 450:
+                # phase 2: -15 -> +15
+                alpha = (iteration - 150) / 300.0
+                perturbed_value =  self.init_next + alpha * (15 - (-15))
+                self.init_next2 = perturbed_value
+
+            else:
+                # phase 3: +15 -> 0
+                alpha = (iteration - 450) / 150.0
+                perturbed_value = self.init_next2 + alpha * (0 - 15)
+    
+        x[..., perturbed_area] = perturbed_value
+
+        with torch.no_grad():
+            # sample Zs (based on X)
+            z, q_mu_y, q_std_y = self.encode(x, y)
+            z2, q_mu_z2, q_std_z2 = self.encode_global(z)
+
+            # get params of the transition model p(z^t | z^{<t})
+            mask = self.mask(b)
+
+            if self.instantaneous:
+                pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())
+                pz_mu, pz_std = self.transition(z.clone(), pz2_mu, mask)
+            else:
+                pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone())  # (b,1,d_z2)
+                pz_mu, pz_std = self.transition(z[:, :-1].clone(), pz2_mu.clone(), mask)
+            dim = pz_mu.ndim
+            new_shape = [num_samples]
+            for k in range(dim):
+                new_shape.append(1)
+            z_samples = self.distr_transition(pz_mu.repeat(new_shape), pz_std.repeat(new_shape)).sample()
+
+            if with_zs_logprob:
+                z_samples_logprob = self.distr_transition(pz_mu.repeat(new_shape), pz_std.repeat(new_shape)).log_prob(
+                    z_samples
+                )
+            samples_from_zs, some_decoded_samples_std = self.decode(
+                z_samples.reshape(z_samples.size(0) * z_samples.size(1), z_samples.size(2), z_samples.size(3))
+            )
+            samples_from_zs = samples_from_zs.reshape(z_samples.size(0), z_samples.size(1), z_samples.size(2), self.d_x)
+            # decode
+            px_mu, px_std = self.decode(pz_mu.unsqueeze(1))
+            px_mu = px_mu.squeeze(1)
+            px_std = px_std.squeeze(1)
+
+            dim = px_mu.ndim
+            new_shape = [num_samples]
+            for k in range(dim):
+                new_shape.append(1)
+            # here we decode from pz_mu, and then sample from the distribution over xs.
+            # note this will simply give us chequerboards.
+            samples_from_xs = torch.zeros(num_samples, b, self.d, self.d_x)
+            samples_from_xs = self.distr_decoder(px_mu.repeat(new_shape), px_std.repeat(new_shape)).sample()
+
+        if with_zs_logprob:
+            return samples_from_xs, samples_from_zs, y, z_samples_logprob, pz2_mu, perturbed_value
+        return samples_from_xs, samples_from_zs, y
 def get_all_temp_and_gt(datamodule, accelerator, model, device):
            # Start again at the beginning of the dataloader.
     train_dataloader = iter(datamodule.train_dataloader(accelerator))

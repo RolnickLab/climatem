@@ -58,4 +58,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/rollout_bf_analysis.py --config-path params.json --exp-id "$exp_id" --iter-id 200007
+    $HOME/dev/climatem/scripts/rollout_bf_analysis.py --config-path params.json --exp-id "$exp_id" --iter-id 200009

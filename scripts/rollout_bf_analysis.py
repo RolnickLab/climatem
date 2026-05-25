@@ -160,6 +160,10 @@ def main(
     
     # read paths 
     coordinates = np.load(data_params.icosahedral_coordinates_path)
+    nino34 = []
+    for i in trange(0, coordinates.shape[0]):
+        if coordinates[i, 0] >= -170+180 and coordinates[i, 0] <= -120+180 and coordinates[i, 1] >= -5 and coordinates[i, 1] <= 5:
+            nino34.append(i)
 
     
 
@@ -260,6 +264,7 @@ def main(
             tempering=rollout_params.tempering,
             sample_trajectories=rollout_params.sample_trajectories,
             batch_memory=rollout_params.batch_memory,
+            perturbed_area=nino34
         )
 
     return final_picontrol_particles
@@ -281,6 +286,7 @@ def particle_filter_weighting_bayesian_perturbed(
     tempering: bool = False,
     sample_trajectories: bool = False,
     batch_memory: bool = False,
+    perturbed_area= None,
 ):
     """
     Implement a particle filter to make a set of autoregressive predictions, where each created sample is evaluated by
@@ -295,6 +301,7 @@ def particle_filter_weighting_bayesian_perturbed(
     """
 
     print("Initial number of particles:", num_particles)
+    perturbed_values = []
 
     for iter in trange(timesteps):
 
@@ -308,11 +315,12 @@ def particle_filter_weighting_bayesian_perturbed(
                 print(f"y shape {y.shape}") #(8, 1, 3072)
 
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs, pz2_mu = (
-                        model.predict_sample_bayesianfiltering_perturbed(
-                            x, y, iter, num_particles * num_particles_per_particle, with_zs_logprob=True,
+                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs, pz2_mu, perturbed_value = (
+                        model.predict_sample_bayesianfiltering_perturbed_x(
+                            x, y, iter, num_particles * num_particles_per_particle, with_zs_logprob=True, perturbed_area=perturbed_area
                         )
                     )
+                    perturbed_values.append(perturbed_value.detach().cpu().mean())
                     torch.cuda.empty_cache()
                     logscore_samples_fromzs = torch.sum(logscore_samples_fromzs, -1).squeeze(2)
                     if tempering: 
@@ -323,11 +331,12 @@ def particle_filter_weighting_bayesian_perturbed(
                     logscore_samples_fromzs = []
                     pz2_mu = []
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch, pz2_mu_batch = (
-                            model.predict_sample_bayesianfiltering_perturbed(
-                                x[k][None], y[k][None], iter, num_particles * num_particles_per_particle, with_zs_logprob=True,
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch, pz2_mu_batch, perturbed_value= (
+                            model.predict_sample_bayesianfiltering_perturbed_x(
+                                x[k][None], y[k][None], iter, num_particles * num_particles_per_particle, with_zs_logprob=True,perturbed_area=perturbed_area
                             )
                         )
+                        perturbed_values.append(perturbed_value.detach().cpu().mean())
                         # samples_from_zs_batch ([500, 1, 1, 3072]) pz2_mu_batch torch.Size([1, 1, 1])
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze(2)
@@ -340,8 +349,8 @@ def particle_filter_weighting_bayesian_perturbed(
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)[None]
                     pz2_mu= torch.cat(pz2_mu, dim=0)[None] #(1,8,1,1)
             else:
-                unused_samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering_perturbed(
-                    x, y, iter, num_particles * num_particles_per_particle, with_zs_logprob=False,
+                unused_samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering_perturbed_x(
+                    x, y, iter, num_particles * num_particles_per_particle, with_zs_logprob=False,perturbed_area=perturbed_area
                 )
 
         else:
@@ -352,11 +361,12 @@ def particle_filter_weighting_bayesian_perturbed(
             y_reshaped = y.repeat(x.shape[0], 1, 1, 1).reshape((-1, y.shape[1], y.shape[2]))
             if score == "log_bayesian":
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs, pz2_mu = (
-                        model.predict_sample_bayesianfiltering_perturbed(
-                            x_reshaped, y_reshaped, iter, num_particles_per_particle, with_zs_logprob=True,
+                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs, pz2_mu, perturbed_value = (
+                        model.predict_sample_bayesianfiltering_perturbed_x(
+                            x_reshaped, y_reshaped, iter, num_particles_per_particle, with_zs_logprob=True,perturbed_area=perturbed_area
                         )
                     ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
+                    perturbed_values.append(perturbed_value.detach().cpu().mean())
                     torch.cuda.empty_cache()
                     logscore_samples_fromzs = torch.sum(logscore_samples_fromzs, -1).squeeze()
                     if tempering: 
@@ -367,13 +377,14 @@ def particle_filter_weighting_bayesian_perturbed(
                     logscore_samples_fromzs = []
                     pz2_mu=[]
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch, pz2_mu_batch = (
-                            model.predict_sample_bayesianfiltering_perturbed(
-                                x[:, k], y[k].repeat(x.shape[0], 1, 1), iter, num_particles_per_particle, with_zs_logprob=True,
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch, pz2_mu_batch, perturbed_value = (
+                            model.predict_sample_bayesianfiltering_perturbed_x(
+                                x[:, k], y[k].repeat(x.shape[0], 1, 1), iter, num_particles_per_particle, with_zs_logprob=True,perturbed_area=perturbed_area
                             )
                         ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
                         # samples_from_zs_batch [10, 50, 3072]-> will select the best one particle out of 10
                         # pz2_mu_batch [50, 1, 1]
+                        perturbed_values.append(perturbed_value.detach().cpu().mean())
                     
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze()
@@ -462,7 +473,7 @@ def particle_filter_weighting_bayesian_perturbed(
 
         x = torch.cat([x, selected_samples], dim=2)
         # then we are going back to the top of the loop
-
+    torch.save(perturbed_values, "perturbed_values.pt")
     return selected_samples
 
 if __name__ == "__main__":
