@@ -74,8 +74,8 @@
         "num_layers": 2,
         "num_output": 2,
         "position_embedding_dim": 100,
-        "transition_param_sharing": false,
-        "position_embedding_transition": 100,
+        "transition_param_sharing": true,
+        "position_embedding_transition": 45,
         "fixed": false,
         "fixed_output_fraction": null,
         "constraint_func": "trace"

@@ -12,10 +12,10 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 
 from climatem.config import *
-from climatem.data_loader.causal_datamodule import CausalClimateDataModule
+from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.train_model import TrainingLatent
-from climatem.model.tsdcd_latent import LatentTSDCD
+
 from climatem.utils import parse_args, update_config_withparse
 
 from climatem.synthetic_data.utils import permute_matrices
@@ -76,63 +76,101 @@ def main(
         else:
             tau = experiment_params.tau
 
-        datamodule = CausalClimateDataModule(
-            tau=tau,
-            future_timesteps=experiment_params.future_timesteps,
-            num_months_aggregated=data_params.num_months_aggregated,
-            train_val_interval_length=data_params.train_val_interval_length,
-            in_var_ids=data_params.in_var_ids,
-            out_var_ids=data_params.out_var_ids,
-            train_years=data_params.train_years,
-            train_historical_years=data_params.train_historical_years,
-            test_years=data_params.test_years,  # do we want to implement keeping only certain years for testing?
-            val_split=1 - train_params.ratio_train,  # fraction of testing to split for valdation
-            seq_to_seq=data_params.seq_to_seq,  # if true maps from T->T else from T->1
-            channels_last=data_params.channels_last,  # wheather variables come last our after sequence lenght
-            train_scenarios=data_params.train_scenarios,
-            test_scenarios=data_params.test_scenarios,
-            train_models=data_params.train_models,
-            temp_res=data_params.temp_res,
-            # test_models = data_params.test_models,
-            batch_size=data_params.batch_size,
-            eval_batch_size=data_params.eval_batch_size,
-            num_workers=experiment_params.num_workers,
-            pin_memory=experiment_params.pin_memory,
-            load_train_into_mem=data_params.load_train_into_mem,
-            load_test_into_mem=data_params.load_test_into_mem,
-            verbose=experiment_params.verbose,
-            seed=experiment_params.random_seed,
-            seq_len=data_params.seq_len,
-            data_dir=data_params.climateset_data,
-            output_save_dir=data_params.data_dir,
-            num_ensembles=data_params.num_ensembles,  # 1 for first ensemble, -1 for all
-            lon=experiment_params.lon,
-            lat=experiment_params.lat,
-            num_levels=data_params.num_levels,
-            global_normalization=data_params.global_normalization,
-            seasonality_removal=data_params.seasonality_removal,
-            reload_climate_set_data=data_params.reload_climate_set_data,
-            icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
-            # Below SAVAR data arguments
-            time_len=savar_params.time_len,
-            comp_size=savar_params.comp_size,
-            noise_val=savar_params.noise_val,
-            n_per_col=savar_params.n_per_col,
-            difficulty=savar_params.difficulty,
-            seasonality=savar_params.seasonality,
-            overlap=savar_params.overlap,
-            is_forced=savar_params.is_forced,
-            f_1=savar_params.f_1,
-            f_2=savar_params.f_2,
-            f_time_1=savar_params.f_time_1,
-            f_time_2=savar_params.f_time_2,
-            ramp_type=savar_params.ramp_type,
-            linearity=savar_params.linearity,
-            poly_degrees=savar_params.poly_degrees,
-            plot_original_data=savar_params.plot_original_data,
+    common_args = dict(
+        tau=tau,
+        future_timesteps=experiment_params.future_timesteps,
+        num_months_aggregated=data_params.num_months_aggregated,
+        train_val_interval_length=data_params.train_val_interval_length,
+        in_var_ids=data_params.in_var_ids,
+        out_var_ids=data_params.out_var_ids,
+        train_years=data_params.train_years,
+        train_historical_years=data_params.train_historical_years,
+        test_years=data_params.test_years,
+        val_split=1 - train_params.ratio_train,
+        seq_to_seq=data_params.seq_to_seq,
+        channels_last=data_params.channels_last,
+        train_scenarios=data_params.train_scenarios,
+        test_scenarios=data_params.test_scenarios,
+        train_models=data_params.train_models,
+        temp_res=data_params.temp_res,
+        batch_size=data_params.batch_size,
+        eval_batch_size=data_params.eval_batch_size,
+        num_workers=experiment_params.num_workers,
+        pin_memory=experiment_params.pin_memory,
+        load_train_into_mem=data_params.load_train_into_mem,
+        load_test_into_mem=data_params.load_test_into_mem,
+        verbose=experiment_params.verbose,
+        seed=experiment_params.random_seed,
+        seq_len=data_params.seq_len,
+        data_dir=data_params.climateset_data,
+        output_save_dir=data_params.data_dir,
+        num_ensembles=data_params.num_ensembles,
+        lon=experiment_params.lon,
+        lat=experiment_params.lat,
+        num_levels=data_params.num_levels,
+        global_normalization=data_params.global_normalization,
+        seasonality_removal=data_params.seasonality_removal,
+        reload_climate_set_data=data_params.reload_climate_set_data,
+        icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
+        time_len=savar_params.time_len,
+        comp_size=savar_params.comp_size,
+        noise_val=savar_params.noise_val,
+        n_per_col=savar_params.n_per_col,
+        difficulty=savar_params.difficulty,
+        seasonality=savar_params.seasonality,
+        overlap=savar_params.overlap,
+        is_forced=savar_params.is_forced,
+        f_1=savar_params.f_1,
+        f_2=savar_params.f_2,
+        f_time_1=savar_params.f_time_1,
+        f_time_2=savar_params.f_time_2,
+        ramp_type=savar_params.ramp_type,
+        linearity=savar_params.linearity,
+        poly_degrees=savar_params.poly_degrees,
+        plot_original_data=savar_params.plot_original_data,
+    )
+    savar_args=dict(            
+        time_len=savar_params.time_len,
+        comp_size=savar_params.comp_size,
+        noise_val=savar_params.noise_val,
+        n_per_col=savar_params.n_per_col,
+        difficulty=savar_params.difficulty,
+        seasonality=savar_params.seasonality,
+        overlap=savar_params.overlap,
+        is_forced=savar_params.is_forced,
+        f_1=savar_params.f_1,
+        f_2=savar_params.f_2,
+        f_time_1=savar_params.f_time_1,
+        f_time_2=savar_params.f_time_2,
+        ramp_type=savar_params.ramp_type,
+        linearity=savar_params.linearity,
+        poly_degrees=savar_params.poly_degrees,
+        plot_original_data=savar_params.plot_original_data
         )
-        datamodule.setup()
+    # ["ssp126", "ssp245", "historical"]
+    # ["ts", "co2mass", "mmrbc", "so2", "ch4global"]
 
+    DATA_REGISTRY = {
+        "single": {
+            "cls": CausalClimateDataModule,
+            "args": {**common_args, **savar_args},
+        },
+        "multi": { # the multiscenario dataset doesn't support savar input yet.
+            "cls": CausalClimateDataMultiScenarioModule,
+            "args": {**common_args}
+        },
+    }
+
+    data_module_type = (
+        "multi"
+        if len(data_params.train_scenarios) > 1
+        else "single"
+    )
+
+    cfg = DATA_REGISTRY[data_module_type]
+    datamodule = cfg["cls"](**cfg["args"])
+
+    datamodule.setup()
     # train_dataloader = iter(datamodule.train_dataloader())
     # val_dataloader = iter(datamodule.val_dataloader())
 
@@ -145,6 +183,20 @@ def main(
         num_input = d * (experiment_params.tau) 
 
     # set the model
+    if experiment_params.d_z_global >= 1:
+        from climatem.model.tsdcd_latent_hvae import LatentTSDCD as LatentTSDCDWithGLobalZ
+        print(f"Using Hierarchical Model")
+    
+        class LatentTSDCD:
+            def __init__(self, *args, **kwargs):
+                self._model = LatentTSDCDWithGLobalZ(*args, d_z_global=experiment_params.d_z_global, **kwargs)
+        
+            def __getattr__(self, name):
+                return getattr(self._model, name)
+    else:
+        print(f"Using SDCD (non-Hierarchical) Model")
+        from climatem.model.tsdcd_latent import LatentTSDCD
+
     model = LatentTSDCD(
         num_layers=model_params.num_layers,
         num_hidden=model_params.num_hidden,
@@ -164,7 +216,6 @@ def main(
         distr_decoder="gaussian",
         d_x=experiment_params.d_x,
         d_z=experiment_params.d_z,
-        d_z_global=experiment_params.d_z_global,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
         nonlinear_dynamics=model_params.nonlinear_dynamics,

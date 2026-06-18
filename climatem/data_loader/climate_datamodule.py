@@ -245,14 +245,23 @@ class ClimateDataModule(LightningDataModule):
             else None
         )
 
-    def test_dataloader(self) -> List[DataLoader]:
+    # def test_dataloader(self) -> List[DataLoader]:
 
-        # test_sampler = None
-        # if multi_gpu:
-        #     # setup_ddp()
-        #     test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
+    #     # test_sampler = None
+    #     # if multi_gpu:
+    #     #     # setup_ddp()
+    #     #     test_sampler = DistributedSampler(dataset=self._data_test, shuffle=False)
 
-        return [DataLoader(dataset=ds_test, **self._shared_eval_dataloader_kwargs()) for ds_test in self._data_test]
+    #     return [DataLoader(dataset=ds_test, **self._shared_eval_dataloader_kwargs()) for ds_test in self._data_test]
+    def test_dataloader(self, accelerator):
+        return DataLoader(
+            dataset=self._data_test,
+            batch_size=self.hparams.batch_size,
+            shuffle=False,
+            generator=torch.Generator(device=accelerator.device),
+            drop_last=True,
+            **self._shared_dataloader_kwargs(),
+        )
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
 

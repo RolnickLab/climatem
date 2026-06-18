@@ -30,7 +30,7 @@ export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
 
 echo "=== calling accelerate"
-exp_id="small_debug_hierarchical/FALSE_AUG_200_var_ts_nlinmix_True_nlindyn_True_tau_5_z_60_lr_0.0001_bs_128_20260327_114004"
+exp_id="small_debug_multiscenario_test/FALSE_AUG_200_var_tsco2massmmrbcso2ch4global_nlinmix_True_nlindyn_True_tau_5_z_60_lr_0.0001_bs_128_20260609_075641"
 
 # for exp_id in "${exp_ids[@]}"
 # do
@@ -58,4 +58,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/dev/climatem/scripts/rollout_bf_analysis.py --config-path params.json --exp-id "$exp_id" --iter-id 200009
+    $HOME/dev/climatem/scripts/rollout_bf.py --config-path params.json --exp-id "$exp_id" --iter-id 100000

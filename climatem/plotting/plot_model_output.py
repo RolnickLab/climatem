@@ -673,17 +673,20 @@ class Plotter:
         plot_through_time: bool = True,
     ):
         """Plot a prediction from the method, the last time step and the ground-truth."""
-
         if y_true.shape[1] > 1:
             fig, axs = plt.subplots(
-                y_true.shape[1], 4, subplot_kw={"projection": ccrs.Robinson()}, layout="constrained", figsize=(32, 16)
+                y_true.shape[1],
+                4,
+                subplot_kw={"projection": ccrs.Robinson()},
+                layout="constrained",
+                figsize=(32, 4 * y_true.shape[1]),
             )
         else:
             fig, axs = plt.subplots(
                 1, 4, subplot_kw={"projection": ccrs.Robinson()}, layout="constrained", figsize=(32, 8)
             )
             axs = [axs]
-
+        labels = ["ts", "mmrbc", "so2", "co2mass", "ch4global"]
         for j, ax_row in enumerate(axs):
 
             for i, ax in enumerate(ax_row):
@@ -710,8 +713,8 @@ class Plotter:
                         c=x_past[sample, j, :],
                         alpha=1,
                         s=30,
-                        vmin=-3.5,
-                        vmax=3.5,
+                        vmin=np.amin(y_true[sample, j, :]),
+                        vmax=np.amax(y_true[sample, j, :]),
                         cmap="RdBu_r",
                         transform=ccrs.PlateCarree(),
                     )
@@ -724,8 +727,8 @@ class Plotter:
                         c=y_true[sample, j, :],
                         alpha=1,
                         s=30,
-                        vmin=-3.5,
-                        vmax=3.5,
+                        vmin=np.amin(y_true[sample, j, :]),
+                        vmax=np.amax(y_true[sample, j, :]),
                         cmap="RdBu_r",
                         transform=ccrs.PlateCarree(),
                     )
@@ -738,8 +741,8 @@ class Plotter:
                         c=y_recons[sample, j, :],
                         alpha=1,
                         s=30,
-                        vmin=-3.5,
-                        vmax=3.5,
+                        vmin=np.amin(y_true[sample, j, :]),
+                        vmax=np.amax(y_true[sample, j, :]),
                         cmap="RdBu_r",
                         transform=ccrs.PlateCarree(),
                     )
@@ -752,30 +755,36 @@ class Plotter:
                         c=y_hat[sample, j, :],
                         alpha=1,
                         s=30,
-                        vmin=-3.5,
-                        vmax=3.5,
+                        vmin=np.amin(y_true[sample, j, :]),
+                        vmax=np.amax(y_true[sample, j, :]),
                         cmap="RdBu_r",
                         transform=ccrs.PlateCarree(),
                     )
                     ax.set_title("Prediction")
+                fig.colorbar(
+                    s,
+                    ax=ax,
+                    label=labels[j],
+                    orientation="vertical",
+                    shrink=0.6,
+                )
 
             # add one colorbar for all subplots
             # fig.colorbar(s, ax=axs, orientation='horizontal', fraction=0.05, pad=0.05)
-
-            if j == 0:
-                fig.colorbar(
-                    s, ax=ax_row[3], label="Normalised skin temperature", orientation="vertical", shrink=1.0
-                )  # adjust shrink
-            elif j == 1:
-                fig.colorbar(s, ax=ax_row[3], label="Normalised 2m temperature", orientation="vertical", shrink=1.0)
-            elif j == 2:
-                fig.colorbar(s, ax=ax_row[3], label="Normalised slp", orientation="vertical", shrink=1.0)
-            elif j == 3:
-                fig.colorbar(s, ax=ax_row[3], label="Normalised precipitation", orientation="vertical", shrink=1.0)
-            elif j == 4:
-                fig.colorbar(s, ax=ax_row[3], label="Normalised u-wind", orientation="vertical", shrink=1.0)
-            elif j == 5:
-                fig.colorbar(s, ax=ax_row[3], label="Normalised v-wind strat", orientation="vertical", shrink=1.0)
+            # if j == 0:
+            #     fig.colorbar(
+            #         s, ax=ax_row[3], label="ts", orientation="vertical", shrink=1.0
+            #     )  # adjust shrink
+            # elif j == 1:
+            #     fig.colorbar(s, ax=ax_row[3], label="mmrbc", orientation="vertical", shrink=1.0)
+            # elif j == 2:
+            #     fig.colorbar(s, ax=ax_row[3], label="so2", orientation="vertical", shrink=1.0)
+            # elif j == 3:
+            #     fig.colorbar(s, ax=ax_row[3], label="co2mass", orientation="vertical", shrink=1.0)
+            # elif j == 4:
+            #     fig.colorbar(s, ax=ax_row[3], label="ch4global", orientation="vertical", shrink=1.0)
+            # elif j == 5:
+            #     fig.colorbar(s, ax=ax_row[3], label="n.a", orientation="vertical", shrink=1.0)
 
         if not valid:
             if plot_through_time:

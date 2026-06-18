@@ -659,7 +659,7 @@ class ClimateDataset(torch.utils.data.Dataset):
         # DATA shape (258, 12, 4, 96, 144) or DATA shape (258, 12, 2, 96, 144)
 
         # Here we are working with ClimateSet data on a regular grid
-        if data.ndim == 5:
+        if data.ndim == 5:  # mean per variable
             data = np.moveaxis(
                 data, 2, 0
             )  # DATA shape (258, 12, 4, 96, 144) -> (4, 258, 12, 96, 144) easier to calulate statistics
@@ -675,6 +675,13 @@ class ClimateDataset(torch.utils.data.Dataset):
             vars_std = np.nanstd(data, axis=(1, 2, 3))
             vars_mean = np.expand_dims(vars_mean, (1, 2, 3))
             vars_std = np.expand_dims(vars_std, (1, 2, 3))
+        # elif data.dim == 3:
+        #     data = np.moveaxis(data, 2, 0)
+        #     vars_mean = np.nanmean(data, axis=(1, 2))
+        #     vars_std = np.nanstd(data, axis=(1, 2))
+        #     vars_mean = np.expand_dims(vars_mean, (1, 2))
+        #     vars_std = np.expand_dims(vars_std, (1, 2))
+
         else:
             print("Data dimension not recognized. Please check the dimensions of the data.")
             raise ValueError

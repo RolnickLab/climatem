@@ -1,4 +1,4 @@
-# This is a script to run a particle filtering rollout for a model.
+# This is a script to run a particle filtering rollout for a Hierarchical model.
 # We can choose the number of timesteps, and what we want to filter for.
 # Be careful with the number of batches we use for calculating the true data spectra.
 
@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from tqdm import trange
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule
-from latent_analysis import PerturbLatentTSDCD
+from latent_analysis import PerturbHierarchicalLatentTSDCD
 from climatem.rollouts.bayesian_filter import calculate_fft_mean_std_across_all_noresm, logscore_the_samples_for_spatial_spectra_bayesian
 from climatem.config import *
 from climatem.utils import parse_args, update_config_withparse
@@ -123,7 +123,7 @@ def main(
         num_input = d * experiment_params.tau 
 
     # set the model
-    model = PerturbLatentTSDCD(
+    model = PerturbHierarchicalLatentTSDCD(
         num_layers=model_params.num_layers,
         num_hidden=model_params.num_hidden,
         num_input=num_input,
@@ -320,6 +320,8 @@ def particle_filter_weighting_bayesian_perturbed(
                             x, y, iter, num_particles * num_particles_per_particle, with_zs_logprob=True, perturbed_area=perturbed_area
                         )
                     )
+                    print(perturbed_value.shape)
+                    print("perturbed_value.detach().cpu().mean()",perturbed_value.detach().cpu().mean().shape)
                     perturbed_values.append(perturbed_value.detach().cpu().mean())
                     torch.cuda.empty_cache()
                     logscore_samples_fromzs = torch.sum(logscore_samples_fromzs, -1).squeeze(2)

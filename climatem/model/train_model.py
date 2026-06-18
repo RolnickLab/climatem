@@ -560,14 +560,40 @@ class TrainingLatent:
         # x, y = next(self.data_loader_train) #.sample(self.batch_size, valid=False)
 
         try:
-            x, y = next(self.data_loader_train)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
+            batch = next(self.data_loader_train)
         except StopIteration:
             self.data_loader_train = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
-            x, y = next(self.data_loader_train)
-            x = torch.nan_to_num(x)
-            y = torch.nan_to_num(y)
+            batch = next(self.data_loader_train)
+
+        # Extract data from batch (handles both dict and tuple formats)
+        if isinstance(batch, dict):
+            # New format with forcings
+            x = batch["x"]
+            y = batch["y"]
+            # print("x type",x.dtype, x.shape)
+            # print("y type",y.dtype, y.shape)
+            global_forcing = batch.get("global_forcing", None)
+            # print("global_forcing type",global_forcing.dtype)
+            spatial_forcing = batch.get("spatial_forcing", None)
+            # Extract ground truth forcing latents for supervision
+            gt_co2_latent = batch.get("gt_co2_latent", None)
+            gt_aerosol_latent = batch.get("gt_aerosol_latent", None)
+        else:
+            # Legacy format (tuple)
+            x, y = batch
+            global_forcing, spatial_forcing = None, None
+            gt_co2_latent, gt_aerosol_latent = None, None
+
+        x = torch.nan_to_num(x)
+        y = torch.nan_to_num(y)
+        if global_forcing is not None:
+            global_forcing = torch.nan_to_num(global_forcing)
+        if spatial_forcing is not None:
+            spatial_forcing = torch.nan_to_num(spatial_forcing)
+        if gt_co2_latent is not None:
+            gt_co2_latent = torch.nan_to_num(gt_co2_latent)
+        if gt_aerosol_latent is not None:
+            gt_aerosol_latent = torch.nan_to_num(gt_aerosol_latent)
 
         # y = y[:, 0]
         z = None
@@ -801,7 +827,9 @@ class TrainingLatent:
             # Plotting the predictions for three different samples, including the reconstructions and the true values
             # if the shape of the data is icosahedral, we can plot like this:
             if self.iteration % self.plot_params.plot_freq == 0:
-                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                if (
+                    not self.plot_params.savar
+                ):  # and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4 or self.d == 5):
                     self.plotter.plot_compare_predictions_icosahedral(
                         x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                         y_true=y_original.cpu().detach().numpy(),
@@ -856,14 +884,37 @@ class TrainingLatent:
         with torch.no_grad():
             # sample data
             try:
-                x, y = next(self.data_loader_val)
-                x = torch.nan_to_num(x)
-                y = torch.nan_to_num(y)
+                batch = next(self.data_loader_val)
             except StopIteration:
                 self.data_loader_val = iter(self.datamodule.val_dataloader())
-                x, y = next(self.data_loader_val)
-                x = torch.nan_to_num(x)
-                y = torch.nan_to_num(y)
+                batch = next(self.data_loader_val)
+
+            # Extract data from batch (handles both dict and tuple formats)
+            if isinstance(batch, dict):
+                # New format with forcings
+                x = batch["x"]
+                y = batch["y"]
+                global_forcing = batch.get("global_forcing", None)
+                spatial_forcing = batch.get("spatial_forcing", None)
+                # Extract ground truth forcing latents for supervision
+                gt_co2_latent = batch.get("gt_co2_latent", None)
+                gt_aerosol_latent = batch.get("gt_aerosol_latent", None)
+            else:
+                # Legacy format (tuple)
+                x, y = batch
+                global_forcing, spatial_forcing = None, None
+                gt_co2_latent, gt_aerosol_latent = None, None
+
+            x = torch.nan_to_num(x)
+            y = torch.nan_to_num(y)
+            if global_forcing is not None:
+                global_forcing = torch.nan_to_num(global_forcing)
+            if spatial_forcing is not None:
+                spatial_forcing = torch.nan_to_num(spatial_forcing)
+            if gt_co2_latent is not None:
+                gt_co2_latent = torch.nan_to_num(gt_co2_latent)
+            if gt_aerosol_latent is not None:
+                gt_aerosol_latent = torch.nan_to_num(gt_aerosol_latent)
 
             # x, y = next(self.data_loader_val) #.sample(self.data_loader_val.n_valid - self.data_loader_val.tau, valid=True) #Check they have these features
 
@@ -1091,7 +1142,9 @@ class TrainingLatent:
             # also plot a comparison of the past true, true, reconstructed and the predicted values for the validation data
             # self.plotter.plot_compare_predictions_icosahedral(self, lots of arguments! save=True)
             if self.iteration % self.plot_params.plot_freq == 0:
-                if not self.plot_params.savar and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4):
+                if (
+                    not self.plot_params.savar
+                ):  # and (self.d == 1 or self.d == 2 or self.d == 3 or self.d == 4 or self.d == 5):
                     self.plotter.plot_compare_predictions_icosahedral(
                         x_past=x_original[:, -1, :, :].cpu().detach().numpy(),
                         y_true=y_original.cpu().detach().numpy(),
@@ -1684,10 +1737,25 @@ class TrainingLatent:
 
             # Make the iterator again, since otherwise we have iterated through it already...
             train_dataloader = iter(self.datamodule.train_dataloader(accelerator=self.accelerator))
-            x, y = next(train_dataloader)
+            batch = next(train_dataloader)
+
+            # Extract data from batch (handles both dict and tuple formats)
+            if isinstance(batch, dict):
+                x = batch["x"]
+                y = batch["y"]
+                global_forcing = batch.get("global_forcing", None)
+                spatial_forcing = batch.get("spatial_forcing", None)
+            else:
+                x, y = batch
+                global_forcing, spatial_forcing = None, None
 
             x = torch.nan_to_num(x)
             y = torch.nan_to_num(y)
+            if global_forcing is not None:
+                global_forcing = torch.nan_to_num(global_forcing)
+            if spatial_forcing is not None:
+                spatial_forcing = torch.nan_to_num(spatial_forcing)
+
             y = y[:, 0]
             z = None
 
@@ -1824,13 +1892,26 @@ class TrainingLatent:
             # bs = np.min([self.data.n_valid, 1000])
             # Make the iterator again
             val_dataloader = iter(self.datamodule.val_dataloader())
-            x, y = next(val_dataloader)
+            batch = next(val_dataloader)
+            # Extract data from batch (handles both dict and tuple formats)
+            if isinstance(batch, dict):
+                x = batch["x"]
+                y = batch["y"]
+                global_forcing = batch.get("global_forcing", None)
+                spatial_forcing = batch.get("spatial_forcing", None)
+            else:
+                x, y = batch
+                global_forcing, spatial_forcing = None, None
 
             # old, using existing dataloader
             # x, y = next(self.data_loader_val)
 
             y = torch.nan_to_num(y)
             x = torch.nan_to_num(x)
+            if global_forcing is not None:
+                global_forcing = torch.nan_to_num(global_forcing)
+            if spatial_forcing is not None:
+                spatial_forcing = torch.nan_to_num(spatial_forcing)
             y = y[:, 0]
             z = None
 

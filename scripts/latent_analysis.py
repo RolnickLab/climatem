@@ -23,7 +23,7 @@ import matplotlib.colors as mcolors
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs], log_with="wandb")
 
-class PerturbLatentTSDCD(LatentTSDCD):
+class PerturbHierarchicalLatentTSDCD(LatentTSDCD):
 
     def __init__(
         self,
