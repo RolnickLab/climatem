@@ -12,6 +12,7 @@ class expParams:
         _target_: str = "climatem.data_loader.climate_datamodule.ClimateDataModule",
         latent: bool = True,  # Are you using latent variables or not (if not, learn causal variables between all observations)
         d_z: int = 90,  # Latent dimension
+        d_z_global: int = 0,  # Higher-level latent dimension
         d_x: int = 6250,  # Observation dimension
         lon: int = 144,  # Longitude
         lat: int = 96,  # Latitude
@@ -27,6 +28,7 @@ class expParams:
         self._target_ = _target_
         self.latent = latent
         self.d_z = d_z
+        self.d_z_global = d_z_global
         self.d_x = d_x
         self.lon = lon
         self.lat = lat
@@ -76,6 +78,7 @@ class dataParams:
         num_months_aggregated: List[int] = [
             1
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
+        **kwargs,  # accept any new keys in the parameter configs (for reloading the returned extra parameters)
     ):
         self.data_dir = data_dir
         self.climateset_data = climateset_data
@@ -142,6 +145,7 @@ class trainParams:
         patience_post_thresh: int = 50,  # NOT SURE: if mapping converges before patience, and for patience_post_thresh it's stable, then optimize everything
         valid_freq: int = 5,  # get validation metrics every valid_freq iteration
         # here valid_freq is critical for updating the parameters of the ALM method as they get updated every valid_freq
+        **kwargs,
     ):
         self.ratio_train = ratio_train
         self.ratio_valid = 1 - self.ratio_train
@@ -160,6 +164,7 @@ class modelParams:
     def __init__(
         self,
         instantaneous: bool = False,  # Allow instantaneous connections?
+        instantaneous_forcing: bool = False,  # NEW: allow instantaneous  connection from forcing to climate
         no_w_constraint: bool = False,  # If True, no single parent assumption i.e. no causal graph
         tied_w: bool = False,  # NOT SURE, to clarify
         nonlinear_mixing: bool = True,  # If False, latent dynamics are linear
@@ -178,15 +183,20 @@ class modelParams:
         fixed: bool = False,  # Do we fix the causal graph? Should be in gt_params maybe
         fixed_output_fraction=None,  # This is used if we fix the mask, and want to get a fix number of 0 and 1
         constraint_func: str = "trace",  # This is used for the constraint - trace is the correct one here
-        use_exogenous: bool = False,  # NEW: Enable conditioning on exogenous forcings (CO2 + aerosols)
+        use_exogenous: bool = True,  # NEW: Enable conditioning on exogenous forcings (CO2 + aerosols)
         d_y_co2: int = 1,  # NEW: Dimension of CO2 forcing (typically 1 for global, or spatial_dim for local)
-        d_y_aerosol: int = 900,  # NEW: Dimension of aerosol forcing (typically spatial_dim for local effects)
-        use_forced_latents: bool = False,  # NEW: Map forcings directly to dedicated latent dimensions
+        d_y_aerosol: int = 900,  # NEW: Dimension of aerosol forcing (typically spatial_dim for local effects),
+        d_y_ch4: int = 0,  # NEW: Dimension of CH4 forcing (typically 1 for global, or spatial_dim for local)
+        d_y_so2: int = 0,  # NEW: Dimension of SO2 forcing (typically spatial_dim for local effects)
+        use_forced_latents: bool = True,  # NEW: Map forcings directly to dedicated latent dimensions
         n_forced_latents_co2: int = 1,  # NEW: Number of latent dimensions for CO2 forcing
         n_forced_latents_aerosol: int = 2,  # NEW: Number of latent dimensions for aerosol forcing
+        n_forced_latents_ch4: int = 0,  # NEW: Number of latent dimensions for CO2 forcing
+        n_forced_latents_so2: int = 0,  # NEW: Number of latent dimensions for aerosol forcing
         forcing_arch: str = "baseline",  # NEW: baseline | transitioned | predefined
     ):
         self.instantaneous = instantaneous
+        self.instantaneous_forcing = instantaneous_forcing
         self.no_w_constraint = no_w_constraint
         self.tied_w = tied_w
         self.nonlinear_mixing = nonlinear_mixing
@@ -208,9 +218,13 @@ class modelParams:
         self.use_exogenous = use_exogenous
         self.d_y_co2 = d_y_co2
         self.d_y_aerosol = d_y_aerosol
+        self.d_y_ch4 = d_y_ch4
+        self.d_y_so2 = d_y_so2
         self.use_forced_latents = use_forced_latents
         self.n_forced_latents_co2 = n_forced_latents_co2
         self.n_forced_latents_aerosol = n_forced_latents_aerosol
+        self.n_forced_latents_ch4 = n_forced_latents_ch4
+        self.n_forced_latents_so2 = n_forced_latents_so2
         self.forcing_arch = forcing_arch
 
 
@@ -244,6 +258,12 @@ class optimParams:
         ortho_omega_mu: float = 0.9,  # Not sure, related to ALM
         ortho_h_threshold: float = 0.01,  # orthogonality threshold i.e. achieved when below this threshold
         ortho_min_iter_convergence: float = 1_000,  # orthogonality threshold i.e. achieved when below above threshold for at least ortho_min_iter_convergence
+        ortho_spatial_mu_init: float = 10_000,  # Initial orthogonality constraint coeff for spatial forcings
+        ortho_spatial_mu_mult_factor: float = 1.2,  # Multiply coeff by mult_factor every ortho_min_iter_convergence for spatial forcings
+        ortho_spatial_omega_gamma: float = 0.01,  # Not sure, related to ALM
+        ortho_spatial_omega_mu: float = 0.9,  # Not sure, related to ALM
+        ortho_spatial_h_threshold: float = 0.1,  # orthogonality threshold i.e. achieved when below this threshold for spatial forcings
+        ortho_spatial_min_iter_convergence: float = 1_000,  # orthogonality threshold i.e. achieved when below above threshold for at least ortho_min_iter_convergence
         sparsity_mu_init: float = 0.1,  # Below same aprams for sparsity  and acyclicity constraint
         sparsity_mu_mult_factor: float = 1.2,
         sparsity_omega_gamma: float = 0.01,
@@ -260,12 +280,15 @@ class optimParams:
         mu_acyclic_init: float = 0,
         h_acyclic_threshold: float = 0,
         forcing_co2_coeff: float = 10.0,  # Weight for CO2 forcing reconstruction loss
-        forcing_aerosol_coeff: float = 10.0,  # Weight for aerosol forcing reconstruction loss
+        forcing_aerosol_coeff: float = 10.0,  # Weight for aerosol (BC) forcing reconstruction loss
+        forcing_ch4_coeff: float = 10.0,  # Weight for CH4 forcing reconstruction loss
+        forcing_so2_coeff: float = 10.0,  # Weight for SO2 forcing reconstruction loss
         forcing_latent_supervision_coeff: float = 10.0,  # Weight for direct forcing latent supervision loss
         decoder_utilization_coeff: float = 0.1,  # Penalty coefficient for underutilized forcing latent decoder weights
         min_forcing_decoder_norm: float = 1.5,  # Target minimum L2 norm for forcing latent decoder weights
         udpate_ALM_using_valid: bool = True,  # If False use training loss convergence if True uses valid loss convergence
         udpate_ALM_using_nll: bool = True,  # If False use augmented loss convergence if True uses NLL convergence
+        update_ALM_spatial: bool = False,
     ):
 
         self.optimizer = optimizer
@@ -295,6 +318,13 @@ class optimParams:
         self.ortho_h_threshold = ortho_h_threshold
         self.ortho_min_iter_convergence = ortho_min_iter_convergence
 
+        self.ortho_spatial_mu_init = ortho_spatial_mu_init
+        self.ortho_spatial_mu_mult_factor = ortho_spatial_mu_mult_factor
+        self.ortho_spatial_omega_gamma = ortho_spatial_omega_gamma
+        self.ortho_spatial_omega_mu = ortho_spatial_omega_mu
+        self.ortho_spatial_h_threshold = ortho_spatial_h_threshold
+        self.ortho_spatial_min_iter_convergence = ortho_spatial_min_iter_convergence
+
         self.sparsity_mu_init = sparsity_mu_init
         self.sparsity_mu_mult_factor = sparsity_mu_mult_factor
         self.sparsity_omega_gamma = sparsity_omega_gamma
@@ -314,12 +344,15 @@ class optimParams:
 
         self.forcing_co2_coeff = forcing_co2_coeff
         self.forcing_aerosol_coeff = forcing_aerosol_coeff
+        self.forcing_ch4_coeff = forcing_ch4_coeff
+        self.forcing_so2_coeff = forcing_so2_coeff
         self.forcing_latent_supervision_coeff = forcing_latent_supervision_coeff
         self.decoder_utilization_coeff = decoder_utilization_coeff
         self.min_forcing_decoder_norm = min_forcing_decoder_norm
 
         self.udpate_ALM_using_valid = udpate_ALM_using_valid
         self.udpate_ALM_using_nll = udpate_ALM_using_nll
+        self.update_ALM_spatial = update_ALM_spatial
 
 
 class plotParams:
@@ -371,7 +404,7 @@ class savarParams:
         # Spatial structure
         overlap: float = 0,  # Whether spatial modes can overlap between 0 and 1 (True = modes share spatial regions)
         # External forcing parameters
-        is_forced: bool = False,  # Whether to include external forcings like CO2 and aerosols (mimics climate change)
+        is_forced: bool = True,  # Whether to include external forcings like CO2 and aerosols (mimics climate change)
         f_1: int = 0,  # Initial forcing value at start of ramp (baseline level). NOTE: used as float downstream
         f_2: int = 1,  # Final forcing value at end of ramp (target level). NOTE: used as float downstream
         f_time_1: int = 4000,  # Timestep when forcing ramp begins (relative to start after transient)
@@ -385,7 +418,7 @@ class savarParams:
         # Visualization
         plot_original_data: bool = True,  # Whether to generate plots during data generation
         # Separate forcing fields (more realistic than single forcing)
-        use_separate_forcings: bool = False,  # Use distinct CO2 and aerosol forcing fields with different dynamics
+        use_separate_forcings: bool = True,  # Use distinct CO2 and aerosol forcing fields with different dynamics
         forcing_amplification: float = 1.2,  # Overall scaling factor for forcing magnitudes
         # Aerosol forcing parameters
         aerosol_scale: float = 0.02,  # Strength of aerosol forcing (typically negative for cooling effect, positive here for magnitude)

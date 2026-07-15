@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=run_pf                                           # Set name of job
-#SBATCH --output=run_pf_output.txt                                  # Set location of output file
-#SBATCH --error=run_pf_error.txt                                    # Set location of error file
+#SBATCH --output=srun_outs_ft/ro/rs_%j.out                                  # Set location of output file
+#SBATCH --error=srun_outs_ft/ro/rs_%j.err                                   # Set location of error file
 #SBATCH --gpus-per-task=1                                               # Ask for 1 GPU
 #SBATCH --cpus-per-task=8                                               # Ask for 4 CPUs
 #SBATCH --ntasks-per-node=1                                             # Ask for 4 CPUs
@@ -19,7 +19,7 @@ module --quiet load python/3.10
 
 
 # 2. Load your environment assuming environment is called "env_climatem" in $HOME/env/ (standardized)
-source $HOME/causal_model/env_climatem/bin/activate
+source $HOME/envs/env_emulator_climatem/bin/activate
 
 # 3. Get a unique port for this job based on the job ID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
@@ -28,9 +28,9 @@ export MASTER_ADDR="127.0.0.1"
 
 export TORCH_DISTRIBUTED_DEBUG=INFO
 export TORCH_CPP_LOG_LEVEL=INFO
-
+exp_id="multiscenario_runs/FALSE_AUG_100_var_tsco2massmmrbc_nlinmix_True_nlindyn_False_tau_5_z_69_lr_0.0001_bs_128_20260623_152734"
 echo "=== calling accelerate"
-
+echo "Running experiment: $exp_id"
 # Make sure to change program file path to correct dir
 accelerate launch \
     --machine_rank=$SLURM_NODEID \
@@ -40,4 +40,4 @@ accelerate launch \
     --num_processes=1 \
     --num_machines=1 \
     --gpu_ids='all' \
-    $HOME/causal_model/climatem/scripts/rollout_bf.py --config-path single_param_file.json
+    $HOME/dev/climatem/scripts/rollout_bf_aerosols.py --config-path params.json --exp-id "$exp_id" --iter-id 200000

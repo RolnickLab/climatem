@@ -837,7 +837,7 @@ class SAVAR:
                 + 0.7 * gaussian_2d(-0.70, -0.35, 0.26, 0.32, angle=0.10)
             )
             na *= north_mask_strict * smooth_window(lon_grid, -1.0, 0.00, sharpness=6.5)
-            spatial_templates[0] = -na.reshape(-1) * 1.65
+            spatial_templates[0] = na.reshape(-1) * 1.65
 
         if n_aerosol_latents >= 2:
             eu = (
@@ -846,7 +846,7 @@ class SAVAR:
                 + 0.6 * gaussian_2d(-0.70, 0.30, 0.20, 0.24, angle=-0.05)
             )
             eu *= north_mask_strict * smooth_window(lon_grid, -0.30, 0.55, sharpness=7.5)
-            spatial_templates[1] = -eu.reshape(-1) * 1.55
+            spatial_templates[1] = eu.reshape(-1) * 1.55
 
         if n_aerosol_latents >= 3:
             ea = (
@@ -855,7 +855,7 @@ class SAVAR:
                 + 0.5 * gaussian_2d(0.50, 0.45, 0.14, 0.18, angle=0.10)
             )
             ea *= north_mask * smooth_window(lon_grid, 0.35, 0.98, sharpness=8.0)
-            spatial_templates[2] = -ea.reshape(-1) * 1.10
+            spatial_templates[2] = ea.reshape(-1) * 1.10
 
         if n_aerosol_latents >= 4:
             ind = (
@@ -866,14 +866,14 @@ class SAVAR:
             ind *= smooth_window(lat_grid, -0.55, -0.05, sharpness=8.0) * smooth_window(
                 lon_grid, 0.20, 0.65, sharpness=8.0
             )
-            spatial_templates[3] = -ind.reshape(-1) * 0.95
+            spatial_templates[3] = ind.reshape(-1) * 0.95
 
         for i in range(4, n_aerosol_latents):
             wave_num = i - 2
             pattern_2d = torch.abs(torch.sin(wave_num * math.pi * lat_grid)) * torch.abs(
                 torch.cos((wave_num + 1) * math.pi * lon_grid)
             )
-            spatial_templates[i] = -pattern_2d.reshape(-1) * (1.0 + 0.2 * i)
+            spatial_templates[i] = pattern_2d.reshape(-1) * (1.0 + 0.2 * i)
 
         return spatial_templates
 
@@ -908,7 +908,7 @@ class SAVAR:
         n_aerosol_latents = spatial_templates.shape[0]
         for i in range(n_aerosol_latents):
             if aerosol_contrast != 1.0:
-                spatial_templates[i] = -torch.abs(spatial_templates[i]).pow(aerosol_contrast)
+                spatial_templates[i] = torch.abs(spatial_templates[i]).pow(aerosol_contrast)
 
             norm = torch.sqrt((spatial_templates[i] ** 2).sum())
             if norm > 1e-8:
@@ -1014,7 +1014,8 @@ class SAVAR:
             forcing_cfg.get("aerosol_warming_index", None),
             n_aerosol_latents,
         )
-        latent_signs = [-1.0] * n_aerosol_latents
+        # latent_signs = [-1.0] * n_aerosol_latents
+        latent_signs = [1.0] * n_aerosol_latents
         if warming_index is not None and 0 <= warming_index < n_aerosol_latents:
             latent_signs[warming_index] = 1.0
 

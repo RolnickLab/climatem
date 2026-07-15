@@ -189,6 +189,24 @@ def parse_args():
     """Parse command-line arguments with support for nested structure."""
     parser = argparse.ArgumentParser(description="Causal models for climate data")
     parser.add_argument(
+        "--exp-id",
+        type=str,
+        default="var_ts",
+        help="experiment name for rollout",
+    )
+    parser.add_argument(
+        "--iter-id",
+        type=int,
+        default=200000,
+        help="model saving epoch",
+    )
+    parser.add_argument(
+        "--test-scenarios",
+        type=List,
+        default=["ssp126"],
+        help="test scenarios",
+    )
+    parser.add_argument(
         "--config-path",
         type=str,
         default="configs/param_file.json",

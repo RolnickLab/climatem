@@ -116,6 +116,7 @@ class SavarDataset(torch.utils.data.Dataset):
         # TODO: for now this is ok, we create a square grid. Later we might want to look at icosahedral grid :)
         self.lat = lat
         self.lon = lon
+
         self.coordinates = np.array(np.meshgrid(np.arange(self.lat), np.arange(self.lon))).reshape((2, -1)).T
 
         self.time_len = time_len
@@ -366,6 +367,29 @@ class SavarDataset(torch.utils.data.Dataset):
         forcing_reshaped = forcing_data.T.reshape((time_steps, self.lat, self.lon))
         logger.debug(f"Reshaped forcing data to: {forcing_reshaped.shape}")
         return forcing_reshaped
+
+    # def reshape_co2_forcing_data(self, forcing_data):
+    #     """
+    #     Reshape forcing data from SAVAR format (spatial_res, time) to match observations.
+
+    #     Args:
+    #         forcing_data: Array of shape (spatial_resolution, time_length)
+
+    #     Returns:
+    #         Reshaped array of shape (time_length, 1, 1)
+    #     """
+    #     if forcing_data is None:
+    #         return None
+
+    #     logger.debug(f"Reshaping forcing data from shape: {forcing_data.shape}")
+    #     print(f"Reshaping forcing data from shape: {forcing_data.shape}")
+    #     time_steps = forcing_data.shape[1]
+    #     # Transpose and reshape to match observation format
+    #     forcing_reshaped = forcing_data.T.reshape((time_steps, self.lat, self.lon))
+    #     forcing_reshaped = forcing_reshaped.mean((-1,-2), keepdims=True)
+    #     logger.debug(f"Reshaped forcing data to: {forcing_reshaped.shape}")
+
+    #     return forcing_reshaped
 
     def _apply_forcing_conditioning(self, co2_reshaped, aerosol_reshaped):
         """
@@ -680,6 +704,7 @@ class SavarDataset(torch.utils.data.Dataset):
 
     def _extract_forcing_sequences(self, data, tau, ratio_train, interval_length):
         """Extract forcing sequences for training and validation."""
+        # Here where the problem happens FLAG
         if not (self.use_separate_forcings and hasattr(self, "co2_forcing") and self.co2_forcing is not None):
             self.co2_forcing_train = None
             self.aerosol_forcing_train = None
@@ -691,9 +716,11 @@ class SavarDataset(torch.utils.data.Dataset):
             self.gt_aerosol_latent_valid = None
             return
 
-        co2_reshaped = self.reshape_forcing_data(self.co2_forcing)
-        aerosol_reshaped = self.reshape_forcing_data(self.aerosol_forcing)
+        co2_reshaped = self.reshape_forcing_data(self.co2_forcing)  # (10200, 20, 20)
+        # co2_reshaped = self.reshape_co2_forcing_data(self.co2_forcing)
+        aerosol_reshaped = self.reshape_forcing_data(self.aerosol_forcing)  # (10200, 20, 20)
         co2_reshaped, aerosol_reshaped = self._apply_forcing_conditioning(co2_reshaped, aerosol_reshaped)
+        # print("after _apply_forcing_conditioning",co2_reshaped.shape, aerosol_reshaped.shape) #(10200, 1) (10200, 4)
 
         co2_train_list, co2_valid_list = [], []
         aerosol_train_list, aerosol_valid_list = [], []
@@ -732,7 +759,6 @@ class SavarDataset(torch.utils.data.Dataset):
         self.aerosol_forcing_train = aerosol_train_stacked.reshape(
             aerosol_train_stacked.shape[0], aerosol_train_stacked.shape[1], -1
         )
-
         if co2_valid_stacked is not None:
             # Keep CO2 spatial (same as aerosol) instead of averaging to scalar
             self.co2_forcing_valid = co2_valid_stacked.reshape(

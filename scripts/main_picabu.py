@@ -37,10 +37,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from climatem.config import *
-from climatem.data_loader.causal_datamodule import CausalClimateDataModule
+from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.train_model import TrainingLatent
-from climatem.model.tsdcd_latent import LatentTSDCD
+from climatem.model.tsdcd_latent import LatentTSDCD, HierarchicalLatentTSDCD
 from climatem.utils import parse_args, update_config_withparse
 
 from climatem.synthetic_data.utils import permute_matrices
@@ -61,7 +61,7 @@ class Bunch:
 
 
 def main(
-    experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params
+    experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params,rollout_params
 ):
     """Build the datamodule, model, and trainer, then run the full training loop.
 
@@ -113,7 +113,7 @@ def main(
         else:
             tau = experiment_params.tau
 
-        datamodule = CausalClimateDataModule(
+        common_data_args = dict(
             tau=tau,
             future_timesteps=experiment_params.future_timesteps,
             num_months_aggregated=data_params.num_months_aggregated,
@@ -122,15 +122,14 @@ def main(
             out_var_ids=data_params.out_var_ids,
             train_years=data_params.train_years,
             train_historical_years=data_params.train_historical_years,
-            test_years=data_params.test_years,  # do we want to implement keeping only certain years for testing?
-            val_split=1 - train_params.ratio_train,  # fraction of testing to split for valdation
-            seq_to_seq=data_params.seq_to_seq,  # if true maps from T->T else from T->1
-            channels_last=data_params.channels_last,  # wheather variables come last our after sequence lenght
+            test_years=data_params.test_years,
+            val_split=1 - train_params.ratio_train,
+            seq_to_seq=data_params.seq_to_seq,
+            channels_last=data_params.channels_last,
             train_scenarios=data_params.train_scenarios,
             test_scenarios=data_params.test_scenarios,
             train_models=data_params.train_models,
             temp_res=data_params.temp_res,
-            # test_models = data_params.test_models,
             batch_size=data_params.batch_size,
             eval_batch_size=data_params.eval_batch_size,
             num_workers=experiment_params.num_workers,
@@ -142,7 +141,7 @@ def main(
             seq_len=data_params.seq_len,
             data_dir=data_params.climateset_data,
             output_save_dir=data_params.data_dir,
-            num_ensembles=data_params.num_ensembles,  # 1 for first ensemble, -1 for all
+            num_ensembles=data_params.num_ensembles,
             lon=experiment_params.lon,
             lat=experiment_params.lat,
             num_levels=data_params.num_levels,
@@ -150,7 +149,24 @@ def main(
             seasonality_removal=data_params.seasonality_removal,
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
-            forcing_conditioning=data_params.forcing_conditioning,
+            time_len=savar_params.time_len,
+            comp_size=savar_params.comp_size,
+            noise_val=savar_params.noise_val,
+            n_per_col=savar_params.n_per_col,
+            difficulty=savar_params.difficulty,
+            seasonality=savar_params.seasonality,
+            overlap=savar_params.overlap,
+            is_forced=savar_params.is_forced,
+            f_1=savar_params.f_1,
+            f_2=savar_params.f_2,
+            f_time_1=savar_params.f_time_1,
+            f_time_2=savar_params.f_time_2,
+            ramp_type=savar_params.ramp_type,
+            linearity=savar_params.linearity,
+            poly_degrees=savar_params.poly_degrees,
+            plot_original_data=savar_params.plot_original_data,
+        )
+        savar_data_args=dict(            
             # Below SAVAR data arguments
             time_len=savar_params.time_len,
             comp_size=savar_params.comp_size,
@@ -192,14 +208,36 @@ def main(
             background_smoothness=savar_params.background_smoothness,
             background_timescale_rho=savar_params.background_timescale_rho,
             background_n_modes=savar_params.background_n_modes
+            )
+        # ["ssp126", "ssp245", "historical"]
+        # ["ts", "co2mass", "mmrbc", "so2", "ch4global"]
+
+        DATA_REGISTRY = {
+            "single": {
+                "cls": CausalClimateDataModule,
+                "args": {**common_data_args, **savar_data_args},
+            },
+            "multi": { # the multiscenario dataset doesn't support savar input yet.
+                "cls": CausalClimateDataMultiScenarioModule,
+                "args": {**common_data_args}
+            },
+        }
+
+        data_module_type = (
+            "multi"
+            if len(data_params.train_scenarios) > 1
+            else "single"
         )
+
+        cfg = DATA_REGISTRY[data_module_type]
+        datamodule = cfg["cls"](**cfg["args"])
         datamodule.setup()
 
     # train_dataloader = iter(datamodule.train_dataloader())
     # val_dataloader = iter(datamodule.val_dataloader())
 
     # WE SHOULD REMOVE THIS, and initialize with params
-    d = len(data_params.in_var_ids)
+    d = len(data_params.out_var_ids)
     logger.info(f"Using {d} variables")
     # num_input = (number of variables) * (time lags) * (spatial neighbourhood width).
     # With instantaneous connections we include the current time step (tau + 1);
@@ -210,11 +248,11 @@ def main(
         num_input = d * (experiment_params.tau) 
 
     # set the model
-        model = LatentTSDCD(
-            num_layers=model_params.num_layers,
-            num_hidden=model_params.num_hidden,
-            num_input=num_input,
-            num_output=2,  # 2 outputs per latent: mean and variance of a Gaussian distribution
+    common_model_kwargs = dict(
+        num_layers=model_params.num_layers,
+        num_hidden=model_params.num_hidden,
+        num_input=num_input,
+        num_output=2,
         num_layers_mixing=model_params.num_layers_mixing,
         num_hidden_mixing=model_params.num_hidden_mixing,
         position_embedding_dim=model_params.position_embedding_dim,
@@ -223,7 +261,6 @@ def main(
         position_embedding_transition=model_params.position_embedding_transition,
         coeff_kl=optim_params.coeff_kl,
         d=d,
-        #Here, everything hardcoded to gaussian because GEV leads to Nan... TBD
         distr_z0="gaussian",
         distr_encoder="gaussian",
         distr_transition="gaussian",
@@ -232,27 +269,40 @@ def main(
         d_z=experiment_params.d_z,
         tau=experiment_params.tau,
         instantaneous=model_params.instantaneous,
+        instantaneous_forcing=model_params.instantaneous_forcing,
         nonlinear_dynamics=model_params.nonlinear_dynamics,
         nonlinear_mixing=model_params.nonlinear_mixing,
-        # no_gt=gt_params.no_gt,
-        # debug_gt_graph=gt_params.debug_gt_graph,
-        # debug_gt_z=gt_params.debug_gt_z,
-        # debug_gt_w=gt_params.debug_gt_w,
-        # gt_w=data_loader.gt_w,
-        # gt_graph=data_loader.gt_graph,
         tied_w=model_params.tied_w,
-        # also
         fixed=model_params.fixed,
         fixed_output_fraction=model_params.fixed_output_fraction,
-            use_exogenous=model_params.use_exogenous,
-            d_y_co2=model_params.d_y_co2,
-            d_y_aerosol=model_params.d_y_aerosol,
-            use_forced_latents=model_params.use_forced_latents,
-            n_forced_latents_co2=model_params.n_forced_latents_co2,
-            n_forced_latents_aerosol=model_params.n_forced_latents_aerosol,
-            forcing_arch=model_params.forcing_arch,
-        )
+        use_exogenous=model_params.use_exogenous,
+        d_y_co2=model_params.d_y_co2,
+        d_y_aerosol=model_params.d_y_aerosol,
+        use_forced_latents=model_params.use_forced_latents,
+        n_forced_latents_co2=model_params.n_forced_latents_co2,
+        n_forced_latents_aerosol=model_params.n_forced_latents_aerosol,
+        forcing_arch=model_params.forcing_arch,
+        d_y_ch4=model_params.d_y_ch4,
+        d_y_so2=model_params.d_y_so2,
+        n_forced_latents_ch4=model_params.n_forced_latents_ch4,
+        n_forced_latents_so2=model_params.n_forced_latents_so2
+    )
 
+    match experiment_params.d_z_global:
+        case 0:
+            logger.info("Instantiate LatentTSDCD!")
+            model = LatentTSDCD(**common_model_kwargs)
+        case 1:
+            logger.info("Instantiate Hierarchical LatentTSDCD!")
+            model = HierarchicalLatentTSDCD(
+                **common_model_kwargs,
+                d_z_global=experiment_params.d_z_global,
+            )
+
+        case _:
+            raise ValueError(
+                f"Unsupported d_z_global={experiment_params.d_z_global}"
+            )
     # Make folder to save run results
     exp_path = Path(experiment_params.exp_path)
     os.makedirs(exp_path, exist_ok=True)
@@ -268,8 +318,14 @@ def main(
     
     if data_params.in_var_ids[0] == "savar":
         name = f"savar_{savar_params.linearity}_{savar_params.is_forced}_{savar_params.difficulty}_{savar_params.n_per_col**2}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}"
+        if experiment_params.d_z_global > 0:
+            name += "_hvae"
+
     else:
         name = f"{start_name}_{second_name_name}_{train_params.valid_freq}_var_{data_var_ids_str}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}"
+        if len(data_params.in_var_ids) == 5:
+            # from climatem.model.train_model_multi import TrainingLatent
+            logger.info("Multiple global and spatial forcings! Importing from train_model_multi")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     exp_path = exp_path / f"{name}_{timestamp}"
 
@@ -289,7 +345,9 @@ def main(
     hp["train_params"] = train_params.__dict__
     hp["model_params"] = model_params.__dict__
     hp["optim_params"] = optim_params.__dict__
+    hp["plot_params"] = plot_params.__dict__
     hp["savar_params"] = savar_params.__dict__
+    hp["rollout_params"] = rollout_params.__dict__
     with open(exp_path / "params.json", "w") as file:
         json.dump(hp, file, indent=4)
 
@@ -438,9 +496,11 @@ def assert_args(
         or experiment_params.d_x is None
         or experiment_params.d_z <= 0
         or experiment_params.d_x <= 0
+        or experiment_params.d_z_global < 0
     ):
-        raise ValueError("When using latent model, you need to define d_z and d_x with integer values greater than 0")
-
+        raise ValueError("When using latent model, you need to define d_z and d_x with integer values greater than 0; and d_z_global greater or equal to 0")
+    if experiment_params.d_z_global>1:
+        raise ValueError("The global latent should have at most one dimension!")
     # string input with limited possible values
     supported_dataformat = ["numpy", "hdf5"]
     if data_params.data_format not in supported_dataformat:
@@ -458,6 +518,10 @@ def assert_args(
     # warnings, strange choice of args combination
     if experiment_params.latent and (experiment_params.d_z > experiment_params.d_x):
         warnings.warn("Are you sure you want to have a higher dimension for d_z than d_x")
+    if model_params.instantaneous and not model_params.instantaneous_forcing:
+        raise ValueError(
+            "If instantaneous effects among climate variables are enabled, instantaneous effects from forcing variables to climate variables must also be enabled."
+        )
 
     return
 
@@ -495,6 +559,11 @@ if __name__ == "__main__":
     optim_params = optimParams(**params["optim_params"])
     plot_params = plotParams(**params["plot_params"])
     savar_params = savarParams(**params["savar_params"])
+    rollout_params = rolloutParams(**params["rollout_params"])
+
+
+
+
 
     #Overwrite arguments if using savar
     if "savar" in data_params.in_var_ids:
@@ -502,27 +571,62 @@ if __name__ == "__main__":
         experiment_params.lon = int(savar_params.comp_size * savar_params.n_per_col)
         experiment_params.d_x = int(experiment_params.lat * experiment_params.lon)
         plot_params.savar = True
-
+        separate_impact_by_scales = False # leave logic for apply forcing on different levels
+        #  SAVAR DATA has not yet integrate the ch4 and so2 forcings
+        model_params.n_forced_latents_ch4 = 0
+        model_params.d_y_ch4 = 0
+        model_params.n_forced_latents_so2 = 0
+        model_params.d_y_so2 = 0
         #Below is coherent with savar data generation 
         if savar_params.use_correct_hyperparams:
-            n_climate_latents = int(savar_params.n_per_col**2)
+            n_climate_latents = int(savar_params.n_per_col**2) #+ 1 
+
+            experiment_params.d_z = n_climate_latents
+            # d_y_aerosol = n_forced_latents_aerosol**2
+
             if model_params.use_forced_latents:
                 experiment_params.d_z = n_climate_latents + model_params.n_forced_latents_co2 + model_params.n_forced_latents_aerosol
-            else:
-                experiment_params.d_z = n_climate_latents
+                if experiment_params.d_z_global == 1 and separate_impact_by_scales:
+                    # Hierarchical model: 
+                        # aerosol -> local latent
+                        # CO2 -> global latent
+                        experiment_params.d_z = n_climate_latents + model_params.n_forced_latents_aerosol
+                        experiment_params.d_z_global += model_params.n_forced_latents_co2
+
+
+            print(f"using the correct parameters dz-{experiment_params.d_z} and dz_global{experiment_params.d_z_global}")        
             if not savar_params.is_forced:
                 model_params.use_exogenous = False
+            n_lag = experiment_params.tau + 1 
             if savar_params.difficulty == "easy":
-                optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*experiment_params.tau) #expected N out of N^2*tau total links
+                optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*n_lag) #expected N out of N^2*tau total links
             if savar_params.difficulty == "med_easy":
-                optim_params.sparsity_upper_threshold = 2/(experiment_params.d_z*experiment_params.tau) #expected 2N out of N^2*tau total links
+                optim_params.sparsity_upper_threshold = 2/(experiment_params.d_z*n_lag) #expected 2N out of N^2*tau total links
             if savar_params.difficulty == "med_hard":
-                optim_params.sparsity_upper_threshold = 3/(experiment_params.d_z*experiment_params.tau) #expected 3N out of N^2*tau total links
+                optim_params.sparsity_upper_threshold = 3/(experiment_params.d_z*n_lag) #expected 3N out of N^2*tau total links
             if savar_params.difficulty == "hard":
-                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*experiment_params.tau) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
+                optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*n_lag) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
 
     else:
+        if "co2mass" not in data_params.in_var_ids:
+            model_params.n_forced_latents_co2 = 0
+            model_params.d_y_co2 = 0
+
+        if "ch4global" not in data_params.in_var_ids:
+            model_params.n_forced_latents_ch4 = 0
+            model_params.d_y_ch4 = 0
+
+        if "mmrbc" not in data_params.in_var_ids:
+            model_params.n_forced_latents_aerosol = 0
+            model_params.d_y_aerosol = 0
+
+        if "so2" not in data_params.in_var_ids:
+            model_params.n_forced_latents_so2 = 0
+            model_params.d_y_so2 = 0
         plot_params.savar = False
+        if model_params.use_forced_latents:
+            n_climate_latents = experiment_params.d_z
+            experiment_params.d_z = n_climate_latents + model_params.n_forced_latents_co2 + model_params.n_forced_latents_aerosol + model_params.n_forced_latents_ch4 + model_params.n_forced_latents_so2
 
     assert_args(
         experiment_params,
@@ -531,4 +635,4 @@ if __name__ == "__main__":
         optim_params,
     )
 
-    main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params)
+    main(experiment_params, data_params, train_params, model_params, optim_params, plot_params, savar_params,rollout_params)

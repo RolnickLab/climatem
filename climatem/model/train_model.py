@@ -165,10 +165,19 @@ class TrainingLatent:
         self.train_connect_reg_list = []
         self.train_ortho_cons_list = []
         self.train_ortho_vector_cons_list = []
+
+        self.train_ortho_spatial_forcing_cons_list = []
+        self.train_ortho_spatial_forcing_vector_cons_list = []
+
         self.train_acyclic_cons_list = []
         self.mu_ortho_list = []
         self.gamma_ortho_list = []
+
+        self.mu_ortho_spatial_forcing_list = []
+        self.gamma_ortho_spatial_forcing_list = []
+
         self.h_ortho_list = []
+        self.h_ortho_spatial_forcing_list = []
 
         # add the crps
         self.train_crps_loss_list = []
@@ -192,6 +201,10 @@ class TrainingLatent:
         self.valid_connect_reg_list = []
         self.valid_ortho_cons_list = []
         self.valid_ortho_vector_cons_list = []
+
+        self.valid_ortho_spatial_forcing_cons_list = []
+        self.valid_ortho_spatial_forcing_vector_cons_list = []
+
         self.valid_acyclic_cons_list = []
         self.valid_sparsity_cons_list = []
         self.valid_transition_var_list = []
@@ -265,11 +278,14 @@ class TrainingLatent:
                     n_climate = self.d_z - model.n_forced_latents_co2 - model.n_forced_latents_aerosol
                 else:
                     n_climate = self.d_z
-                self.ortho_normalization = self.d_x * n_climate
-                if self.instantaneous:
-                    self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
-                else:
-                    self.sparsity_normalization = self.tau * self.d_z * self.d_z
+                self.ortho_normalization = self.d_x * n_climate  #
+                self.ortho_spatial_normalization = (
+                    model.n_forced_latents_aerosol * model.n_forced_latents_aerosol
+                )  # model.d_y_aerosol
+                # if self.instantaneous:
+                self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
+                # else:
+                #     self.sparsity_normalization = self.tau * self.d_z * self.d_z
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -301,6 +317,17 @@ class TrainingLatent:
             self.optim_params.ortho_h_threshold,
             self.optim_params.ortho_min_iter_convergence,
             dim_gamma=(n_climate, n_climate),  # Only climate latents
+            valid_freq=self.train_params.valid_freq,
+        )
+        #  is it ok to share the optimisation parameters?
+        self.ALM_ortho_spatial_forcing = ALM(
+            self.optim_params.ortho_spatial_mu_init,
+            self.optim_params.ortho_spatial_mu_mult_factor,
+            self.optim_params.ortho_spatial_omega_gamma,
+            self.optim_params.ortho_spatial_omega_mu,
+            self.optim_params.ortho_spatial_h_threshold,
+            self.optim_params.ortho_spatial_min_iter_convergence,
+            dim_gamma=(self.model.n_forced_latents_aerosol, self.model.n_forced_latents_aerosol),  # Only aerosol
             valid_freq=self.train_params.valid_freq,
         )
 
@@ -470,6 +497,10 @@ class TrainingLatent:
 
                 if self.iteration % self.train_params.valid_freq == 0:
                     self.ALM_ortho.update(self.iteration, self.valid_ortho_vector_cons_list, alm_update_loss_list)
+                    if self.optim_params.update_ALM_spatial:
+                        self.ALM_ortho_spatial_forcing.update(
+                            self.iteration, self.valid_ortho_spatial_forcing_vector_cons_list, alm_update_loss_list
+                        )
                     # updating ALM_sparsity here
                     self.ALM_sparsity.update(self.iteration, self.valid_sparsity_cons_list, alm_update_loss_list)
 
@@ -477,11 +508,19 @@ class TrainingLatent:
                     if self.iteration > 1000:
                         if not self.no_w_constraint:
                             ortho_converged = self.ALM_ortho.has_converged
+                            if self.optim_params.update_ALM_spatial:
+                                ortho_spatial_forcing_converged = self.ALM_ortho_spatial_forcing.has_converged
+                                if self.iteration % 1000 == 0:
+                                    print(
+                                        f"in iter{self.iteration}, ortho_spatial_forcing_converged {ortho_spatial_forcing_converged},ortho_converged{ortho_converged} "
+                                    )
                             sparsity_converged = self.ALM_sparsity.has_converged
                         else:
                             self.converged = True
                     else:
                         ortho_converged = False
+                        if self.optim_params.update_ALM_spatial:
+                            ortho_spatial_forcing_converged = False
                         sparsity_converged = False
 
                     # if has_increased_mu then reinitialize the optimizer?
@@ -490,7 +529,13 @@ class TrainingLatent:
                             self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
                         elif self.optim_params.optimizer == "rmsprop":
                             self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
-
+                    # # Do we need repeat for otho of forcings?
+                    if self.optim_params.update_ALM_spatial:
+                        if self.ALM_ortho_spatial_forcing.has_increased_mu:
+                            if self.optim_params.optimizer == "sgd":
+                                self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.train_params.lr)
+                            elif self.optim_params.optimizer == "rmsprop":
+                                self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
                     # Repeat for sparsity constraint?
                     if self.ALM_sparsity.has_increased_mu:
                         if self.optim_params.optimizer == "sgd":
@@ -508,9 +553,13 @@ class TrainingLatent:
                             elif self.optim_params.optimizer == "rmsprop":
                                 self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.train_params.lr)
                         self.converged = ortho_converged & acyclic_converged
+                        if self.optim_params.update_ALM_spatial:
+                            self.converged = self.converged & ortho_spatial_forcing_converged
                     else:
                         # self.converged = ortho_converged
                         self.converged = ortho_converged & sparsity_converged
+                        if self.optim_params.update_ALM_spatial:
+                            self.converged = self.converged & ortho_spatial_forcing_converged
             else:
                 # continue training without penalty method
                 if not self.thresholded and self.iteration % self.patience_freq == 0:
@@ -555,6 +604,7 @@ class TrainingLatent:
             "valid_kl": self.valid_kl,
             "valid_sparsity_reg": self.valid_sparsity_reg,
             "valid_ortho_cons": torch.sum(self.valid_ortho_cons).item(),
+            "valid_ortho_spatial_forcing_cons": torch.sum(self.valid_ortho_spatial_forcing_cons).item(),
             "valid_sparsity_cons": self.valid_sparsity_cons,
             "valid_transition_var": self.valid_transition_var,
         }
@@ -585,8 +635,12 @@ class TrainingLatent:
             # New format with forcings
             x = batch["x"]
             y = batch["y"]
-            y_co2 = batch.get("co2_forcing", None)
-            y_aerosol = batch.get("aerosol_forcing", None)
+            y_global_focings = batch.get("global_forcings", None)
+            y_spatial_forcings = batch.get("spatial_forcings", None)
+            if y_global_focings is not None and y_spatial_forcings is not None:
+                y_co2 = y_global_focings[:, :, 0]
+                y_aerosol = y_spatial_forcings[:, :, 0]
+
             # Extract ground truth forcing latents for supervision
             gt_co2_latent = batch.get("gt_co2_latent", None)
             gt_aerosol_latent = batch.get("gt_aerosol_latent", None)
@@ -602,6 +656,10 @@ class TrainingLatent:
             y_co2 = torch.nan_to_num(y_co2)
         if y_aerosol is not None:
             y_aerosol = torch.nan_to_num(y_aerosol)
+            if self.iteration == 1:
+                print(
+                    f"Input x shape {x.shape}, y shape {y.shape}, y_co2 shape {y_co2.shape}, y_aerosol shape {y_aerosol.shape}"
+                )
         if gt_co2_latent is not None:
             gt_co2_latent = torch.nan_to_num(gt_co2_latent)
         if gt_aerosol_latent is not None:
@@ -671,7 +729,10 @@ class TrainingLatent:
         h_acyclic = torch.as_tensor([0.0])
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
-        h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
+        h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder(), self.ortho_normalization)
+        h_ortho_spatial_forcing = self.get_ortho_violation_forcings(
+            self.model.autoencoder.get_w_aerosol(), self.ortho_spatial_normalization
+        )
 
         # NOTE: Decoder utilization penalty is no longer applicable.
         # With the architectural fix, forcing latents are excluded from the observation decoder
@@ -687,10 +748,22 @@ class TrainingLatent:
                 loss = (
                     loss + torch.sum(self.ALM_ortho.gamma @ h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
                 )
+                if self.optim_params.update_ALM_spatial:
+                    loss = (
+                        loss
+                        + torch.sum(self.ALM_ortho_spatial_forcing.gamma @ h_ortho_spatial_forcing)
+                        + 0.5 * self.ALM_ortho_spatial_forcing.mu * torch.sum(h_ortho_spatial_forcing**2)
+                    )
             elif self.constraint_func == "trace":
                 loss = (
                     loss + torch.sum(self.ALM_ortho.gamma * h_ortho) + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
                 )
+                if self.optim_params.update_ALM_spatial:
+                    loss = (
+                        loss
+                        + torch.sum(self.ALM_ortho_spatial_forcing.gamma * h_ortho_spatial_forcing)
+                        + 0.5 * self.ALM_ortho_spatial_forcing.mu * torch.sum(h_ortho_spatial_forcing**2)
+                    )
         if self.instantaneous:
             loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
@@ -768,49 +841,15 @@ class TrainingLatent:
         # projection of the gradient for w
         if self.model.autoencoder.use_grad_project and not self.no_w_constraint:
             with torch.no_grad():
-                self.model.autoencoder.get_w_decoder().clamp_(min=0.0)
+                if self.model.use_forced_latents:
+                    n_climate = self.model.d_z - self.model.n_forced_latents_co2 - self.model.n_forced_latents_aerosol
+                else:
+                    n_climate = self.model.d_z
+                self.model.autoencoder.get_w_decoder()[..., :n_climate].clamp_(min=0.0)
+                self.model.autoencoder.get_w_co2().clamp_(min=0.0)
+                self.model.autoencoder.get_w_aerosol().clamp_(min=0.0)
 
             # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
-
-        # Log gradient norms for diagnostic purposes (every 100 iterations)
-        if self.iteration % 100 == 0:
-            # Compute climate encoder gradient norm
-            climate_encoder_grads = (
-                [p.grad for p in self.model.autoencoder.encoder.parameters() if p.grad is not None]
-                if hasattr(self.model.autoencoder, "encoder")
-                else []
-            )
-            if climate_encoder_grads:
-                climate_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in climate_encoder_grads]))
-            else:
-                climate_encoder_grad_norm = torch.tensor(0.0)
-
-            # Compute forcing encoder gradient norms if using forced latents
-            if self.model.use_forced_latents:
-                co2_encoder_grads = [
-                    p.grad for p in self.model.autoencoder.co2_forcing_encoder_mu.parameters() if p.grad is not None
-                ]
-                if co2_encoder_grads:
-                    co2_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in co2_encoder_grads]))
-                else:
-                    co2_encoder_grad_norm = torch.tensor(0.0)
-
-                aerosol_encoder_grads = [
-                    p.grad for p in self.model.autoencoder.aerosol_forcing_encoder_mu.parameters() if p.grad is not None
-                ]
-                if aerosol_encoder_grads:
-                    aerosol_encoder_grad_norm = torch.norm(torch.stack([torch.norm(g) for g in aerosol_encoder_grads]))
-                else:
-                    aerosol_encoder_grad_norm = torch.tensor(0.0)
-
-                self.accelerator.log(
-                    {
-                        "grad_norm/climate_encoder": climate_encoder_grad_norm.item(),
-                        "grad_norm/co2_encoder": co2_encoder_grad_norm.item(),
-                        "grad_norm/aerosol_encoder": aerosol_encoder_grad_norm.item(),
-                    },
-                    step=self.iteration,
-                )
 
         self.train_loss = loss.item()
         self.train_nll = nll.item()
@@ -819,6 +858,7 @@ class TrainingLatent:
         self.train_sparsity_reg = sparsity_reg.item()
         self.train_connect_reg = connect_reg.item()
         self.train_ortho_cons = h_ortho.detach()  # .detach()
+        self.train_ortho_spatial_forcing_cons = h_ortho_spatial_forcing.detach()
         self.train_acyclic_cons = h_acyclic.item()  # errors with .item() as it is a tensor
 
         # adding the sparsity constraint to the logs
@@ -840,15 +880,17 @@ class TrainingLatent:
         # adding the forcing reconstruction losses to the logs
         self.train_forcing_co2_loss = forcing_loss_co2.item()
         self.train_forcing_aerosol_loss = forcing_loss_aerosol.item()
+
         self.train_forcing_latent_loss = forcing_latent_loss.item()
 
         # Debug logging for forcing latent supervision
-        if self.iteration % 1000 == 0 and self.model.use_forced_latents:
+        if self.iteration % 500 == 0 and self.model.use_forced_latents:
             logger.debug(
                 f"[DEBUG iter {self.iteration}] Forcing losses: "
                 f"CO2={forcing_loss_co2.item():.6f}, "
                 f"Aerosol={forcing_loss_aerosol.item():.6f}, "
                 f"Supervision={forcing_latent_loss.item():.6f}"
+                f"Recons={recons.item():.6f}"
             )
             if gt_co2_latent is not None:
                 logger.debug(f"  GT latent ranges: CO2=[{gt_co2_latent.min():.3f}, {gt_co2_latent.max():.3f}]")
@@ -1040,8 +1082,11 @@ class TrainingLatent:
                 # New format with forcings
                 x = batch["x"]
                 y = batch["y"]
-                y_co2 = batch.get("co2_forcing", None)
-                y_aerosol = batch.get("aerosol_forcing", None)
+                y_global_focings = batch.get("global_forcings", None)
+                y_spatial_forcings = batch.get("spatial_forcings", None)
+                if y_global_focings is not None and y_spatial_forcings is not None:
+                    y_co2 = y_global_focings[:, :, 0]
+                    y_aerosol = y_spatial_forcings[:, :, 0]
                 # Extract ground truth forcing latents for supervision
                 gt_co2_latent = batch.get("gt_co2_latent", None)
                 gt_aerosol_latent = batch.get("gt_aerosol_latent", None)
@@ -1127,7 +1172,10 @@ class TrainingLatent:
             # h_ortho = torch.tensor([0.])
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
-            h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder())
+            h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder(), self.ortho_normalization)
+            h_ortho_spatial_forcing = self.get_ortho_violation_forcings(
+                self.model.autoencoder.get_w_aerosol(), self.ortho_spatial_normalization
+            )
 
             # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
             loss = nll + connect_reg + sparsity_reg
@@ -1138,12 +1186,19 @@ class TrainingLatent:
                         + torch.sum(self.ALM_ortho.gamma @ h_ortho)
                         + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
                     )
+                    if self.optim_params.update_ALM_spatial:
+                        loss = loss + torch.sum(self.ALM_ortho_spatial_forcing.gamma @ h_ortho_spatial_forcing)
+                        +0.5 * self.ALM_ortho_spatial_forcing.mu * torch.sum(h_ortho_spatial_forcing**2)
+
                 elif self.constraint_func == "trace":
                     loss = (
                         loss
                         + torch.sum(self.ALM_ortho.gamma * h_ortho)
                         + 0.5 * self.ALM_ortho.mu * torch.sum(h_ortho**2)
                     )
+                    if self.optim_params.update_ALM_spatial:
+                        loss = loss + torch.sum(self.ALM_ortho_spatial_forcing.gamma * h_ortho_spatial_forcing)
+                        +0.5 * self.ALM_ortho_spatial_forcing.mu * torch.sum(h_ortho_spatial_forcing**2)
             if self.instantaneous:
                 loss = loss + 0.5 * self.QPM_acyclic.mu * h_acyclic**2
 
@@ -1181,6 +1236,8 @@ class TrainingLatent:
                     + self.optim_params.crps_coeff * crps
                     + self.optim_params.spectral_coeff * spectral_loss
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
+                    + self.optim_params.forcing_co2_coeff * forcing_loss_co2
+                    + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
                 )
             else:
                 coef = 0
@@ -1200,6 +1257,8 @@ class TrainingLatent:
                         self.optim_params.spectral_coeff * spectral_loss
                         + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                     )
+                    + self.optim_params.forcing_co2_coeff * forcing_loss_co2
+                    + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
                 )
 
             # compute total loss
@@ -1219,6 +1278,7 @@ class TrainingLatent:
             self.valid_kl = kl.item()
             self.valid_sparsity_reg = sparsity_reg.item()
             self.valid_ortho_cons = h_ortho.detach()  # .detach()
+            self.valid_ortho_spatial_forcing_cons = h_ortho_spatial_forcing.detach()
             self.valid_connect_reg = connect_reg.item()
             self.valid_acyclic_cons = h_acyclic.item()
             self.valid_forcing_co2_loss = forcing_loss_co2.item()
@@ -1235,6 +1295,7 @@ class TrainingLatent:
         if self.iteration % self.plot_params.print_freq == 0:
 
             print(f"Iteration {self.iteration}, Ortho constraint {h_ortho}")
+            print(f"Iteration {self.iteration}, Ortho_aerosol constraint sum {h_ortho_spatial_forcing}")
             np.save(
                 self.save_path / f"decoder_mat_{self.iteration}.npy",
                 self.model.autoencoder.get_w_decoder().cpu().detach().numpy(),
@@ -1243,7 +1304,10 @@ class TrainingLatent:
                 self.save_path / f"encoder_mat_{self.iteration}.npy",
                 self.model.autoencoder.get_w_encoder().cpu().detach().numpy(),
             )
-
+            np.save(
+                self.save_path / f"decoder_aerosol_mat_{self.iteration}.npy",
+                self.model.autoencoder.get_w_aerosol().cpu().detach().numpy(),
+            )
             np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
             np.save(self.save_path / "y_pred_recons_val.npy", y_pred_all.cpu().detach().numpy())
@@ -1413,6 +1477,10 @@ class TrainingLatent:
         self.train_connect_reg_list.append(self.train_connect_reg)
         self.train_ortho_cons_list.append(torch.sum(self.train_ortho_cons))
         self.train_ortho_vector_cons_list.append(self.train_ortho_cons)
+
+        self.train_ortho_spatial_forcing_cons_list.append(torch.sum(self.train_ortho_spatial_forcing_cons))
+        self.train_ortho_spatial_forcing_vector_cons_list.append(self.train_ortho_spatial_forcing_cons)
+
         # make this torch.sum?
         self.train_acyclic_cons_list.append(self.train_acyclic_cons)
 
@@ -1427,10 +1495,16 @@ class TrainingLatent:
         self.valid_ortho_cons_list.append(torch.sum(self.valid_ortho_cons))
         self.valid_ortho_vector_cons_list.append(self.valid_ortho_cons)
 
+        self.valid_ortho_spatial_forcing_cons_list.append(torch.sum(self.valid_ortho_spatial_forcing_cons))
+        self.valid_ortho_spatial_forcing_vector_cons_list.append(self.valid_ortho_spatial_forcing_cons)
+
         self.valid_acyclic_cons_list.append(self.valid_acyclic_cons)
 
         self.mu_ortho_list.append(self.ALM_ortho.mu)
         self.gamma_ortho_list.append(self.ALM_ortho.gamma)
+
+        self.mu_ortho_spatial_forcing_list.append(self.ALM_ortho_spatial_forcing.mu)
+        self.gamma_ortho_spatial_forcing_list.append(self.ALM_ortho_spatial_forcing.gamma)
 
         self.train_sparsity_cons_list.append(self.train_sparsity_cons)
         self.train_transition_var_list.append(self.train_transition_var)
@@ -1528,15 +1602,9 @@ class TrainingLatent:
             y_co2, y_aerosol = None, None
 
         # Forward pass through LatentTSDCD model
-        (
-            elbo,
-            recons,
-            kl,
-            preds,
-            forcing_recons_loss_co2,
-            forcing_recons_loss_aerosol,
-            encoded_forcing_mu,
-        ) = self.model(x, y, z, self.iteration, y_co2=y_co2, y_aerosol=y_aerosol)
+        (elbo, recons, kl, preds, forcing_recons_loss_co2, forcing_recons_loss_aerosol, encoded_forcing_mu, _) = (
+            self.model(x, y, z, self.iteration, y_co2=y_co2, y_aerosol=y_aerosol)
+        )
 
         # Compute forcing latent supervision loss if ground truth latents available
         forcing_latent_supervision_loss = torch.tensor(0.0, device=x.device)
@@ -1593,7 +1661,7 @@ class TrainingLatent:
 
         return h
 
-    def get_ortho_violation(self, w: torch.Tensor) -> float:
+    def get_ortho_violation(self, w: torch.Tensor, norm_factor) -> float:  # [1, d_x, d_z]
 
         if self.iteration > self.optim_params.schedule_ortho:
             # Only apply orthogonality constraint to columns that are actually used in decoding
@@ -1608,7 +1676,23 @@ class TrainingLatent:
 
             i = 0
             constraint = w_climate[i].T @ w_climate[i] - torch.eye(k, device=w.device)
-            h = constraint / self.ortho_normalization
+            h = constraint / norm_factor
+        else:
+            h = torch.as_tensor([0.0])
+
+        assert torch.is_tensor(h)
+
+        return h
+
+    def get_ortho_violation_forcings(self, w: torch.Tensor, norm_factor) -> float:
+
+        if self.iteration > self.optim_params.schedule_ortho:
+            # print("w", w.shape)#(400, 2) or (400,1)
+
+            k = w.size(-1)
+
+            constraint = w.T @ w - torch.eye(k, device=w.device)
+            h = constraint / norm_factor
         else:
             h = torch.as_tensor([0.0])
 
@@ -1982,8 +2066,11 @@ class TrainingLatent:
             if isinstance(batch, dict):
                 x = batch["x"]
                 y = batch["y"]
-                y_co2 = batch.get("co2_forcing", None)
-                y_aerosol = batch.get("aerosol_forcing", None)
+                y_global_focings = batch.get("global_forcings", None)
+                y_spatial_forcings = batch.get("spatial_forcings", None)
+                if y_global_focings is not None and y_spatial_forcings is not None:
+                    y_co2 = y_global_focings[:, :, 0]
+                    y_aerosol = y_spatial_forcings[:, :, 0]
             else:
                 x, y = batch
                 y_co2, y_aerosol = None, None
@@ -2143,8 +2230,11 @@ class TrainingLatent:
             if isinstance(batch, dict):
                 x = batch["x"]
                 y = batch["y"]
-                y_co2 = batch.get("co2_forcing", None)
-                y_aerosol = batch.get("aerosol_forcing", None)
+                y_global_focings = batch.get("global_forcings", None)
+                y_spatial_forcings = batch.get("spatial_forcings", None)
+                if y_global_focings is not None and y_spatial_forcings is not None:
+                    y_co2 = y_global_focings[:, :, 0]
+                    y_aerosol = y_spatial_forcings[:, :, 0]
             else:
                 x, y = batch
                 y_co2, y_aerosol = None, None

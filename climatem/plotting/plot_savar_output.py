@@ -1,5 +1,6 @@
 """Visualization suite for SAVAR synthetic data: plots modes, causal graphs, time series, forcing trajectories, and evaluation metrics."""
 
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -502,6 +503,7 @@ class SavarPlotter(Plotter):
         Creates separate visualizations for climate latents and forcing latents.
         """
         grid_shape = (learner.lat, learner.lon)
+        # grid_shape_co2 = (1, 1)
         logger.info("Creating SAVAR feature maps visualization")
         w_adj = w_adj[0]  # Now w_adj_mean should be (lat*lon, num_latents)
         d_z = w_adj.shape[1]
@@ -519,7 +521,7 @@ class SavarPlotter(Plotter):
             n_co2 = learner.savar_params.n_co2_latents
             n_aerosol = learner.savar_params.n_aerosol_latents
             # Get ground truth number of climate modes (n_per_col^2)
-            n_climate = learner.savar_params.n_per_col**2
+            n_climate = learner.savar_params.n_per_col**2  # + 1
             logger.info(
                 f"Using SAVAR params (ground truth): n_co2={n_co2}, n_aerosol={n_aerosol}, n_climate={n_climate}"
             )
@@ -542,8 +544,8 @@ class SavarPlotter(Plotter):
 
         # Split latent indices
         climate_indices = list(range(n_climate))
-        co2_indices = list(range(n_climate, n_climate + n_co2))
-        aerosol_indices = list(range(n_climate + n_co2, d_z))
+        co2_indices = list(range(n_co2))
+        aerosol_indices = list(range(n_aerosol))
 
         logger.info(
             f"Climate latents: {climate_indices}, CO2 latents: {co2_indices}, Aerosol latents: {aerosol_indices}"
@@ -610,7 +612,7 @@ class SavarPlotter(Plotter):
             data = w_adj[:, latent_idx].reshape(grid_shape)
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
-            im = ax.imshow(data, cmap="viridis", vmin=vmin, vmax=vmax)
+            im = ax.imshow(data, cmap="viridis")  # , vmin=vmin, vmax=vmax)
             plt.colorbar(im, cax=cax)
             ax.set_title(f"Climate Latent {latent_idx}", fontsize="large")
             ax.tick_params(axis="both", labelsize="large")
@@ -635,13 +637,13 @@ class SavarPlotter(Plotter):
         divider0 = make_axes_locatable(axs[0])
         cax0 = divider0.append_axes("right", size="5%", pad=0.05)
         plt.colorbar(im0, cax=cax0)
-        axs[0].set_title("Ground-Truth CO2 Forcing", fontsize="large")
+        axs[0].set_title(f"Ground-Truth CO2 Forcing {learner.co2_gt_spatial.mean():.3f}", fontsize="large")
 
         # Right: Learned decoder weights (w_co2)
         try:
             autoencoder = model.autoencoder if hasattr(model, "autoencoder") else None
             if autoencoder is not None and hasattr(autoencoder, "get_w_co2"):
-                w_co2 = autoencoder.get_w_co2()
+                w_co2 = autoencoder.get_w_co2().detach()
                 if w_co2 is not None:
                     w_co2_np = w_co2.cpu().numpy()
                     spatial_pattern = w_co2_np[:, 0].reshape(grid_shape)
@@ -649,7 +651,7 @@ class SavarPlotter(Plotter):
                     divider1 = make_axes_locatable(axs[1])
                     cax1 = divider1.append_axes("right", size="5%", pad=0.05)
                     plt.colorbar(im1, cax=cax1)
-                    axs[1].set_title("Learned CO2 Decoder Weights", fontsize="large")
+                    axs[1].set_title(f"Learned CO2 Decoder Weights {spatial_pattern.mean():.3f}", fontsize="large")
                 else:
                     axs[1].text(0.5, 0.5, "w_co2 not available", ha="center", va="center", transform=axs[1].transAxes)
                     axs[1].set_title("CO2 Decoder Weights", fontsize="large")
@@ -657,7 +659,14 @@ class SavarPlotter(Plotter):
                 axs[1].text(0.5, 0.5, "Old model\n(no w_co2)", ha="center", va="center", transform=axs[1].transAxes)
                 axs[1].set_title("CO2 Decoder Weights", fontsize="large")
         except Exception as e:
-            axs[1].text(0.5, 0.5, "Error", ha="center", va="center", transform=axs[1].transAxes)
+            axs[1].text(
+                0.5,
+                0.5,
+                f"Error, mean is {w_co2_np[:, 0].mean():.3f}",
+                ha="center",
+                va="center",
+                transform=axs[1].transAxes,
+            )
             logger.warning(f"Could not visualize CO2 decoder weights: {e}")
 
         for ax in axs:
@@ -701,7 +710,7 @@ class SavarPlotter(Plotter):
         try:
             autoencoder = model.autoencoder if hasattr(model, "autoencoder") else None
             if autoencoder is not None and hasattr(autoencoder, "get_w_aerosol"):
-                w_aerosol = autoencoder.get_w_aerosol()
+                w_aerosol = autoencoder.get_w_aerosol().detach()
                 if w_aerosol is not None:
                     w_aerosol_np = w_aerosol.cpu().numpy()
                     for i in range(n_aerosol):
@@ -857,13 +866,57 @@ class SavarPlotter(Plotter):
         Uses spatial proximity of mode centroids to find the optimal permutation before plotting. Fully self-contained —
         does not delegate to Plotter.plot_adjacency_matrix.
         """
+
+        mask = np.array(mat1, copy=True)
+        tau, d_x, _ = mask.shape
+        n_climate = modes_gt.shape[0]
+        n_forcings = d_x - n_climate
+        names = [f"C{n}" for n in range(n_climate)] + [f"F{n}" for n in range(n_forcings)]
+
+        ncols = min(tau, 3)
+        nrows = math.ceil(tau / ncols)
+
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(3.2 * ncols, 3.2 * nrows),
+            squeeze=False,
+        )
+
+        for t in range(tau):
+            ax = axes[t // ncols, t % ncols]
+            # matrix is [target, source] -> imshow
+            # matrix is [source, target] -> imshow transpose
+            im = ax.imshow(mask[t], cmap="viridis", vmin=0, vmax=1)
+
+            ax.set_title(f"t-{tau-t-1}")
+            ax.set_xlabel("source")
+            ax.set_ylabel("target")
+
+            ax.set_xticks(range(d_x))
+            ax.set_yticks(range(d_x))
+
+            ax.set_xticklabels(names, rotation=45, ha="right")
+            ax.set_yticklabels(names)
+        fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.8)
+        # hide unused axes
+        for t in range(tau, nrows * ncols):
+            axes[t // ncols, t % ncols].axis("off")
+
+        if plot_through_time:
+            fname = f"adjacency_{name_suffix}_{iteration}_raw.png"
+        else:
+            fname = f"adjacency_{name_suffix}_raw.png"
+
+        plt.savefig(path / fname, format="png")
+        plt.close()
+
         effective_no_gt = no_gt or mat2 is None
         lat = getattr(learner, "lat", None)
         lon = getattr(learner, "lon", None)
-        tau = mat1.shape[0]
 
-        mat1_to_plot = np.array(mat1, copy=True)
-
+        mat1_to_plot = np.array(mat1, copy=True)[: mat2.shape[0]]
+        tau = mat1_to_plot.shape[0]
         # Permute learned adjacency to align with ground-truth modes.
         # Only permute climate-mode submatrix; forcing latent rows/columns stay in place.
         if (
@@ -2896,6 +2949,8 @@ class SavarPlotter(Plotter):
             losses = [
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
+                {"name": "tr ortho_spatial", "data": learner.train_ortho_spatial_forcing_cons_list, "s": ":"},
+                {"name": "mu ortho_spatial", "data": learner.mu_ortho_spatial_forcing_list, "s": ":"},
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
                 {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},

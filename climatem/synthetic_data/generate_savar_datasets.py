@@ -311,8 +311,8 @@ def create_forcing_links_coeffs(
             strength = aerosol_effect_strength * (0.7 + 0.6 * np.random.rand())
             # 70% chance the aerosol effect is negative (cooling), reflecting
             # the dominant real-world radiative effect of sulphate aerosols
-            if np.random.rand() > 0.3:
-                strength = -strength
+            # if np.random.rand() > 0.3:
+            #     strength = -strength
             lag = -np.random.choice([1, 2, 3])
             if mode_idx not in forcing_links:
                 forcing_links[mode_idx] = []

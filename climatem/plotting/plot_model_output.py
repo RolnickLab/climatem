@@ -10,7 +10,6 @@ import seaborn as sns
 import torch
 from matplotlib.patches import Patch
 
-from climatem.model.metrics import mcc_latent
 from climatem.synthetic_data.utils import permute_matrices
 from climatem.utils import get_logger
 
@@ -86,6 +85,7 @@ class Plotter:
             {"name": "sparsity", "data": "train_sparsity_reg"},
             {"name": "tr ortho", "data": "train_ortho_cons"},
             {"name": "mu ortho", "data": "mu_ortho"},
+            # {"name": "mu ortho_spatial", "data": "mu_ortho_spatial_forcing"},
         ]
         for p in penalties:
             self.penalties[p["data"]] = np.load(exp_path / p["name"])
@@ -124,6 +124,7 @@ class Plotter:
                 {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
+                # {"name": "mu ortho_spatial", "data": learner.mu_ortho_spatial_forcing_list, "s": ":"},
                 # {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
                 # {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
                 # {"name": "gamma ortho", "data": learner.gamma_ortho_list, "s": ":"},
@@ -277,6 +278,7 @@ class Plotter:
                     idx_region=None,
                     annotate=True,
                     one_plot=True,
+                    variable="climate",
                 )
 
                 self.plot_regions_map(
@@ -287,6 +289,7 @@ class Plotter:
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
+                    variable="climate",
                 )
 
     def plot_sparsity(self, learner, save=False):
@@ -319,6 +322,7 @@ class Plotter:
             losses = [  # {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
+                # {"name": "mu ortho_spatial", "data": learner.mu_ortho_spatial_forcing_list, "s": ":"},
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
                 {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
@@ -377,50 +381,17 @@ class Plotter:
 
         # plot the adjacency matrix (learned vs ground-truth)
         adj = learner.model.get_adj().cpu().detach().numpy()
-        if not learner.no_gt:
-            if learner.latent:
-                # for latent models, find the right permutation of the latent
-                adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
-                adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
-                # variables using MCC
-                if learner.debug_gt_z:
-                    gt_dag = learner.gt_dag
-                    gt_w = learner.gt_w
-                    self.mcc.append(1.0)
-                    self.assignments.append(np.arange(learner.gt_dag.shape[1]))
-                else:
-                    score, cc_program_perm, assignments, z, z_hat, x = mcc_latent(learner.model, learner.data)
-                    permutation = np.zeros((learner.gt_dag.shape[1], learner.gt_dag.shape[1]))
-                    permutation[np.arange(learner.gt_dag.shape[1]), assignments[1]] = 1
-                    self.mcc.append(score.item())
-                    self.assignments.append(assignments[1])
 
-                    gt_dag = permutation.T @ learner.gt_dag @ permutation
-                    gt_w = learner.gt_w
-                    # Permutation of decoder/encoder columns disabled: alignment is
-                    # now handled by spatial-centroid matching in SavarPlotter.
-                    # adj_w = adj_w[:, :, assignments[1]]
-                    # adj_w2 = adj_w2[:, assignments[1], :]
-                    adj_w2 = np.swapaxes(adj_w2, 1, 2)
-                self.save_mcc_and_assignement(learner.plots_path)
-
-        #         # draw learned mixing fct vs GT
-        #         if learner.model_params.nonlinear_mixing:
-        #             self.plot_learned_mixing(z, z_hat, adj_w, gt_w, x, learner.plots_path)
-
-        #     else:
-        #         gt_dag = learner.gt_dag
-
-        #     self.plot_adjacency_through_time(
-        #         learner.adj_tt, gt_dag, learner.iteration, learner.plots_path, "transition"
-        #     )
-        # else:
         gt_dag = None
         gt_w = None
 
         # for latent models, find the right permutation of the latent
-        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()
+        n_climate = learner.model.d_z - learner.model.n_forced_latents_co2 - learner.model.n_forced_latents_aerosol
+        adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()[..., :n_climate]  # (d, dx, dz)
         adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
+        adj_w_aerosol = learner.model.autoencoder.get_w_aerosol().unsqueeze(0).cpu().detach().numpy()  # (d, dx, dz)
+
+        no_gt = not learner.plot_params.savar
 
         # Plot adjacency matrix
         self.plot_adjacency_matrix(
@@ -432,7 +403,7 @@ class Plotter:
             path=learner.plots_path,
             name_suffix="transition",
             savar=False,
-            no_gt=learner.no_gt,
+            no_gt=no_gt,
             iteration=learner.iteration,
             plot_through_time=learner.plot_params.plot_through_time,
         )
@@ -444,21 +415,53 @@ class Plotter:
             self.plot_adjacency_matrix_w(adj_w, gt_w, learner.plots_path, "w", True)
             # plot the encoder matrix W_2
             gt_w2 = gt_w
-            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", learner.no_gt)
-            if not learner.no_gt:
-                self.plot_adjacency_through_time_w(
-                    learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
-                )
-            else:
-                self.plot_regions_map(
-                    adj_w,
-                    learner.coordinates,
-                    learner.iteration,
-                    learner.plot_params.plot_through_time,
-                    path=learner.plots_path,
-                    idx_region=None,
-                    annotate=True,
-                )
+            self.plot_adjacency_matrix_w(adj_w2, gt_w2, learner.plots_path, "encoder_w", True)
+            # if not learner.no_gt:
+            #     self.plot_adjacency_through_time_w(
+            #         learner.adj_w_tt, learner.gt_w, learner.iteration, learner.plots_path, "w"
+            #     )
+            # else:
+            self.plot_regions_map(
+                adj_w,
+                learner.coordinates,
+                learner.iteration,
+                learner.plot_params.plot_through_time,
+                path=learner.plots_path,
+                idx_region=None,
+                annotate=True,
+                variable="climate",
+            )
+            self.plot_regions_map(
+                adj_w,
+                learner.coordinates,
+                learner.iteration,
+                learner.plot_params.plot_through_time,
+                path=learner.plots_path,
+                idx_region=None,
+                annotate=True,
+                variable="climate",
+            )
+
+            self.plot_regions_map(
+                adj_w_aerosol,
+                learner.coordinates,
+                learner.iteration,
+                learner.plot_params.plot_through_time,
+                path=learner.plots_path,
+                idx_region=None,
+                annotate=True,
+                variable="aerosol",
+            )
+            self.plot_regions_map(
+                adj_w_aerosol,
+                learner.coordinates,
+                learner.iteration,
+                learner.plot_params.plot_through_time,
+                path=learner.plots_path,
+                idx_region=None,
+                annotate=True,
+                variable="aerosol",
+            )
 
     def plot_learned_mixing(self, z, z_hat, w, gt_w, x, path):
         """
@@ -784,11 +787,15 @@ class Plotter:
         idx_region: int = None,
         annotate: bool = False,
         one_plot: bool = False,
+        variable: str = None,
     ):
         """Here we extend the plot_regions_map function to plot multiple variables."""
 
         # find the argmax per row
         idx = np.argmax(w_adj, axis=2)
+        # if aerosol, then most is the negative values?
+        # if variable == "aerosol":
+        #     idx = np.argmin(w_adj, axis=2)
 
         # here we want the number of latents PER variable
 
@@ -848,13 +855,13 @@ class Plotter:
                     ax.text(x, y, str(k), transform=ccrs.PlateCarree())
 
         if idx_region is not None:
-            fname = f"spatial_aggregation{idx_region}.png"
+            fname = f"spatial_aggregation{idx_region}_{variable}.png"
         elif plot_through_time:
-            fname = f"spatial_aggregation_{iteration}.png"
+            fname = f"spatial_aggregation_{iteration}_{variable}.png"
         elif one_plot:
-            fname = "spatial_aggregation_all_clusters.png"
+            fname = f"spatial_aggregation_all_clusters_{variable}.png"
         else:
-            fname = "spatial_aggregation.png"
+            fname = f"spatial_aggregation_{variable}.png"
 
         plt.savefig(path / fname, format="png")
         plt.close()

@@ -22,6 +22,14 @@ AERMON_VARIABLES = [
 GM_VARIABLES = [
     "ch4global",
 ]
+
+GM_VARIABLES = ["ch4global", "co2mass"]
+
+SPATIAL_VARIABLES = {"tas", "ts", "mmrbc", "so2"}  # variables with coordinates
+TARGET_VARIABLES = {"tas", "ts"}
+SPATIAL_FORCING_VARIABLES = {"mmrbc", "so2"}
+GLOBAL_FORCING_VARIABLES = {"co2mass", "ch4global"}
+
 MODEL_DB_MAPPING = {"NorESM2-LM": "NCC"}
 
 # TODO JK commenting: this should be done via the __init__.py
