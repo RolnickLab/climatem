@@ -39,8 +39,7 @@ logger = logging.getLogger(__name__)
 from climatem.config import *
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
-from climatem.model.train_model import TrainingLatent
-from climatem.model.tsdcd_latent import LatentTSDCD, HierarchicalLatentTSDCD
+from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.utils import parse_args, update_config_withparse
 
 from climatem.synthetic_data.utils import permute_matrices
@@ -292,12 +291,12 @@ def main(
         case 0:
             logger.info("Instantiate LatentTSDCD!")
             model = LatentTSDCD(**common_model_kwargs)
-        case 1:
-            logger.info("Instantiate Hierarchical LatentTSDCD!")
-            model = HierarchicalLatentTSDCD(
-                **common_model_kwargs,
-                d_z_global=experiment_params.d_z_global,
-            )
+        # case 1:
+        #     logger.info("Instantiate Hierarchical LatentTSDCD!")
+        #     model = LatentTSDCD(
+        #         **common_model_kwargs,
+        #         d_z_global=experiment_params.d_z_global,
+        #     )
 
         case _:
             raise ValueError(
@@ -323,9 +322,12 @@ def main(
 
     else:
         name = f"{start_name}_{second_name_name}_{train_params.valid_freq}_var_{data_var_ids_str}_nlinmix_{model_params.nonlinear_mixing}_nlindyn_{model_params.nonlinear_dynamics}_tau_{experiment_params.tau}_z_{experiment_params.d_z}_lr_{train_params.lr}_bs_{data_params.batch_size}"
-        if len(data_params.in_var_ids) == 5:
-            # from climatem.model.train_model_multi import TrainingLatent
-            logger.info("Multiple global and spatial forcings! Importing from train_model_multi")
+    if len(data_params.in_var_ids) == 5:
+        from climatem.model.train_model_multi import TrainingLatent
+        logger.info("Multiple global and spatial forcings! Importing from train_model_multi")
+    else:
+        from climatem.model.train_model import TrainingLatent
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     exp_path = exp_path / f"{name}_{timestamp}"
 
@@ -608,21 +610,30 @@ if __name__ == "__main__":
                 optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*n_lag) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
 
     else:
+        print("data_params.in_var_ids")
         if "co2mass" not in data_params.in_var_ids:
             model_params.n_forced_latents_co2 = 0
             model_params.d_y_co2 = 0
+            logger.info("co2mass is not found in the input variable list, set its latents to zero")
 
         if "ch4global" not in data_params.in_var_ids:
             model_params.n_forced_latents_ch4 = 0
             model_params.d_y_ch4 = 0
+            logger.info("ch4global is not found in the input variable list, set its latents to zero")
 
         if "mmrbc" not in data_params.in_var_ids:
             model_params.n_forced_latents_aerosol = 0
             model_params.d_y_aerosol = 0
+            logger.info("mmrbc is not found in the input variable list, set its latents to zero")
 
         if "so2" not in data_params.in_var_ids:
             model_params.n_forced_latents_so2 = 0
             model_params.d_y_so2 = 0
+            logger.info("so2 is not found in the input variable list, set its latents to zero")
+        # # 7/16: I am taking so2 as aerosol
+        # model_params.n_forced_latents_so2 = 0
+        # model_params.d_y_so2 = 0
+      
         plot_params.savar = False
         if model_params.use_forced_latents:
             n_climate_latents = experiment_params.d_z

@@ -292,7 +292,7 @@ class Plotter:
                     variable="climate",
                 )
 
-    def plot_sparsity(self, learner, save=False):
+    def plot_sparsity(self, learner, save=False, multiple_forcings=False):
         """
         Plot learning curves including sparsity constraints, adjacency matrices, and encoder/decoder weights.
 
@@ -322,13 +322,15 @@ class Plotter:
             losses = [  # {"name": "sparsity", "data": learner.train_sparsity_reg_list, "s": "-"},
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
-                # {"name": "mu ortho_spatial", "data": learner.mu_ortho_spatial_forcing_list, "s": ":"},
+                {"name": "mu ortho_aerosol", "data": learner.mu_ortho_aerosol_forcing_list, "s": ":"},
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
                 {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},
                 # {"name": "gamma ortho", "data": learner.gamma_ortho_list, "s": ":"},
                 # {"name": "gamma sparsity", "data": learner.gamma_sparsity_list, "s": ":"},
             ]
+            if multiple_forcings:
+                losses += [{"name": "mu ortho_so2", "data": learner.mu_ortho_so2_forcing_list, "s": ":"}]
             # {"name": "tr acyclic", "data": learner.train_acyclic_cons_list, "s": "-"},
             # {"name": "tr connect", "data": learner.train_connect_reg_list, "s": "-"},
             self.plot_learning_curves2(
@@ -386,11 +388,14 @@ class Plotter:
         gt_w = None
 
         # for latent models, find the right permutation of the latent
-        n_climate = learner.model.d_z - learner.model.n_forced_latents_co2 - learner.model.n_forced_latents_aerosol
+        n_climate = learner.model.d_z - learner.model.n_forced_latents_total
         adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()[..., :n_climate]  # (d, dx, dz)
         adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
         adj_w_aerosol = learner.model.autoencoder.get_w_aerosol().unsqueeze(0).cpu().detach().numpy()  # (d, dx, dz)
-
+        if multiple_forcings:
+            adj_w_so2 = (
+                learner.model.autoencoder.get_w_forcings("so2").unsqueeze(0).cpu().detach().numpy()
+            )  # (d, dx, dz)
         no_gt = not learner.plot_params.savar
 
         # Plot adjacency matrix
@@ -462,6 +467,27 @@ class Plotter:
                 annotate=True,
                 variable="aerosol",
             )
+            if multiple_forcings:
+                self.plot_regions_map(
+                    adj_w_so2,
+                    learner.coordinates,
+                    learner.iteration,
+                    learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
+                    idx_region=None,
+                    annotate=True,
+                    variable="so2",
+                )
+                self.plot_regions_map(
+                    adj_w_so2,
+                    learner.coordinates,
+                    learner.iteration,
+                    learner.plot_params.plot_through_time,
+                    path=learner.plots_path,
+                    idx_region=None,
+                    annotate=True,
+                    variable="so2",
+                )
 
     def plot_learned_mixing(self, z, z_hat, w, gt_w, x, path):
         """
@@ -793,9 +819,6 @@ class Plotter:
 
         # find the argmax per row
         idx = np.argmax(w_adj, axis=2)
-        # if aerosol, then most is the negative values?
-        # if variable == "aerosol":
-        #     idx = np.argmin(w_adj, axis=2)
 
         # here we want the number of latents PER variable
 

@@ -2949,8 +2949,8 @@ class SavarPlotter(Plotter):
             losses = [
                 {"name": "tr ortho", "data": learner.train_ortho_cons_list, "s": ":"},
                 {"name": "mu ortho", "data": learner.mu_ortho_list, "s": ":"},
-                {"name": "tr ortho_spatial", "data": learner.train_ortho_spatial_forcing_cons_list, "s": ":"},
-                {"name": "mu ortho_spatial", "data": learner.mu_ortho_spatial_forcing_list, "s": ":"},
+                {"name": "tr ortho_aerosol", "data": learner.train_ortho_aerosol_forcing_cons_list, "s": ":"},
+                {"name": "mu ortho_aerosol", "data": learner.mu_ortho_aerosol_forcing_list, "s": ":"},
                 {"name": "tr sparsity", "data": learner.train_sparsity_cons_list, "s": ":"},
                 {"name": "tr var adj", "data": learner.train_transition_var_list, "s": ":"},
                 {"name": "mu sparsity", "data": learner.mu_sparsity_list, "s": ":"},

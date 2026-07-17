@@ -21,7 +21,7 @@
         "climateset_data": "/network/scratch/j/julien.boussard/ESMValTool/climate_data/CMIP6", 
         "reload_climate_set_data": true,
         "icosahedral_coordinates_path": "$CLIMATEMDIR/mappings/healpix_resdown4_lonlat_mapping.npy",
-        "in_var_ids": ["ts", "co2mass", "ch4global", "mmrbc","so2"],
+        "in_var_ids": ["ts", "co2mass", "ch4global", "mmrbc", "so2"],
         "out_var_ids": ["ts"],
         "num_levels": 1,
         "temp_res": "mon",
@@ -88,7 +88,7 @@
         "use_forced_latents": true,
         "n_forced_latents_co2": 1,
         "n_forced_latents_ch4": 1,
-        "n_forced_latents_aerosol": 30,
+        "n_forced_latents_aerosol": 15,
         "n_forced_latents_so2": 30,
         "forcing_arch": "baseline"
     },
@@ -124,10 +124,10 @@
         "ortho_min_iter_convergence": 1000,
 
         "ortho_spatial_mu_init": 10000.0,
-        "ortho_spatial_mu_mult_factor": 1.2,
+        "ortho_spatial_mu_mult_factor": 1.5,
         "ortho_spatial_omega_gamma": 0.01,
         "ortho_spatial_omega_mu": 0.9,
-        "ortho_spatial_h_threshold": 1e-5,
+        "ortho_spatial_h_threshold": 1e-2,
         "ortho_spatial_min_iter_convergence": 1000,
 
         "sparsity_mu_init": 0.01,
@@ -147,6 +147,11 @@
         "acyclic_min_iter_convergence": 1000,
         "mu_acyclic_init": null,
         "h_acyclic_threshold": null,
+
+        "forcing_co2_coeff": 10.0,
+        "forcing_aerosol_coeff": 1, 
+        "forcing_ch4_coeff": 10.0,
+        "forcing_so2_coeff":1,
 
         "udpate_ALM_using_valid": true,
         "udpate_ALM_using_nll": false,
