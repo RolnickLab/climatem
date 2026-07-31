@@ -603,7 +603,7 @@ class MultiscenarioDataset(ClimateDataset):
                 stats = {}
                 stats["spatial_forcing"] = spatial_forcing_stats
                 stats["global_forcing"] = global_forcing_stats  # (variables, 1, 1, 1)
-                stats["target"] = target_stats
+                stats["target"] = target_stats  # mean 0.12984121  std 1.3174365
                 self.write_dataset_statistics(stats_fname, stats)
             # ----------------------------------------
             # TEST
