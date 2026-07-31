@@ -94,6 +94,7 @@ class Plotter:
             {"name": "tr ELBO", "data": "train_loss"},
             {"name": "Recons", "data": "train_recons"},
             {"name": "KL", "data": "train_kl"},
+            {"name": "GMST", "data": "train_gmst_loss"},
             {"name": "val ELBO", "data": "valid_loss"},
         ]
         for loss in losses:
@@ -144,6 +145,7 @@ class Plotter:
                 {"name": "tr recons", "data": learner.train_recons_list, "s": "-"},
                 {"name": "val recons", "data": learner.valid_recons_list, "s": "-"},
                 {"name": "KL", "data": learner.train_kl_list, "s": "-"},
+                {"name": "GMST", "data": learner.train_gmst_loss_list, "s": "-"},
                 {"name": "val loss", "data": learner.valid_loss_list, "s": "-."},
                 {"name": "tr ELBO", "data": learner.train_elbo_list, "s": "-."},
                 {"name": "val ELBO", "data": learner.valid_elbo_list, "s": "-."},
@@ -311,9 +313,11 @@ class Plotter:
                 train_loss=learner.train_loss_list,
                 train_recons=learner.train_recons_list,
                 train_kl=learner.train_kl_list,
+                train_gmst_loss=learner.train_gmst_loss_list,
                 valid_loss=learner.valid_loss_list,
                 valid_recons=learner.valid_recons_list,
                 valid_kl=learner.valid_kl_list,
+                valid_gmst_loss=learner.valid_gmst_loss_list,
                 best_metrics=learner.best_metrics,
                 iteration=learner.iteration,
                 plot_through_time=learner.plot_params.plot_through_time,
@@ -346,6 +350,7 @@ class Plotter:
                 {"name": "tr recons", "data": learner.train_recons_list, "s": "-"},
                 {"name": "val recons", "data": learner.valid_recons_list, "s": "-"},
                 {"name": "KL", "data": learner.train_kl_list, "s": "-"},
+                {"name": "GMST", "data": learner.train_gmst_loss_list, "s": "-"},
                 {"name": "val loss", "data": learner.valid_loss_list, "s": "-."},
                 {"name": "tr ELBO", "data": learner.train_elbo_list, "s": "-."},
                 {"name": "val ELBO", "data": learner.valid_elbo_list, "s": "-."},
@@ -412,7 +417,17 @@ class Plotter:
             iteration=learner.iteration,
             plot_through_time=learner.plot_params.plot_through_time,
         )
-
+        if learner.model.map_aerosol_to_climate:
+            adj_effective = learner.model.get_effective_adj().cpu().detach().numpy()
+            self.plot_adjacency_matrix(
+                mat1=adj_effective,
+                mat2=gt_dag,
+                path=learner.plots_path,
+                name_suffix="transition_local",
+                no_gt=no_gt,
+                iteration=learner.iteration,
+                plot_through_time=learner.plot_params.plot_through_time,
+            )
         # plot the weights W for latent models (between the latent Z and the X)
         # hoping that these don't fail due to defaults
         if learner.latent:
@@ -488,6 +503,30 @@ class Plotter:
                     annotate=True,
                     variable="so2",
                 )
+            if learner.model.map_aerosol_to_climate:
+                routing = {
+                    name: value.detach().cpu()
+                    for name, value in learner.model.forcing_climate_spatial_alignment().items()
+                }
+                for name in ["aerosol", "so2"]:
+                    if name in routing:
+                        route = routing[name]
+                        self.plot_aerosol_to_climate_mapping(
+                            route,
+                            learner.iteration,
+                            name,
+                            path=learner.plots_path,
+                        )
+
+    def plot_aerosol_to_climate_mapping(self, adj, iteration, surname, path):
+        plt.figure(figsize=(8, 10))
+        plt.imshow(adj, aspect="auto", cmap="viridis")
+        plt.colorbar(label="routing weight")
+        plt.xlabel(f"{surname} latent")
+        plt.ylabel("climate latent")
+        plt.title(f"{surname} -> Climate Spatial Routing")
+        plt.savefig(path / f"{surname}2climate_{iteration}.png")
+        plt.close()
 
     def plot_learned_mixing(self, z, z_hat, w, gt_w, x, path):
         """
@@ -861,22 +900,44 @@ class Plotter:
             # something like lonlat_vertex_mapping.txt
             # lon = coordinates[:, 0]
             # lat = coordinates[:, 1]
-
+            legend_clusters = range(min(10, d_z))
             # Vectorized scatter plot with color array
             for k, color in zip(range(d_z), colors):
-                alpha = 1.0
+                # alpha = 1.0
 
                 region = coordinates[idx[i] == k]
 
-                c = np.repeat(np.array([color]), region.shape[0], axis=0)
+                # c = np.repeat(np.array([color]), region.shape[0], axis=0)
 
-                ax.scatter(x=region[:, 1], y=region[:, 0], c=c, alpha=alpha, s=20, transform=ccrs.PlateCarree())
+                if k in legend_clusters:
+                    ax.scatter(
+                        x=region[:, 1],
+                        y=region[:, 0],
+                        c=[color],
+                        s=20,
+                        alpha=1.0,
+                        transform=ccrs.PlateCarree(),
+                        label=f"{k}",
+                    )
+                else:
+                    ax.scatter(
+                        x=region[:, 1],
+                        y=region[:, 0],
+                        c=[color],
+                        s=20,
+                        alpha=1.0,
+                        transform=ccrs.PlateCarree(),
+                    )
 
                 # add number for each region (that are completely in one of the four quadrants)
                 if annotate:
                     x, y = self.get_centroid(region[:, 1], region[:, 0])
                     ax.text(x, y, str(k), transform=ccrs.PlateCarree())
-
+            ax.legend(
+                loc="lower left",
+                fontsize=10,
+                frameon=True,
+            )
         if idx_region is not None:
             fname = f"spatial_aggregation{idx_region}_{variable}.png"
         elif plot_through_time:
@@ -923,9 +984,11 @@ class Plotter:
         train_loss: list,
         train_recons: list = None,
         train_kl: list = None,
+        train_gmst_loss: list = None,
         valid_loss: list = None,
         valid_recons: list = None,
         valid_kl: list = None,
+        valid_gmst_loss: list = None,
         best_metrics: dict = None,
         iteration: int = 0,
         plot_through_time: bool = False,
@@ -951,6 +1014,8 @@ class Plotter:
         if train_recons is not None:
             t_recons = moving_average(train_recons[start:])
             t_kl = moving_average(train_kl[start:])
+
+            t_gmst_loss = moving_average(train_gmst_loss[start:])
             # v_recons = moving_average(valid_recons[10:])
             # v_kl = moving_average(valid_kl[10:])
 
@@ -962,6 +1027,7 @@ class Plotter:
             plt.axhline(y=best_metrics["kl"], color="red", linestyle="dotted")
             plt.plot(t_loss, label="tr loss", color="purple")
             plt.axhline(y=best_metrics["elbo"], color="purple", linestyle="dotted")
+            plt.plot(t_gmst_loss, label="tr gmst", color="green")
         else:
             plt.plot(t_loss, label="tr ELBO")
 

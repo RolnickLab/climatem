@@ -40,6 +40,7 @@ from climatem.config import *
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.tsdcd_latent import LatentTSDCD
+from climatem.model.tsdcd_latent_hierarchy import HierarchicalLatentTSDCD
 from climatem.utils import parse_args, update_config_withparse
 
 from climatem.synthetic_data.utils import permute_matrices
@@ -284,24 +285,27 @@ def main(
         d_y_ch4=model_params.d_y_ch4,
         d_y_so2=model_params.d_y_so2,
         n_forced_latents_ch4=model_params.n_forced_latents_ch4,
-        n_forced_latents_so2=model_params.n_forced_latents_so2
+        n_forced_latents_so2=model_params.n_forced_latents_so2,
+        map_aerosol_to_climate = model_params.map_aerosol_to_climate,
+        forcing_mse = model_params.forcing_mse,
     )
 
     match experiment_params.d_z_global:
         case 0:
             logger.info("Instantiate LatentTSDCD!")
             model = LatentTSDCD(**common_model_kwargs)
-        # case 1:
-        #     logger.info("Instantiate Hierarchical LatentTSDCD!")
-        #     model = LatentTSDCD(
-        #         **common_model_kwargs,
-        #         d_z_global=experiment_params.d_z_global,
-        #     )
-
         case _:
-            raise ValueError(
-                f"Unsupported d_z_global={experiment_params.d_z_global}"
+            logger.info("Instantiate Hierarchical LatentTSDCD!")
+            model = HierarchicalLatentTSDCD(
+                **common_model_kwargs,
+                d_z_global=experiment_params.d_z_global,
+                nonlinear_global_dynamics=model_params.nonlinear_global_dynamics,
             )
+
+        # case _:
+        #     raise ValueError(
+        #         f"Unsupported d_z_global={experiment_params.d_z_global}"
+        #     )
     # Make folder to save run results
     exp_path = Path(experiment_params.exp_path)
     os.makedirs(exp_path, exist_ok=True)
@@ -599,7 +603,7 @@ if __name__ == "__main__":
             print(f"using the correct parameters dz-{experiment_params.d_z} and dz_global{experiment_params.d_z_global}")        
             if not savar_params.is_forced:
                 model_params.use_exogenous = False
-            n_lag = experiment_params.tau + 1 
+            n_lag = experiment_params.tau #+ 1 
             if savar_params.difficulty == "easy":
                 optim_params.sparsity_upper_threshold = 1/(experiment_params.d_z*n_lag) #expected N out of N^2*tau total links
             if savar_params.difficulty == "med_easy":
@@ -610,6 +614,7 @@ if __name__ == "__main__":
                 optim_params.sparsity_upper_threshold = (experiment_params.d_z + 1) / (2*experiment_params.d_z*n_lag) #expected N((N+1)/2) out of N^2*tau total links (N + N*(N-1)/2)
 
     else:
+        # Very important! Otherwise model params can be wrong
         print("data_params.in_var_ids")
         if "co2mass" not in data_params.in_var_ids:
             model_params.n_forced_latents_co2 = 0
@@ -630,9 +635,7 @@ if __name__ == "__main__":
             model_params.n_forced_latents_so2 = 0
             model_params.d_y_so2 = 0
             logger.info("so2 is not found in the input variable list, set its latents to zero")
-        # # 7/16: I am taking so2 as aerosol
-        # model_params.n_forced_latents_so2 = 0
-        # model_params.d_y_so2 = 0
+            
       
         plot_params.savar = False
         if model_params.use_forced_latents:

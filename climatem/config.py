@@ -171,6 +171,7 @@ class modelParams:
         num_hidden_mixing: int = 16,  # MLP params for latent dynamics if non-linear
         num_layers_mixing: int = 2,
         nonlinear_dynamics: bool = True,
+        nonlinear_global_dynamics: bool = True,
         num_hidden: int = 8,  # MLP params for mapping from obs to latents. If 0, then linear. SHould add a flag as `nonlinear_mixing`
         num_layers: int = 2,
         num_output: int = 2,  # NOT SURE
@@ -194,6 +195,9 @@ class modelParams:
         n_forced_latents_ch4: int = 0,  # NEW: Number of latent dimensions for CO2 forcing
         n_forced_latents_so2: int = 0,  # NEW: Number of latent dimensions for aerosol forcing
         forcing_arch: str = "baseline",  # NEW: baseline | transitioned | predefined
+        map_aerosol_to_climate: bool = False,  # Added: if only allow global impacts from aerosol to climate
+        forcing_mse: bool = False,
+        # first check if z_climate and z_aerosol are mapped to the same locations. If so, then allow transition from z_aerosol to z_climate
     ):
         self.instantaneous = instantaneous
         self.instantaneous_forcing = instantaneous_forcing
@@ -201,6 +205,7 @@ class modelParams:
         self.tied_w = tied_w
         self.nonlinear_mixing = nonlinear_mixing
         self.nonlinear_dynamics = nonlinear_dynamics
+        self.nonlinear_global_dynamics = nonlinear_global_dynamics
         self.num_hidden = num_hidden
         self.num_layers = num_layers
         self.num_output = num_output
@@ -226,6 +231,8 @@ class modelParams:
         self.n_forced_latents_ch4 = n_forced_latents_ch4
         self.n_forced_latents_so2 = n_forced_latents_so2
         self.forcing_arch = forcing_arch
+        self.map_aerosol_to_climate = map_aerosol_to_climate
+        self.forcing_mse = forcing_mse
 
 
 class optimParams:
@@ -283,6 +290,7 @@ class optimParams:
         forcing_aerosol_coeff: float = 10.0,  # Weight for aerosol (BC) forcing reconstruction loss
         forcing_ch4_coeff: float = 10.0,  # Weight for CH4 forcing reconstruction loss
         forcing_so2_coeff: float = 10.0,  # Weight for SO2 forcing reconstruction loss
+        gmst_coeff: float = 0,  # Weight for GMST loss
         forcing_latent_supervision_coeff: float = 10.0,  # Weight for direct forcing latent supervision loss
         decoder_utilization_coeff: float = 0.1,  # Penalty coefficient for underutilized forcing latent decoder weights
         min_forcing_decoder_norm: float = 1.5,  # Target minimum L2 norm for forcing latent decoder weights
@@ -346,6 +354,7 @@ class optimParams:
         self.forcing_aerosol_coeff = forcing_aerosol_coeff
         self.forcing_ch4_coeff = forcing_ch4_coeff
         self.forcing_so2_coeff = forcing_so2_coeff
+        self.gmst_coeff = gmst_coeff
         self.forcing_latent_supervision_coeff = forcing_latent_supervision_coeff
         self.decoder_utilization_coeff = decoder_utilization_coeff
         self.min_forcing_decoder_norm = min_forcing_decoder_norm

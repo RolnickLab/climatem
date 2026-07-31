@@ -161,6 +161,7 @@ class TrainingLatent:
         self.train_elbo_list = []
         self.train_recons_list = []
         self.train_kl_list = []
+        self.train_gmst_loss_list = []
         self.train_sparsity_reg_list = []
         self.train_connect_reg_list = []
         self.train_ortho_cons_list = []
@@ -197,6 +198,7 @@ class TrainingLatent:
         self.valid_elbo_list = []
         self.valid_recons_list = []
         self.valid_kl_list = []
+        self.valid_gmst_loss = []
         self.valid_sparsity_reg_list = []
         self.valid_connect_reg_list = []
         self.valid_ortho_cons_list = []
@@ -282,10 +284,11 @@ class TrainingLatent:
                 self.ortho_aerosol_normalization = (
                     self.model.d_y_aerosol * model.n_forced_latents_aerosol
                 )  # model.d_y_aerosol
-                # if self.instantaneous:
-                self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
-                # else:
-                #     self.sparsity_normalization = self.tau * self.d_z * self.d_z
+                # the two-forcing version (savar): this one needs to be confirmed
+                if self.instantaneous:
+                    self.sparsity_normalization = (self.tau + 1) * self.d_z * self.d_z
+                else:
+                    self.sparsity_normalization = self.tau * self.d_z * self.d_z
 
     def train_with_QPM(self):  # noqa: C901
         """
@@ -407,9 +410,11 @@ class TrainingLatent:
                     self.accelerator.log(
                         {
                             "kl_train": self.train_kl,
+                            "gmst_loss_train": self.train_gmst_loss,
                             "loss_train": self.train_loss,
                             "recons_train": self.train_recons,
                             "kl_valid": self.valid_kl,
+                            "gmst_loss_valid": self.valid_gmst_loss,
                             "loss_valid": self.valid_loss,
                             "recons_valid": self.valid_recons,
                             "nll_train": self.train_nll,
@@ -458,9 +463,11 @@ class TrainingLatent:
                     self.accelerator.log(
                         {
                             "kl_train": self.train_kl,
+                            "gmst_loss_train": self.train_gmst_loss,
                             "loss_train": self.train_loss,
                             "recons_train": self.train_recons,
                             "kl_valid": self.valid_kl,
+                            "gmst_loss_valid": self.valid_gmst_loss,
                             "loss_valid": self.valid_loss,
                             "recons_valid": self.valid_recons,
                             "forcing_loss_co2": self.train_forcing_co2_loss,
@@ -602,6 +609,7 @@ class TrainingLatent:
             "valid_neg_elbo": self.valid_nll,
             "valid_recons": self.valid_recons,
             "valid_kl": self.valid_kl,
+            "valid_gmst_loss": self.valid_gmst_loss,
             "valid_sparsity_reg": self.valid_sparsity_reg,
             "valid_ortho_cons": torch.sum(self.valid_ortho_cons).item(),
             "valid_ortho_aerosol_forcing_cons": torch.sum(self.valid_ortho_aerosol_forcing_cons).item(),
@@ -672,6 +680,7 @@ class TrainingLatent:
         nll = 0
         recons = 0
         kl = 0
+        gmst_loss = 0
         forcing_loss_co2 = torch.tensor(0.0, device=self.accelerator.device)
         forcing_loss_aerosol = torch.tensor(0.0, device=self.accelerator.device)
         forcing_latent_loss = torch.tensor(0.0, device=self.accelerator.device)
@@ -689,6 +698,7 @@ class TrainingLatent:
                 forcing_co2_bis,
                 forcing_aerosol_bis,
                 forcing_latent_bis,
+                gmst_loss_bis,
             ) = self.get_nll(x_bis, y[:, k], z, y_co2, y_aerosol, gt_co2_latent, gt_aerosol_latent)
             nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
             recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
@@ -696,6 +706,7 @@ class TrainingLatent:
             forcing_loss_co2 += (self.optim_params.loss_decay_future_timesteps**k) * forcing_co2_bis
             forcing_loss_aerosol += (self.optim_params.loss_decay_future_timesteps**k) * forcing_aerosol_bis
             forcing_latent_loss += (self.optim_params.loss_decay_future_timesteps**k) * forcing_latent_bis
+            gmst_loss += (self.optim_params.loss_decay_future_timesteps**k) * gmst_loss_bis
             # Shall we do this if instantaneous??
             if not self.instantaneous:
                 y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k], y_co2, y_aerosol)
@@ -704,7 +715,17 @@ class TrainingLatent:
             y_pred_all[:, k] = y_pred
             x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
 
-        del x_bis, y_pred, nll_bis, recons_bis, kl_bis, y_pred_recons
+        del (
+            x_bis,
+            y_pred,
+            nll_bis,
+            recons_bis,
+            kl_bis,
+            y_pred_recons,
+            gmst_loss_bis,
+            forcing_co2_bis,
+            forcing_aerosol_bis,
+        )
 
         assert y.shape == y_pred_all.shape
 
@@ -742,7 +763,15 @@ class TrainingLatent:
         decoder_utilization_penalty = torch.tensor(0.0, device=self.accelerator.device)
 
         # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
-        loss = nll + connect_reg + sparsity_reg
+        loss = (
+            nll
+            + connect_reg
+            + sparsity_reg
+            + self.optim_params.forcing_co2_coeff * forcing_loss_co2
+            + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
+            + self.optim_params.gmst_coeff * gmst_loss
+        )
+
         if not self.no_w_constraint:
             if self.constraint_func == "sum":
                 loss = (
@@ -798,8 +827,6 @@ class TrainingLatent:
                 + self.optim_params.crps_coeff * crps
                 + self.optim_params.spectral_coeff * spectral_loss
                 + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
-                + self.optim_params.forcing_co2_coeff * forcing_loss_co2
-                + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
                 + self.optim_params.forcing_latent_supervision_coeff * forcing_latent_loss
                 + decoder_utilization_penalty
             )
@@ -821,8 +848,6 @@ class TrainingLatent:
                     self.optim_params.spectral_coeff * spectral_loss
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                 )
-                + self.optim_params.forcing_co2_coeff * forcing_loss_co2
-                + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
                 + self.optim_params.forcing_latent_supervision_coeff * forcing_latent_loss
                 + decoder_utilization_penalty
             )
@@ -855,6 +880,7 @@ class TrainingLatent:
         self.train_nll = nll.item()
         self.train_recons = recons.item()
         self.train_kl = kl.item()
+        self.train_gmst_loss = gmst_loss.item()
         self.train_sparsity_reg = sparsity_reg.item()
         self.train_connect_reg = connect_reg.item()
         self.train_ortho_cons = h_ortho.detach()  # .detach()
@@ -884,12 +910,12 @@ class TrainingLatent:
         self.train_forcing_latent_loss = forcing_latent_loss.item()
 
         # Debug logging for forcing latent supervision
-        if self.iteration % 500 == 0 and self.model.use_forced_latents:
+        if self.iteration % self.plot_params.print_freq == 0 and self.model.use_forced_latents:
             logger.info(
                 f"[DEBUG iter {self.iteration}] Forcing losses: "
                 f"CO2={forcing_loss_co2.item():.6f}, "
                 f"Aerosol={forcing_loss_aerosol.item():.6f}, "
-                f"Supervision={forcing_latent_loss.item():.6f}"
+                f"Supervision={forcing_latent_loss.item():.6f}, "
                 f"Recons={recons.item():.6f}"
             )
             if gt_co2_latent is not None:
@@ -1117,6 +1143,7 @@ class TrainingLatent:
             nll = 0
             recons = 0
             kl = 0
+            gmst_loss = 0
             forcing_loss_co2 = torch.tensor(0.0, device=self.accelerator.device)
             forcing_loss_aerosol = torch.tensor(0.0, device=self.accelerator.device)
             forcing_latent_loss = torch.tensor(0.0, device=self.accelerator.device)
@@ -1134,6 +1161,7 @@ class TrainingLatent:
                     forcing_co2_bis,
                     forcing_aerosol_bis,
                     forcing_latent_bis,
+                    gmst_loss_bis,
                 ) = self.get_nll(x_bis, y[:, k], z, y_co2, y_aerosol, gt_co2_latent, gt_aerosol_latent)
                 nll += (self.optim_params.loss_decay_future_timesteps**k) * nll_bis
                 recons += (self.optim_params.loss_decay_future_timesteps**k) * recons_bis
@@ -1141,11 +1169,13 @@ class TrainingLatent:
                 forcing_loss_co2 += (self.optim_params.loss_decay_future_timesteps**k) * forcing_co2_bis
                 forcing_loss_aerosol += (self.optim_params.loss_decay_future_timesteps**k) * forcing_aerosol_bis
                 forcing_latent_loss += (self.optim_params.loss_decay_future_timesteps**k) * forcing_latent_bis
+                gmst_loss += (self.optim_params.loss_decay_future_timesteps**k) * gmst_loss_bis
+
                 y_pred, y_spare, z_spare, pz_mu, pz_std = self.model.predict(x_bis, y[:, k], y_co2, y_aerosol)
                 y_pred_all[:, k] = y_pred
                 x_bis = torch.cat((x_bis[:, 1:], y_pred.unsqueeze(1)), dim=1)
                 # print(f"y_pred_recons shape {y_pred_recons.shape}")
-            del x_bis, y_pred, nll_bis, recons_bis, kl_bis
+            del x_bis, y_pred, nll_bis, recons_bis, kl_bis, gmst_loss_bis, forcing_aerosol_bis, forcing_co2_bis
 
             # compute regularisations constraints/penalties (sparsity and connectivity)
             h_transition_var = self.adj_transition_variance()
@@ -1178,7 +1208,15 @@ class TrainingLatent:
             )
 
             # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
-            loss = nll + connect_reg + sparsity_reg
+            loss = (
+                nll
+                + connect_reg
+                + sparsity_reg
+                + self.optim_params.forcing_co2_coeff * forcing_loss_co2
+                + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
+                + self.optim_params.forcing_so2_coeff * gmst_loss
+            )
+
             if not self.no_w_constraint:
                 if self.constraint_func == "sum":
                     loss = (
@@ -1242,8 +1280,6 @@ class TrainingLatent:
                     + self.optim_params.crps_coeff * crps
                     + self.optim_params.spectral_coeff * spectral_loss
                     + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
-                    + self.optim_params.forcing_co2_coeff * forcing_loss_co2
-                    + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
                 )
             else:
                 coef = 0
@@ -1263,8 +1299,6 @@ class TrainingLatent:
                         self.optim_params.spectral_coeff * spectral_loss
                         + self.optim_params.temporal_spectral_coeff * temporal_spectral_loss
                     )
-                    + self.optim_params.forcing_co2_coeff * forcing_loss_co2
-                    + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
                 )
 
             # compute total loss
@@ -1282,6 +1316,7 @@ class TrainingLatent:
             self.valid_nll = nll.item()
             self.valid_recons = recons.item()
             self.valid_kl = kl.item()
+            self.valid_gmst_loss = gmst_loss.item()
             self.valid_sparsity_reg = sparsity_reg.item()
             self.valid_ortho_cons = h_ortho.detach()  # .detach()
             self.valid_ortho_aerosol_forcing_cons = h_ortho_aerosol_forcing.detach()
@@ -1477,6 +1512,7 @@ class TrainingLatent:
         self.train_loss_list.append(-self.train_loss)
         self.train_recons_list.append(self.train_recons)
         self.train_kl_list.append(self.train_kl)
+        self.train_gmst_loss_list.append(self.train_gmst_loss)
 
         # here note that train_ortho_cons_list is a torch.sum...
         self.train_sparsity_reg_list.append(self.train_sparsity_reg)
@@ -1494,7 +1530,7 @@ class TrainingLatent:
         self.valid_loss_list.append(-self.valid_loss)
         self.valid_recons_list.append(self.valid_recons)
         self.valid_kl_list.append(self.valid_kl)
-
+        self.valid_gmst_loss_list.append(self.valid_gmst_loss)
         # here note that valid_ortho_cons_list is a torch.sum...
         self.valid_sparsity_reg_list.append(self.valid_sparsity_reg)
         self.valid_connect_reg_list.append(self.valid_connect_reg)
@@ -1608,9 +1644,17 @@ class TrainingLatent:
             y_co2, y_aerosol = None, None
 
         # Forward pass through LatentTSDCD model
-        (elbo, recons, kl, preds, forcing_recons_loss_co2, forcing_recons_loss_aerosol, encoded_forcing_mu, _) = (
-            self.model(x, y, z, self.iteration, y_co2=y_co2, y_aerosol=y_aerosol)
-        )
+        (
+            elbo,
+            recons,
+            kl,
+            preds,
+            forcing_recons_loss_co2,
+            forcing_recons_loss_aerosol,
+            encoded_forcing_mu,
+            other_losses,
+        ) = self.model(x, y, z, self.iteration, y_co2=y_co2, y_aerosol=y_aerosol)
+        gmst_loss = other_losses["gmst_loss"]
 
         # Compute forcing latent supervision loss if ground truth latents available
         forcing_latent_supervision_loss = torch.tensor(0.0, device=x.device)
@@ -1644,6 +1688,7 @@ class TrainingLatent:
             forcing_recons_loss_co2,
             forcing_recons_loss_aerosol,
             forcing_latent_supervision_loss,
+            gmst_loss,
         )
 
     def get_regularisation(self) -> float:
@@ -2092,9 +2137,16 @@ class TrainingLatent:
             z = None
 
             # print("First up, I will do the reconstruction effort")
-            nll, recons, kl, y_pred_recons, forcing_co2_loss, forcing_aerosol_loss, forcing_latent_supervision_loss = (
-                self.get_nll(x, y, z, y_co2, y_aerosol)
-            )
+            (
+                nll,
+                recons,
+                kl,
+                y_pred_recons,
+                forcing_co2_loss,
+                forcing_aerosol_loss,
+                forcing_latent_supervision_loss,
+                _,
+            ) = self.get_nll(x, y, z, y_co2, y_aerosol)
 
             # ensure these are correct
             with torch.no_grad():
@@ -2259,9 +2311,16 @@ class TrainingLatent:
             z = None
 
             # print("First up, I will do the reconstruction effort")
-            nll, recons, kl, y_pred_recons, forcing_co2_loss, forcing_aerosol_loss, forcing_latent_supervision_loss = (
-                self.get_nll(x, y, z, y_co2, y_aerosol)
-            )
+            (
+                nll,
+                recons,
+                kl,
+                y_pred_recons,
+                forcing_co2_loss,
+                forcing_aerosol_loss,
+                forcing_latent_supervision_loss,
+                _,
+            ) = self.get_nll(x, y, z, y_co2, y_aerosol)
 
             # swap
             with torch.no_grad():

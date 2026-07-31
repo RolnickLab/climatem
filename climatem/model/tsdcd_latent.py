@@ -15,6 +15,7 @@ but I preserved the choice of encode climate into n_climate + n_forcing choice a
 3. Return forcing distribution instead of the deterministic forcings
 4. adapt class Mask to allow the instantous effect from forcing to climate
 5. Reconstruction loss of forcings adapt from MSE to distributional loss (p(f)|y_f)
+5.1 7/28 temporaly used MSE for forcings again
 """
 
 # Hierachical Model (x-> z-> z_global) or (x-> z1-> z2)
@@ -67,6 +68,7 @@ class Mask(nn.Module):
         fixed_output_fraction: float = 1.0,
         nodiag: bool = False,
         n_climate: int = 4,
+        n_exclude_global_forcing: int = 0,  # NEW: #global forcing latents excluded from forcing-to-climate path.
     ):
         super().__init__()
 
@@ -114,11 +116,10 @@ class Mask(nn.Module):
                 fixed_mask[:-1, :n_climate, :n_climate] = 1
 
                 # 2. any time step forcings -> climate
-                # fixed_mask[:, n_climate:, :n_climate] = 1 #b,t,source, target
-                fixed_mask[:, :n_climate, n_climate:] = 1  # b,t, target, source
+                # if n_exclude_global_forcing !=0, then we only consider spatial_forcings -> climate
+                fixed_mask[:, :n_climate, n_climate + n_exclude_global_forcing :] = 1  # b,t, target, source
                 if not self.instantaneous_forcing:
                     # turn off current focings -> climate
-                    # fixed_mask[-1, n_climate:, :n_climate] = 0 #b,t,source, target
                     fixed_mask[-1, :n_climate, n_climate:] = 0  # b,t, target, source
                     # 3. who can impact forcing? -> we don't model the impact among forcings
                     # fixed_mask[:, :, external] = 1
@@ -285,6 +286,7 @@ class LinearAutoEncoder(nn.Module):
         d_y_aerosol_spatial=0,
         d_y_ch4_spatial=0,
         d_y_so2_spatial=0,
+        forcing_mse=False,
     ):
         super().__init__()
         # Spatial dims for forcing encoders/decoders (independent of MLP conditioning dims).
@@ -344,6 +346,7 @@ class LinearAutoEncoder(nn.Module):
 
             self.logvar_co2_decoder = nn.Parameter(torch.ones(self.d_y_co2_spatial) * -1)
             self.logvar_aerosol_decoder = nn.Parameter(torch.ones(self.d_y_aerosol_spatial) * -1)
+        self.forcing_mse = forcing_mse
 
     def get_w_encoder(self):
         if self.tied:
@@ -388,9 +391,13 @@ class LinearAutoEncoder(nn.Module):
 
         co2_std = torch.exp(0.5 * self.logvar_co2_encoder).expand(batch_size, -1).to(device)
         aerosol_std = torch.exp(0.5 * self.logvar_aerosol_encoder).expand(batch_size, -1).to(device)
-
-        co2_z = co2_mu + co2_std * torch.randn_like(co2_std)
-        aerosol_z = aerosol_mu + aerosol_std * torch.randn_like(aerosol_std)
+        #  From probalistic to determinsitic
+        if self.forcing_mse:
+            co2_z = co2_mu
+            aerosol_z = aerosol_mu
+        else:
+            co2_z = co2_mu + co2_std * torch.randn_like(co2_std)
+            aerosol_z = aerosol_mu + aerosol_std * torch.randn_like(aerosol_std)
 
         z_forced = torch.cat([co2_z, aerosol_z], dim=1)
         mu_forced = torch.cat([co2_mu, aerosol_mu], dim=1)
@@ -485,6 +492,9 @@ class NonLinearAutoEncoder(nn.Module):
     def get_w_aerosol(self):
         return self.get_w_forcings("aerosol")
 
+    def get_w_so2(self):
+        return self.get_w_forcings("so2")
+
     def get_encode_mask(self):
         if self.tied:
             return torch.transpose(self.w, 1, 2)
@@ -522,6 +532,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         d_y_aerosol_spatial=0,
         d_y_ch4_spatial=0,
         d_y_so2_spatial=0,
+        forcing_mse=False,
     ):
         super().__init__(d, d_x, d_z, num_hidden, num_layer, tied, gt_w)
         self.reduce_encoding_pos_dim = reduce_encoding_pos_dim
@@ -572,6 +583,7 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
 
         if use_forced_latents:
             self._build_forcing_modules(num_layer, num_hidden)
+        self.forcing_mse = forcing_mse
 
     def _build_forcing_modules(self, num_layer, num_hidden):
         """Create forcing encoders and decoders."""
@@ -607,7 +619,10 @@ class NonLinearAutoEncoderUniqueMLP_noloop(NonLinearAutoEncoder):
         batch_size = forcing.shape[0]
         mu = self.forcing_encoder_mu[name](forcing)
         std = torch.exp(0.5 * self.forcing_logvar_encoder[name]).expand(batch_size, -1)
-        z = mu + std * torch.randn_like(std)
+        if self.forcing_mse:
+            z = mu
+        else:
+            z = mu + std * torch.randn_like(std)
         return z, mu, std
 
     # ================================================================
@@ -799,6 +814,8 @@ class TransitionModel(nn.Module):
         self.nonlinear_dynamics = nonlinear_dynamics
         self.num_layers = num_layers
         self.num_hidden = num_hidden
+        # if instantaneous, the input tau has already been +1 (total_tau)；
+        # if not instantaneous， the input total_tau is 5, but the transition may consider current forcings to climate, so we need to +1
         n_step = tau if instantaneous else tau + 1
         input_dim = d * d_z * n_step + (d * self.d_z2 * 1)
 
@@ -837,6 +854,7 @@ class TransitionModel(nn.Module):
 
         # print the first few elements of z
         batch_size = z.size(0)
+        z_forcings = torch.cat(z_forcings, dim=-2)
         total_z_for_mask = torch.cat([z, z_forcings], dim=-2)  # ([b, tau+1, 7, 1])
 
         total_z_for_mask = total_z_for_mask.view(mask.size())
@@ -981,61 +999,6 @@ class TransitionModelParamSharing(nn.Module):
 
         # param_z = self.nn(masked_z)
 
-        return param_z
-
-
-class TransitionModelNoMask(nn.Module):
-    """Models the transitions between the latent variables Z2 with neural networks."""
-
-    def __init__(
-        self,
-        d: int,
-        d_z: int,
-        tau: int,
-        nonlinear_dynamics: bool,
-        num_layers: int,
-        num_hidden: int,
-        num_output: int = 2,
-    ):
-        """
-        Args:
-            d: number of features
-            d_z: number of latent variables
-            tau: size of the timewindow
-            num_layers: number of layers for the neural networks
-            num_hidden: number of hidden units
-            num_output: number of outputs
-        """
-        super().__init__()
-        self.d = d  # number of variables
-        self.d_z = d_z
-        self.tau = tau
-        output_var = False
-
-        # initialize NNs
-        self.nonlinear_dynamics = nonlinear_dynamics
-        self.num_layers = num_layers
-        self.num_hidden = num_hidden
-        if output_var:
-            self.num_output = num_output
-        else:
-            self.num_output = 1
-            # self.logvar = torch.ones(1)  * 0. # nn.Parameter(torch.ones(d) * 0.1)
-            # self.logvar = nn.Parameter(torch.ones(d) * -4)
-            self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
-        if self.nonlinear_dynamics:
-            print("NON LINEAR DYNAMICS")
-            self.nn = nn.ModuleList(MLP(num_layers, num_hidden, d * d_z * tau, self.num_output) for i in range(d * d_z))
-        else:
-            print("LINEAR DYNAMICS")
-            self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau, self.num_output) for i in range(d * d_z))
-
-    def forward(self, z, i, k):
-        """Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k NN(G_{tau-1} * z_{t-1},
-        ..., G_{tau-k} * z_{t-k})"""
-        # z: (b, tau, d_z, 1)
-        flat_z = z.view(z.size(0), -1)
-        param_z = self.nn[i * self.d_z + k](flat_z)
         return param_z
 
 
@@ -1217,6 +1180,8 @@ class LatentTSDCD(nn.Module):
         n_forced_latents_ch4: int = 0,
         n_forced_latents_so2: int = 0,
         forcing_arch: str = "baseline",
+        map_aerosol_to_climate: bool = False,
+        forcing_mse: bool = False,
     ):
         """
         Args:
@@ -1295,7 +1260,10 @@ class LatentTSDCD(nn.Module):
         self.n_forced_latents_ch4 = n_forced_latents_ch4
         self.n_forced_latents_so2 = n_forced_latents_so2
         self.forcing_arch = forcing_arch
+        self.map_aerosol_to_climate = map_aerosol_to_climate
+        self.forcing_mse = forcing_mse
         self._forcing_arch_logged = False
+        # The latents in z will be ordered by self.forcing_order
         self.forcing_order = ("co2", "ch4", "aerosol", "so2")
         self.forcing_latent_dims = OrderedDict(
             (
@@ -1401,6 +1369,7 @@ class LatentTSDCD(nn.Module):
                 d_y_aerosol_spatial=d_y_aerosol_spatial,
                 d_y_ch4_spatial=d_y_ch4_spatial,
                 d_y_so2_spatial=d_y_so2_spatial,
+                forcing_mse=forcing_mse,
             )
         else:
             # print('Using linear mixing')
@@ -1419,6 +1388,7 @@ class LatentTSDCD(nn.Module):
                 d_y_aerosol_spatial=d_y_aerosol_spatial,
                 d_y_ch4_spatial=d_y_ch4_spatial,
                 d_y_so2_spatial=d_y_so2_spatial,
+                forcing_mse=forcing_mse,
             )
 
         if self.transition_param_sharing:
@@ -1462,6 +1432,7 @@ class LatentTSDCD(nn.Module):
         #         self.mask.fix(self.gt_graph)
         #     else:
         #         self.mask.fix(self.gt_graph[:-1])
+        self.instantaneous_forcing = instantaneous_forcing
 
     def get_adj(self):
         """
@@ -1470,6 +1441,14 @@ class LatentTSDCD(nn.Module):
         """
         # return self.mask.get_proba() * self.mask.fixed_mask
         return self.mask.get_proba()  # [:self.tau]#[tau, dz, dz]
+
+    def get_effective_adj(self):
+        adj = self.mask.get_proba()
+
+        if self.use_forced_latents and self.map_aerosol_to_climate:
+            adj = self.apply_spatial_forcing_mask(adj.unsqueeze(0)).squeeze(0)
+
+        return adj
 
     def _forcing_dict(self, y_co2=None, y_aerosol=None, y_ch4=None, y_so2=None):
         """Normalize forcing inputs to the canonical four-forcing names."""
@@ -1495,19 +1474,93 @@ class LatentTSDCD(nn.Module):
     def _forcing_at_timestep(self, forcing, t):
         return forcing[:, t] if forcing is not None and forcing.dim() == 3 else forcing
 
-    def _forcing_latent_slices(self, z_forcings):
-        slices = OrderedDict()
-        start = 0
-        for name in self.forcing_order:
-            latent_dim = self.forcing_latent_dims.get(name, 0)
-            if latent_dim <= 0:
-                continue
-            slices[name] = z_forcings[..., start : start + latent_dim]
-            start += latent_dim
-        return slices
-
     def _transition_forcing_list(self, forcing_slices, i):
         return [forcing_slices[name][:, :, i][:, :, :, None] for name in forcing_slices]
+
+    def _forcing_index_slices(self):
+        """
+        Return index slices of each forcing block in the full latent vector.
+
+        Full latent order:
+        [climate, co2, ch4, aerosol, so2]
+        """
+        slices = OrderedDict()
+        # Optional, we can put start to input param, so support slicing over sub latents
+        start = self.n_climate_latents
+        for name in self.forcing_order:
+            dim = self.forcing_latent_dims.get(name, 0)
+            if dim <= 0:
+                continue
+            slices[name] = slice(start, start + dim)
+            start += dim
+        return slices
+
+    # Measure the spatial overlap (by grid number) between forcing and climate latent decoder maps.
+    # routing[name][i, j] is the normalized alignment weight from forcing latent j to climate latent i.
+    # considering z_forcing usually represent larger space than z_climate, dim=1: kind of a single-parent structure from forcings to climate
+    # (one forcing z can impact multiple climate z, but can't be impacted by multiple forcing z)
+    def forcing_climate_spatial_alignment(self, k=5):
+        # with torch.no_grad():
+        W_climate = self.autoencoder.get_w_decoder()[0, :, : self.n_climate_latents].clone()
+
+        routing = {}
+
+        for name in ("aerosol", "so2"):
+            if self.forcing_latent_dims.get(name, 0) <= 0:
+                continue
+
+            W_forcing = self.autoencoder.get_w_forcings(name).clone()
+            if W_forcing is None:
+                continue
+
+            score = W_climate.T @ W_forcing
+            # score: (n_climate, n_forcing)
+
+            k_eff = min(k, score.size(1))
+            idx = score.topk(k_eff, dim=1).indices
+
+            hard = torch.zeros_like(score)
+            hard.scatter_(1, idx, 1.0)
+
+            routing[name] = hard
+
+        return routing
+        # problem with this version: learn small coeffficients around 1/n_forcings
+        # W_climate = self.autoencoder.get_w_decoder()[0, :, :self.n_climate_latents]
+        # W_climate = torch.relu(W_climate)
+
+        # routing = {}
+        # for name in ("aerosol", "so2"):
+        #     if self.forcing_latent_dims.get(name, 0) <= 0:
+        #         continue
+
+        #     W_forcing = self.autoencoder.get_w_forcings(name)
+        #     if W_forcing is None:
+        #         continue
+
+        #     W_forcing = torch.relu(W_forcing)
+
+        #     score = W_climate.T @ W_forcing
+        #     routing[name] = torch.softmax(score / tau, dim=1) # if dim=0, the total connection from z_forings to z_climate is 1
+
+        # return routing
+
+    # The decoder weight matrix W reveals which forcing and climate latents correspond to similar spatial regions
+    def apply_spatial_forcing_mask(self, mask):
+        spatial_mask = torch.ones_like(mask)
+
+        routing = self.forcing_climate_spatial_alignment()
+        forcing_slices = self._forcing_index_slices()
+
+        n_climate = self.n_climate_latents
+
+        for name in ("aerosol", "so2"):
+            if name not in forcing_slices or name not in routing:
+                continue
+
+            forcing_slice = forcing_slices[name]
+            spatial_mask[:, :, :n_climate, forcing_slice] = routing[name].view(1, 1, n_climate, -1)
+        return mask * spatial_mask
 
     def encode(self, x, y, y_co2=None, y_aerosol=None, y_ch4=None, y_so2=None):
         """
@@ -1608,7 +1661,7 @@ class LatentTSDCD(nn.Module):
 
         return z, mu, std
 
-    def transition(self, z, mask, y_co2=None, y_aerosol=None, y_ch4=None, y_so2=None):
+    def transition(self, z, mask):
         """Compute latent dynamics: predict next-step latent distribution p(z^t | z^{<t}).
 
         Args:
@@ -1625,24 +1678,30 @@ class LatentTSDCD(nn.Module):
         mu = torch.zeros(b, self.d, self.d_z)  # pz_mu to be filled
         std = torch.zeros(b, self.d, self.d_z)  # pz_std to be filled
 
-        # here I seperate z_climate and z_forcings
-        forcing_dict = self._forcing_dict(y_co2, y_aerosol, y_ch4, y_so2)
-        active_forcings = self._active_forcing_dict(forcing_dict) if self.use_forced_latents else None
+        # TODO: confirm if this can gives less sparsity
+        if self.map_aerosol_to_climate:
+            # WHAT IF I only add it to the training forward instead of all transition?
+            # will this gives less sparsity of the aerosol to climate
+            # The mask will be multiplied with a mapping which only allow the the latents interaction that's decodes to the same spatial area
+            mask = self.apply_spatial_forcing_mask(mask)
 
-        if self.use_forced_latents and active_forcings is not None:
-            n_climate_latents = self.n_climate_latents
-            z_climate = z[:, :, :, :n_climate_latents]  # ([1, 6, 1, 4])
-            z_forcings = z[:, :, :, n_climate_latents:]
-            forcing_slices = self._forcing_latent_slices(z_forcings)
+        # here I seperate z_climate and z_forcings
+        if self.use_forced_latents:
+            z_climate = z[:, :, :, : self.n_climate_latents]  # ([1, 6, 1, 4])
+            index_slices = self._forcing_index_slices()
+            forcing_slices = OrderedDict((name, z[..., idx]) for name, idx in index_slices.items())
+            # forcing_slices["co2"] torch.Size([2, 6, 1, 1])
+            # forcing_slices["aerosol"] torch.Size([2, 6, 1, 2])
         else:
             z_climate = z
             forcing_slices = OrderedDict()
-
+        print("forcing_slices")
+        for k, v in forcing_slices.items():
+            print(k, v.shape)
         for i in range(self.d):
             # Todo, currently only handle z_co2 of d=1 and z_zerosol of d=1, what if there are more forcings? should we name them separately?
-            pz_params = torch.zeros(b, self.d_z, 1)
+            forcing_latents = self._transition_forcing_list(forcing_slices, i)
             if self.transition_param_sharing:
-                forcing_latents = self._transition_forcing_list(forcing_slices, i)
                 pz_params = self.transition_model(
                     z_climate[:, :, i][:, :, :, None],
                     mask[
@@ -1655,7 +1714,6 @@ class LatentTSDCD(nn.Module):
                 # Not yet implemented for non-parameter sharing version!
                 pz_params = torch.zeros(b, self.d_z, 1)
                 for k in range(self.d_z):
-                    forcing_latents = self._transition_forcing_list(forcing_slices, i)
                     pz_params[:, k] = self.transition_model(
                         z_climate[:, :, i][:, :, :, None],
                         mask[:, :, i * self.d_z + k],
@@ -1663,6 +1721,7 @@ class LatentTSDCD(nn.Module):
                         k,
                         z_forcings=forcing_latents,
                     )
+            # The resulting pz_params's last z_forcings dimensions should stay unchanged after transition
             mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model.logvar[i])
 
@@ -1692,8 +1751,7 @@ class LatentTSDCD(nn.Module):
 
         # Only use climate latents for observation decoding (forcing latents excluded)
         if self.use_forced_latents:
-            n_climate = self.n_climate_latents
-            z_for_decode = z[..., :n_climate]  # Shape: (batch, d, n_climate)
+            z_for_decode = z[..., : self.n_climate_latents]  # Shape: (batch, d, n_climate)
         else:
             z_for_decode = z
 
@@ -1717,13 +1775,13 @@ class LatentTSDCD(nn.Module):
         iteration,
         xi=None,
         y_co2=None,
-        y_aerosol=None,
+        y_aerosol=None,  # BC
         y_ch4=None,
         y_so2=None,
     ):
         if iteration == 1:
 
-            print(f"shape x: {x.shape}, y: {x.shape}")
+            print(f"shape x: {x.shape}, y: {y.shape}")
             if y_co2 is not None and y_aerosol is not None:
                 print(f"y_co2: {y_co2.shape}")
                 print(f"y_aerosol: {y_aerosol.shape}")
@@ -1752,7 +1810,7 @@ class LatentTSDCD(nn.Module):
         # sample Zs (based on X)
 
         z, q_mu_y, q_std_y = self.encode(x, y, y_co2, y_aerosol, y_ch4, y_so2)
-        # z(b, tau + 1, d, d_z)
+        # z (b, tau + 1, d, d_z) q_mu_y and q_std_y (b, d, d_z)
 
         # Store encoded forcing latent means for supervision loss (if using forced latents)
         encoded_forcing_mu = None
@@ -1760,21 +1818,22 @@ class LatentTSDCD(nn.Module):
         mask = self.mask(b)  # [b, tau, d_z, d_z]
         forcing_dict = self._forcing_dict(y_co2, y_aerosol, y_ch4, y_so2)
         active_forcings = self._active_forcing_dict(forcing_dict) if self.use_forced_latents else None
-        if self.use_forced_latents and active_forcings is not None:
+        if self.use_forced_latents:
             n_climate_latents = self.n_climate_latents
         else:
             n_climate_latents = self.d_z
-
+        print("self.n_climate_latents", self.n_climate_latents)
         z_for_transit = z.clone()
         # if not self.instantaneous:
         #     z_for_transit[:, -1, :, :n_climate_latents] = 0 # here mask climate z_t to zero to avoid label leakage
 
-        pz_mu, pz_std = self.transition(z_for_transit, mask, y_co2, y_aerosol, y_ch4, y_so2)
+        pz_mu, pz_std = self.transition(z_for_transit, mask)
+        # pz_mu ([b, 1, d_z]
 
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
 
-        px_mu, px_std = self.decode(z[:, -1])  # pz_mu (b,d,d_x)
+        px_mu, px_std = self.decode(z[:, -1])  # px_mu (b, d, d_x)
 
         # set distribution with obtained parameters
         if self.distr_decoder.__name__ == "GEVDistribution":
@@ -1798,8 +1857,8 @@ class LatentTSDCD(nn.Module):
                 + 0.5 * (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2
                 - 0.5
             )
-
-        kl = torch.sum(kl_raw, dim=[2]).mean()
+        # FIX: since the rest latents not involve in forcing reconstruction nor climate prediciton, it should be sliced
+        kl = torch.sum(kl_raw[..., :n_climate_latents], dim=[2]).mean()
         # kl = torch.sum(0.5 * (torch.log(pz_std**2) - torch.log(q_std_y**2)) + 0.5 *
         # (q_std_y**2 + (q_mu_y - pz_mu) ** 2) / pz_std**2 - 0.5, dim=[1, 2]).mean()
         assert kl >= 0, f"KL={kl} has to be >= 0"
@@ -1808,6 +1867,7 @@ class LatentTSDCD(nn.Module):
 
         # Compute forcing reconstruction losses
         forcing_recons_losses = OrderedDict((name, torch.tensor(0.0, device=x.device)) for name in self.forcing_order)
+        forcing_recons_losses["gmst_loss"] = 0  # or torch.mean((px_mu.mean(dim=-1) - y.mean(dim=-1)) ** 2)
 
         if self.use_forced_latents and active_forcings is not None:
             # Extract forcing latents from z (last timestep, first feature dimension, forcing latent indices)
@@ -1840,15 +1900,22 @@ class LatentTSDCD(nn.Module):
             if forcing_arch != "predefined":
                 for name, forcing in active_forcings.items():
                     mu_key = f"{name}_mu"
-                    logvar_key = f"{name}_logvar"
+
                     if mu_key not in forcing_outputs:
                         continue
+
                     forcing_target = self._forcing_at_timestep(forcing, -1)
-                    forcing_var = torch.exp(0.5 * forcing_outputs[logvar_key])
-                    px_forcing_distr = self.distr_decoder(forcing_outputs[mu_key], forcing_var)
-                    forcing_recons_losses[name] = -torch.mean(
-                        torch.sum(px_forcing_distr.log_prob(forcing_target), dim=[1])
-                    )
+                    if self.forcing_mse:
+                        forcing_recons = forcing_outputs[mu_key]
+
+                        forcing_recons_losses[name] = torch.mean((forcing_recons - forcing_target) ** 2)
+                    else:
+                        logvar_key = f"{name}_logvar"
+                        forcing_var = torch.exp(0.5 * forcing_outputs[logvar_key])
+                        px_forcing_distr = self.distr_decoder(forcing_outputs[mu_key], forcing_var)
+                        forcing_recons_losses[name] = -torch.mean(
+                            torch.sum(px_forcing_distr.log_prob(forcing_target), dim=[1])
+                        )
                 # print("forcing_recons_loss_aerosol and recons",forcing_recons_loss_aerosol, recons)
 
         return (
@@ -1877,7 +1944,7 @@ class LatentTSDCD(nn.Module):
 
         z_for_transit = z.clone()
 
-        pz_mu, pz_std = self.transition(z_for_transit, mask, y_co2, y_aerosol, y_ch4, y_so2)
+        pz_mu, pz_std = self.transition(z_for_transit, mask)
 
         # get params from decoder p(x^t | z^t)
         # we pass only the last z to the decoder, to get xs.
@@ -1905,7 +1972,7 @@ class LatentTSDCD(nn.Module):
 
         z_for_transit = z.clone()
 
-        pz_mu, pz_std = self.transition(z_for_transit, mask, y_co2, y_aerosol, y_ch4, y_so2)
+        pz_mu, pz_std = self.transition(z_for_transit, mask)
 
         # decode
         px_mu, px_std = self.decode(pz_mu)
@@ -1963,7 +2030,7 @@ class LatentTSDCD(nn.Module):
         # if not self.instantaneous:
         #     z_for_transit[:, -1, :, :n_climate_latents] = 0
 
-        pz_mu, pz_std = self.transition(z_for_transit, mask, y_co2, y_aerosol, y_ch4, y_so2)
+        pz_mu, pz_std = self.transition(z_for_transit, mask)
 
         # decode
         px_mu, px_std = self.decode(pz_mu)
@@ -1990,7 +2057,7 @@ class LatentTSDCD(nn.Module):
             mask = self.mask(b)
 
             z_for_transit = z.clone()
-            pz_mu, pz_std = self.transition(z_for_transit, mask, y_co2, y_aerosol, y_ch4, y_so2)
+            pz_mu, pz_std = self.transition(z_for_transit, mask)
             # here I am taking the approach of sampling from the Z distributions, and then decoding.
             samples_from_zs = torch.zeros(num_samples, b, self.d, self.d_x)
             z_samples = torch.zeros(num_samples, b, self.d, self.d_z)
@@ -2062,10 +2129,12 @@ class LatentTSDCD(nn.Module):
             else:
                 n_climate_latents = self.d_z
             z_for_transit = z.clone()
+
+            # This is very safe operation to ensure no climate from last step can be used
             if not self.instantaneous:
                 z_for_transit[:, -1, :, :n_climate_latents] = 0
 
-            pz_mu, pz_std = self.transition(z_for_transit, mask, y_co2, y_aerosol, y_ch4, y_so2)
+            pz_mu, pz_std = self.transition(z_for_transit, mask)
 
             dim = pz_mu.ndim
             new_shape = [num_samples]
@@ -2176,10 +2245,15 @@ if __name__ == "__main__":
         fixed=False,
         d_y_co2=d_co2,
         d_y_aerosol=d_x,
+        d_y_ch4=0,
+        d_y_so2=0,
         use_forced_latents=True,
         n_forced_latents_co2=1,
         n_forced_latents_aerosol=2,
+        n_forced_latents_ch4=0,
+        n_forced_latents_so2=0,
         forcing_arch="baseline",
+        map_aerosol_to_climate=True,
     )
     # model = model.to(device)
     # If use_forced_latent, d_z= sqrt(d_x) + n_forced_latents_co2, n_forced_latents_aerosol
@@ -2189,7 +2263,8 @@ if __name__ == "__main__":
     y = torch.randn(batch_size, future_time_steps, d_x)  # .to(device)
     y_co2 = torch.randn(batch_size, tau + future_time_steps, d_co2)  # .to(device)
     y_aerosol = torch.randn(batch_size, tau + future_time_steps, d_x)  # .to(device)
-
+    y_ch4 = None  # y_co2.clone()+1  # .to(device)
+    y_so2 = None  # y_aerosol.clone() +1 # .to(device)
     model.eval()
     torch.manual_seed(0)
 
@@ -2209,57 +2284,95 @@ if __name__ == "__main__":
         z1, mu1, _ = model.encode(x, y, y_co2, y_aerosol)
         z2, mu2, _ = model.encode(x, y, y_co2_pert, y_aerosol_pert)
         print(
-            "encode climate z diff:", (mu1[..., :n_climate] - mu2[..., :n_climate]).abs().max().item()
-        )  # if is zero, then confirmed that the climate encoder is not impacted by forcings
-
-        print("encode forcing z diff:", (mu1[..., n_climate:] - mu2[..., n_climate:]).abs().max().item())
-
-        pz1, _ = model.transition(z1, mask, y_co2, y_aerosol)
-        pz2, _ = model.transition(z2, mask, y_co2_pert, y_aerosol_pert)
-        z3 = z2.clone()
-        z3[:, -1, :, :n_climate] = 100
-        pz3, _ = model.transition(z3, mask, y_co2_pert, y_aerosol_pert)
-
-        print("transition climate pz diff:", (pz1[..., :n_climate] - pz2[..., :n_climate]).abs().max().item())
+            "encode climate z diff:",
+            (mu1[..., :n_climate] - mu2[..., :n_climate]).abs().max().item(),
+            "|| Expected encode climate z diff: =0",
+        )  # expect zero, then confirmed that the climate encoder is not impacted by forcings
 
         print(
-            "transition forcing pz diff:", (pz1[..., n_climate:] - pz2[..., n_climate:]).abs().max().item()
-        )  # if is zero, then confirmed that the forcing is not impacted by any factors
+            "encode forcing z diff:",
+            (mu1[..., n_climate:] - mu2[..., n_climate:]).abs().max().item(),
+            "|| Expected encode forcing z diff: >0",
+        )
+
+        pz1, _ = model.transition(z1, mask)
+        pz2, _ = model.transition(z2, mask)
+        z3 = z2.clone()
+        z3[:, -1, :, :n_climate] = 100
+        pz3, _ = model.transition(z3, mask)
+
+        print(
+            "transition climate pz diff:",
+            (pz1[..., :n_climate] - pz2[..., :n_climate]).abs().max().item(),
+            "|| Expected climate pz diff: >0",
+        )
+        # expect >0， then confirm the climate latents are transitted
+
+        print(
+            "transition forcing pz diff:",
+            (pz1[..., n_climate:] - pz2[..., n_climate:]).abs().max().item(),
+            "|| Expected forcing pz diff: =0",
+        )  # expect zero, then confirmed that the forcing is **not** impacted by any factors
 
         print(
             "transition forcing pz diff mask z:", (pz3 - pz2).abs().max().item()
-        )  # if is zero, then confirmed that the last step climate is not used
+        )  # expect zero, then confirmed that the last step climate is not used
 
         px1, _ = model.decode(pz1)
         px2, _ = model.decode(pz2)
-        print("prediction px diff:", (px1 - px2).abs().max().item())
+        print("prediction px diff:", (px1 - px2).abs().max().item(), "|| Expected diff>0")
+        # expect >0, the changing forcing impact the final decoded climate
         pz3 = pz2
         pz3[..., n_climate:] = 100
         px3, _ = model.decode(pz3)
-        print("prediction px diff mask:", (px3 - px2).abs().max().item())
-    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
-    # optimizer.zero_grad()
-    # # kl_global = 0
-    # for i in range(1):
-    #     elbo,recons,kl,px_mu,forcing_recons_loss_co2,forcing_recons_loss_aerosol,encoded_forcing_mu = model(x, y, gt_z=None, iteration=i,y_co2=y_co2, y_aerosol=y_aerosol)
+        print("prediction px diff mask:", (px3 - px2).abs().max().item(), "|| Expected diff=0")
+        # expect zero, the decoder doesn't use any transitted forcings as input
 
-    #     print(
-    #         f"{i}: -elbo {-elbo.item():.4f}, recons {recons.item():.4f}, kl {kl.item():.4f} co2 {forcing_recons_loss_co2.item():.4f} aerosol {forcing_recons_loss_aerosol.item():.4f}"
-    #     )
-    #     loss = -elbo+forcing_recons_loss_co2+forcing_recons_loss_aerosol
-    #     loss.backward()
-    #     optimizer.step()
-    #     optimizer.zero_grad()
-    # print(f"Forward: {px_mu[0]}")
-    # print(f"Ground truth: {y[0]}")
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+    optimizer.zero_grad()
+    # kl_global = 0
+    for i in range(1):
+        (
+            elbo,
+            recons,
+            kl,
+            px_mu,
+            forcing_recons_loss_co2,
+            forcing_recons_loss_aerosol,
+            encoded_forcing_mu,
+            forcing_recons_loss,
+        ) = model(x, y, gt_z=None, iteration=i, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2)
+        forcing_recons_loss_so2 = forcing_recons_loss["so2"]
+        forcing_recons_loss_ch4 = forcing_recons_loss["ch4"]
+        print(
+            f"{i}: -elbo {-elbo.item():.4f}, recons {recons.item():.4f}, kl {kl.item():.4f} co2 {forcing_recons_loss_co2.item():.4f} aerosol {forcing_recons_loss_aerosol.item():.4f} so2 {forcing_recons_loss_so2.item():.4f} ch4 {forcing_recons_loss_ch4.item():.4f}"
+        )
+        loss = (
+            -elbo
+            + forcing_recons_loss_co2
+            + forcing_recons_loss_aerosol
+            + forcing_recons_loss["so2"]
+            + forcing_recons_loss["ch4"]
+        )
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+    print(f"Forward: {px_mu[0]}")
+    print(f"Ground truth: {y[0]}")
 
-    # with torch.no_grad():
-    #     px_mu, y, z, pz_mu, pz_std = model.predict(x, y,y_co2=y_co2, y_aerosol=y_aerosol)
-    #     print(f"Prediction: {px_mu[0]}")
-    #     px_mu, y, z, pz_mu, pz_std = model.predict_counterfactual(x, y, 1, 0.1,y_co2=y_co2, y_aerosol=y_aerosol)
-    #     print(f"predict_counterfactual: {px_mu[0]}")
-    #     samples_from_xs, samples_from_zs, y = model.predict_sample(x, y, 2,y_co2=y_co2, y_aerosol=y_aerosol)
-    #     print(samples_from_xs.shape)
-    #     print(f"predict_sample: {samples_from_xs[0]}")
-    #     samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering(x, y, 2,y_co2=y_co2, y_aerosol=y_aerosol)
-    #     print(f"predict_sample_bayesianfiltering: {samples_from_xs[0]}")
+    with torch.no_grad():
+        px_mu, y, z, pz_mu, pz_std = model.predict(x, y, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2)
+        print(f"Prediction: {px_mu[0]}")
+        px_mu, y, z, pz_mu, pz_std = model.predict_counterfactual(
+            x, y, 1, 0.1, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2
+        )
+        print(f"predict_counterfactual: {px_mu[0]}")
+        samples_from_xs, samples_from_zs, y = model.predict_sample(
+            x, y, 2, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2
+        )
+        print(samples_from_xs.shape)
+        print(f"predict_sample: {samples_from_xs[0]}")
+        samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering(
+            x, y, 2, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2
+        )
+        print(f"predict_sample_bayesianfiltering: {samples_from_xs[0]}")
