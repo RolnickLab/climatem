@@ -7,6 +7,7 @@ optimization (orthogonality, sparsity, and acyclicity constraints), loss computa
 forcing losses), validation, checkpoint saving, and integration with HuggingFace Accelerate for distributed training.
 """
 
+# TODO: COMPITABLE WITH USE EXTROGENOUS AND NOT USE FORCED LATENTS
 import numpy as np
 import torch
 import torch.distributions as dist
@@ -21,6 +22,7 @@ from climatem.plotting.plot_savar_output import SavarPlotter
 from climatem.utils import get_logger
 
 logger = get_logger(__name__)
+# todo: not yet adapted for use_Extreengous version and use_forced latents=False
 
 # Euler-Mascheroni constant, used in Gumbel distribution CDF for GEV loss computation (duplicated from tsdcd_latent.py)
 euler_mascheroni = 0.57721566490153286060
@@ -868,11 +870,11 @@ class TrainingLatent:
             with torch.no_grad():
                 if self.model.use_forced_latents:
                     n_climate = self.model.d_z - self.model.n_forced_latents_co2 - self.model.n_forced_latents_aerosol
+                    self.model.autoencoder.get_w_co2().clamp_(min=0.0)
+                    self.model.autoencoder.get_w_aerosol().clamp_(min=0.0)
                 else:
                     n_climate = self.model.d_z
                 self.model.autoencoder.get_w_decoder()[..., :n_climate].clamp_(min=0.0)
-                self.model.autoencoder.get_w_co2().clamp_(min=0.0)
-                self.model.autoencoder.get_w_aerosol().clamp_(min=0.0)
 
             # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
@@ -1214,7 +1216,7 @@ class TrainingLatent:
                 + sparsity_reg
                 + self.optim_params.forcing_co2_coeff * forcing_loss_co2
                 + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
-                + self.optim_params.forcing_so2_coeff * gmst_loss
+                + self.optim_params.gmst_coeff * gmst_loss
             )
 
             if not self.no_w_constraint:
@@ -2008,8 +2010,8 @@ class TrainingLatent:
 
         if take_log:
             idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
-            fft_true = torch.where(idx_pos, fft_true, 0.0)
-            fft_pred = torch.where(idx_pos, fft_pred, 0.0)
+            fft_true = torch.where(idx_pos, 0.0, fft_true)
+            fft_pred = torch.where(idx_pos, 0.0, fft_pred)
             fft_true = torch.log(torch.abs(fft_true) + 1e-4)
             fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
 
