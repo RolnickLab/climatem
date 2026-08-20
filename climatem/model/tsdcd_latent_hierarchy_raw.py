@@ -713,7 +713,6 @@ class HierarchicalLatentTSDCD(nn.Module):
 
         forcing_recons_losses = OrderedDict((name, torch.tensor(0.0, device=x.device)) for name in self.forcing_order)
         forcing_recons_losses["gmst_loss"] = gmst_loss
-        forcing_recons_losses["z2_sparse_loss"] = torch.tensor(0.0, device=x.device)
 
         # Place-holder for compatibility with use_forced_latents version
         return (
