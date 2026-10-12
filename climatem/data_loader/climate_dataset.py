@@ -676,7 +676,7 @@ class ClimateDataset(torch.utils.data.Dataset):
             vars_mean = np.expand_dims(vars_mean, (1, 2, 3))
             vars_std = np.expand_dims(vars_std, (1, 2, 3))
         else:
-            print("Data dimension not recognized. Please check the dimensions of the data.")
+            print(f"Data dimension {data.shape} not recognized. Please check the dimensions of the data.")
             raise ValueError
 
         return vars_mean, vars_std
