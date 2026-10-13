@@ -259,6 +259,21 @@ class ClimateDataModule(LightningDataModule):
             batch_size=self.hparams.batch_size,
             shuffle=True,
             generator=torch.Generator(device=accelerator.device),
+            drop_last=False,
+            **self._shared_dataloader_kwargs(),
+        )
+
+    def train_dataloader_cpu(self):
+
+        # train_sampler = None
+        # if multi_gpu:
+        #     # setup_ddp()
+        #     train_sampler = DistributedSampler(dataset=self._data_train, shuffle=True)
+
+        return DataLoader(
+            dataset=self._data_train,
+            batch_size=self.hparams.batch_size,
+            shuffle=False,
             drop_last=True,
             **self._shared_dataloader_kwargs(),
         )
@@ -271,7 +286,7 @@ class ClimateDataModule(LightningDataModule):
         #     valid_sampler = DistributedSampler(dataset=self._data_val, shuffle=False)
 
         return (
-            DataLoader(dataset=self._data_val, drop_last=True, **self._shared_eval_dataloader_kwargs())
+            DataLoader(dataset=self._data_val, drop_last=False, **self._shared_eval_dataloader_kwargs())
             if self._data_val is not None
             else None
         )
@@ -282,7 +297,16 @@ class ClimateDataModule(LightningDataModule):
             batch_size=self.hparams.batch_size,
             shuffle=False,
             generator=torch.Generator(device=accelerator.device),
-            drop_last=True,
+            drop_last=False,
+            **self._shared_dataloader_kwargs(),
+        )
+
+    def test_dataloader_cpu(self):
+        return DataLoader(
+            dataset=self._data_test,
+            batch_size=self.hparams.batch_size,
+            shuffle=False,
+            drop_last=False,
             **self._shared_dataloader_kwargs(),
         )
 
