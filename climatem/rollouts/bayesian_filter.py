@@ -106,23 +106,16 @@ def particle_filter_weighting_bayesian(
     sample_trajectories: bool = False,
     batch_memory: bool = False,
     all_y_ssp= None,
+    selection="logscore"
 ):
     """
-    Implement a particle filter to make a set of autoregressive predictions, where each created sample is evaluated by
-    some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
-
-    We need to pass the directory to save stuff to, and the stem of the filenames...
-    if batch_memory: will loop over initial conditions (batch_size)
-    else: no loop, faster but much higher memory
-
-    TODO: REMOVE FOR LOOP OVER BATCH - torch/model can deal with the additional row?
-    TODO: Code is quite confusing because here x is latent and z is reconstruction + y is fixed obs corresponding to FFT
+    This is without hierachical output (pz2mu), added support with 'random' selection
     """
 
     print("Initial number of particles:", num_particles)
 
     if all_y_ssp is not None:
-        all_y, all_co2, all_aerosols = all_y_ssp
+        all_y, all_co2, all_aerosols, all_ch4, all_so2 = all_y_ssp
 
     for t in trange(timesteps):
 
@@ -153,13 +146,13 @@ def particle_filter_weighting_bayesian(
                         if all_y_ssp is not None:
                             unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch = (
                                 model.predict_sample_bayesianfiltering(
-                                    x = x[k][None], y= y[k][None], y_co2= all_co2[0,k][None], y_aerosol= all_aerosols[0,k][None], num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
+                                    x = x[k][None], y= y[k][None], y_co2= all_co2[0,k][None], y_aerosol= all_aerosols[0,k][None], y_ch4= all_ch4[0,k][None], y_so2= all_so2[0,k][None], num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
                                 )
                             )
                         else:
                             unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch = (
                                 model.predict_sample_bayesianfiltering(
-                                    x =x[k][None], y=y[k][None],  y_co2=None, y_aerosol=None, num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
+                                    x =x[k][None], y=y[k][None],  y_co2=None, y_aerosol=None,  y_ch4=None, y_so2=None, num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
                                 )
                             )                            
                         torch.cuda.empty_cache()
@@ -177,10 +170,12 @@ def particle_filter_weighting_bayesian(
             else:
                 if all_y_ssp is not None:
                     init_co2, init_aerosol= all_co2[0], all_aerosols[0]
+                    init_ch4, init_so2= all_ch4[0], all_so2[0]
                 else:
                     init_co2, init_aerosol = None,None
+                    init_ch4, init_so2= None,None
                 unused_samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering(
-                    x =x, y=y, y_co2=init_co2, y_aerosol=init_aerosol,num_samples= num_particles * num_particles_per_particle, with_zs_logprob=False,
+                    x =x, y=y, y_co2=init_co2, y_aerosol=init_aerosol, y_ch4=init_ch4, y_so2=init_so2,num_samples= num_particles * num_particles_per_particle, with_zs_logprob=False,
                 )
 
         else:
@@ -203,9 +198,11 @@ def particle_filter_weighting_bayesian(
             if all_y_ssp is not None:
                 y_co2 = all_co2[t]
                 y_aerosol = all_aerosols[t]
+                y_ch4 = all_ch4[t]
+                y_so2 = all_so2[t]
             else:
                 y_co2,y_aerosol=None,None
-
+                y_ch4, y_so2= None,None
             x_reshaped = x.reshape((-1, x.shape[2], x.shape[3], x.shape[4]))
             y_reshaped = y.repeat(x.shape[0], 1, 1, 1).reshape((-1, y.shape[1], y.shape[2]))
             # print(f"x_reshaped.shape {x_reshaped.shape}")
@@ -229,7 +226,7 @@ def particle_filter_weighting_bayesian(
                     for k in range(batch_size):
                         unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch = (
                             model.predict_sample_bayesianfiltering(
-                                x=x[:, k], y=y[k].repeat(x.shape[0], 1, 1), y_co2=y_co2, y_aerosol=y_aerosol, num_samples=num_particles_per_particle, with_zs_logprob=True,
+                                x=x[:, k], y=y[k].repeat(x.shape[0], 1, 1), y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2, num_samples=num_particles_per_particle, with_zs_logprob=True,
                             )
                         ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
                         torch.cuda.empty_cache()
@@ -253,7 +250,7 @@ def particle_filter_weighting_bayesian(
                     # print(f"should be npp, np, bs")
 
             else:
-                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x_reshaped, y_reshaped, y_co2, y_aerosol)
+                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x_reshaped, y_reshaped, y_co2, y_aerosol, y_ch4, y_so2)
             
             if not batch_memory: 
                 samples_from_zs = samples_from_zs.reshape((samples_from_zs.shape[0], x.shape[0], x.shape[1], samples_from_zs.shape[2], samples_from_zs.shape[3]))
@@ -304,7 +301,7 @@ def particle_filter_weighting_bayesian(
             )
 #             print(f"spatial_spectra shape {scores_spatial_spectra.shape}")
             # This is [K*L, batch size]
-            new_weights = logscore_samples_fromzs + scores_spatial_spectra
+            new_weights = logscore_samples_fromzs #+ scores_spatial_spectra
             if new_weights.ndim == 3:
                 new_weights = new_weights[0]
             # print(f"new_weights.shape {new_weights.shape}")
@@ -343,7 +340,16 @@ def particle_filter_weighting_bayesian(
             resampled_indices = torch.zeros([num_particles, batch_size], dtype = torch.long)
             for k in range(num_particles):
                 idx_trajectory = torch.arange(k, k+(num_particles_per_particle)*num_particles, num_particles)
-                resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
+                if selection == "random":
+                    rand_idx = torch.randint(
+                        0,
+                        len(idx_trajectory),
+                        (batch_size,),
+                        device=new_weights.device,
+                    )
+                    resampled_indices[k] = idx_trajectory[rand_idx]
+                else:
+                    resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
 
         # for i in range(batch_size):
 
@@ -383,7 +389,7 @@ def particle_filter_weighting_bayesian(
 
     return selected_samples
 
-def particle_filter_weighting_bayesian_with_aerosols(
+def particle_filter_weighting_bayesian_hierachical(
     model,
     x,
     y,
@@ -401,23 +407,17 @@ def particle_filter_weighting_bayesian_with_aerosols(
     sample_trajectories: bool = False,
     batch_memory: bool = False,
     all_y_ssp= None,
+    selection:str = "logscore",
 ):
     """
-    Implement a particle filter to make a set of autoregressive predictions, where each created sample is evaluated by
-    some score, and we do a particle filter to select only best samples to continue the autoregressive rollout.
-
-    We need to pass the directory to save stuff to, and the stem of the filenames...
-    if batch_memory: will loop over initial conditions (batch_size)
-    else: no loop, faster but much higher memory
-
-    TODO: REMOVE FOR LOOP OVER BATCH - torch/model can deal with the additional row?
-    TODO: Code is quite confusing because here x is latent and z is reconstruction + y is fixed obs corresponding to FFT
+    This is with hierachical output (pz2mu)
     """
+    model.eval()
 
     print("Initial number of particles:", num_particles)
 
     if all_y_ssp is not None:
-        all_y, all_co2, all_aerosols = all_y_ssp
+        all_y, all_co2, all_aerosols, all_ch4, all_so2 = all_y_ssp
 
     for t in trange(timesteps):
 
@@ -431,7 +431,7 @@ def particle_filter_weighting_bayesian_with_aerosols(
                 print(f"y shape {y.shape}")
 
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs = (
+                    unused_samples_from_xs, samples_from_zs, y, logscore_samples_fromzs, pz2_mu = (
                         model.predict_sample_bayesianfiltering(
                             x, y, num_particles * num_particles_per_particle, with_zs_logprob=True,
                         )
@@ -444,28 +444,31 @@ def particle_filter_weighting_bayesian_with_aerosols(
                     batch_size = x.shape[0]
                     samples_from_zs = []
                     logscore_samples_fromzs = []
+                    pz2_mu=[]
                     for k in range(batch_size):
                         if all_y_ssp is not None:
-                            unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch = (
+                            unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch, pz2_mu_batch = (
                                 model.predict_sample_bayesianfiltering(
-                                    x = x[k][None], y= y[k][None], y_co2= all_co2[0,k][None], y_aerosol= all_aerosols[0,k][None], num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
+                                    x = x[k][None], y= y[k][None], y_co2= all_co2[0,k][None], y_aerosol= all_aerosols[0,k][None], y_ch4= all_ch4[0,k][None], y_so2= all_so2[0,k][None], num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
                                 )
                             )
-                            aerosols = model.predict_aerosols(x = x[k][None], y= y[k][None], y_co2= all_co2[0,k][None], y_aerosol= all_aerosols[0,k][None])
+                            # aerosols = model.predict_aerosols(x = x[k][None], y= y[k][None], y_co2= all_co2[0,k][None], y_aerosol= all_aerosols[0,k][None], y_ch4= all_ch4[0,k][None], y_so2= all_so2[0,k][None],)
                         else:
                             unused_samples_from_xs, samples_from_zs_batch, unused_y, logscore_samples_fromzs_batch = (
                                 model.predict_sample_bayesianfiltering(
-                                    x =x[k][None], y=y[k][None],  y_co2=None, y_aerosol=None, num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
+                                    x =x[k][None], y=y[k][None],  y_co2=None, y_aerosol=None,  y_ch4=None, y_so2=None, num_samples=num_particles * num_particles_per_particle, with_zs_logprob=True,
                                 )
                             )                            
-                        torch.cuda.empty_cache()
+                        torch.cuda.empty_cache() 
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze(2)
                         if tempering: 
                             logscore_samples_fromzs_batch /= np.sqrt(model.d_z)
                         samples_from_zs.append(samples_from_zs_batch)
                         logscore_samples_fromzs.append(logscore_samples_fromzs_batch)
+                        pz2_mu.append(pz2_mu_batch)
                     samples_from_zs = torch.cat(samples_from_zs, dim=1)
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)[None]
+                    pz2_mu = torch.cat(pz2_mu, dim=0)[None]
 
 #                 print(f"unused_samples_from_xs shape {unused_samples_from_xs.shape}")
 #                 print(f"samples_from_zs shape {samples_from_zs.shape}")
@@ -473,12 +476,14 @@ def particle_filter_weighting_bayesian_with_aerosols(
             else:
                 if all_y_ssp is not None:
                     init_co2, init_aerosol= all_co2[0], all_aerosols[0]
+                    init_ch4, init_so2= all_ch4[0], all_so2[0]
                 else:
                     init_co2, init_aerosol = None,None
-                unused_samples_from_xs, samples_from_zs, y = model.predict_sample_bayesianfiltering(
-                    x =x, y=y, y_co2=init_co2, y_aerosol=init_aerosol,num_samples= num_particles * num_particles_per_particle, with_zs_logprob=False,
+                    init_ch4, init_so2 = None,None
+                unused_samples_from_xs, samples_from_zs, y, pz2_mu = model.predict_sample_bayesianfiltering(
+                    x =x, y=y, y_co2=init_co2, y_aerosol=init_aerosol, y_ch4=init_ch4, y_so2=init_so2, num_samples= num_particles * num_particles_per_particle, with_zs_logprob=False,
                 )
-                aerosols = model.predict_aerosols(x = x, y= y, y_co2=init_co2, y_aerosol= init_aerosol)
+                # aerosols = model.predict_aerosols(x = x, y= y, y_co2=init_co2, y_aerosol= init_aerosol, y_ch4=init_ch4, y_so2=init_so2)
 
         else:
 
@@ -489,8 +494,11 @@ def particle_filter_weighting_bayesian_with_aerosols(
             if all_y_ssp is not None:
                 y_co2 = all_co2[t]
                 y_aerosol = all_aerosols[t]
+                y_ch4 = all_ch4[t]
+                y_so2 = all_so2[t]
             else:
                 y_co2,y_aerosol=None,None
+                y_ch4,y_so2=None,None
 
             x_reshaped = x.reshape((-1, x.shape[2], x.shape[3], x.shape[4]))
             y_reshaped = y.repeat(x.shape[0], 1, 1, 1).reshape((-1, y.shape[1], y.shape[2]))
@@ -498,7 +506,7 @@ def particle_filter_weighting_bayesian_with_aerosols(
             # print(f"y_reshaped.shape {y_reshaped.shape}")
             if score == "log_bayesian":
                 if not batch_memory:
-                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs = (
+                    unused_samples_from_xs, samples_from_zs, y_reshaped, logscore_samples_fromzs,pz2_mu = (
                         model.predict_sample_bayesianfiltering(
                             x =x_reshaped, y=y_reshaped, num_samples=num_particles_per_particle, with_zs_logprob=True,
                         )
@@ -511,14 +519,15 @@ def particle_filter_weighting_bayesian_with_aerosols(
                 else:
                     samples_from_zs = []
                     logscore_samples_fromzs = []
+                    pz2_mu = []
                     # print("y[k].repeat(x.shape[0], 1, 1)",y[0].repeat(x.shape[0], 1, 1).shape) [50,1,3072]
                     for k in range(batch_size):
-                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch = (
+                        unused_samples_from_xs, samples_from_zs_batch, unused_y_reshaped, logscore_samples_fromzs_batch, pz2_mu_batch = (
                             model.predict_sample_bayesianfiltering(
-                                x=x[:, k], y=y[k].repeat(x.shape[0], 1, 1), y_co2=y_co2, y_aerosol=y_aerosol, num_samples=num_particles_per_particle, with_zs_logprob=True,
+                                x=x[:, k], y=y[k].repeat(x.shape[0], 1, 1), y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2, num_samples=num_particles_per_particle, with_zs_logprob=True,
                             )
                         ) # finds n_particles_per_particle * n_particles, here, for each k in n_particles the corresponding n_particles_per_particle are in [k, k+n_particles, ..., k+n_particles_per_particle*n_particles]
-                        aerosols = model.predict_aerosols(x =x[:, k], y= y[k].repeat(x.shape[0], 1, 1), y_co2=y_co2, y_aerosol=y_aerosol)
+                        # aerosols = model.predict_aerosols(x =x[:, k], y= y[k].repeat(x.shape[0], 1, 1), y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2)
                         torch.cuda.empty_cache()
                         logscore_samples_fromzs_batch = torch.sum(logscore_samples_fromzs_batch, -1).squeeze()
                         if tempering: 
@@ -527,14 +536,16 @@ def particle_filter_weighting_bayesian_with_aerosols(
 
                         logscore_samples_fromzs.append(logscore_samples_fromzs_batch[:, None])
                         samples_from_zs.append(samples_from_zs_batch[:, :, None])
+                        pz2_mu.append(pz2_mu_batch[:, None])
                     samples_from_zs = torch.cat(samples_from_zs, dim=2)
  
                     logscore_samples_fromzs = torch.cat(logscore_samples_fromzs, dim=-1)
                     logscore_samples_fromzs = logscore_samples_fromzs.reshape((-1, x.shape[0], x.shape[1]))
+                    pz2_mu = torch.cat(pz2_mu, dim=1)
 
 
             else:
-                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x_reshaped, y_reshaped, y_co2, y_aerosol)
+                samples_from_zs, y, unused_z, unused_pz_mu, unused_pz_std = model.predict(x_reshaped, y_reshaped, y_co2, y_aerosol, y_ch4, y_so2)
             
             if not batch_memory: 
                 samples_from_zs = samples_from_zs.reshape((samples_from_zs.shape[0], x.shape[0], x.shape[1], samples_from_zs.shape[2], samples_from_zs.shape[3]))
@@ -568,7 +579,7 @@ def particle_filter_weighting_bayesian_with_aerosols(
             )
 #             print(f"spatial_spectra shape {scores_spatial_spectra.shape}")
             # This is [K*L, batch size]
-            new_weights = logscore_samples_fromzs + scores_spatial_spectra
+            new_weights = logscore_samples_fromzs #+ scores_spatial_spectra # Only consider logscore_samples_fromzs
             if new_weights.ndim == 3:
                 new_weights = new_weights[0]
         else:
@@ -595,12 +606,19 @@ def particle_filter_weighting_bayesian_with_aerosols(
             resampled_indices = torch.zeros([num_particles, batch_size], dtype = torch.long)
             for k in range(num_particles):
                 idx_trajectory = torch.arange(k, k+(num_particles_per_particle)*num_particles, num_particles)
-                resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
+                if selection == "random":
+                    rand_idx = torch.randint(0, len(idx_trajectory),(batch_size,), device=new_weights.device)
+                    # print(f"I selected{rand_idx}")
+                    resampled_indices[k] = idx_trajectory[rand_idx]
+                else: # select based on scores (log_bayesian or pz2mu)
+                    resampled_indices[k] = idx_trajectory[new_weights[idx_trajectory].argmax(0)]
 
 
         selected_samples = samples_from_zs[resampled_indices, torch.arange(batch_size)]
         np.save(save_dir / f"{save_name}_{t}.npy", selected_samples.detach().cpu().numpy())
-        np.save(save_dir / f"{save_name}_aerosols_{t}.npy", aerosols.detach().cpu().numpy())
+        if t == 0:
+            pz2_mu = pz2_mu.repeat(num_particles, 1, 1, 1)
+        np.save(save_dir / f"{save_name}_{t}_global.npy", pz2_mu.detach().cpu().numpy())
 #         print("Saved the selected samples with name:", f"{save_name}_{_}.npy")
 
         if t == 0:
