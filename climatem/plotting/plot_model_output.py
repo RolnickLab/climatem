@@ -393,14 +393,18 @@ class Plotter:
         gt_w = None
 
         # for latent models, find the right permutation of the latent
-        n_climate = learner.model.d_z - learner.model.n_forced_latents_total
+        if learner.model.use_forced_latents:
+            n_climate = learner.model.d_z - learner.model.n_forced_latents_total
+            adj_w_aerosol = learner.model.autoencoder.get_w_aerosol().unsqueeze(0).cpu().detach().numpy()  # (d, dx, dz)
+            if multiple_forcings:
+                adj_w_so2 = (
+                    learner.model.autoencoder.get_w_forcings("so2").unsqueeze(0).cpu().detach().numpy()
+                )  # (d, dx, dz)
+        else:
+            n_climate = learner.model.d_z
         adj_w = learner.model.autoencoder.get_w_decoder().cpu().detach().numpy()[..., :n_climate]  # (d, dx, dz)
         adj_w2 = learner.model.autoencoder.get_w_encoder().cpu().detach().numpy()
-        adj_w_aerosol = learner.model.autoencoder.get_w_aerosol().unsqueeze(0).cpu().detach().numpy()  # (d, dx, dz)
-        if multiple_forcings:
-            adj_w_so2 = (
-                learner.model.autoencoder.get_w_forcings("so2").unsqueeze(0).cpu().detach().numpy()
-            )  # (d, dx, dz)
+
         no_gt = not learner.plot_params.savar
 
         # Plot adjacency matrix
@@ -417,7 +421,7 @@ class Plotter:
             iteration=learner.iteration,
             plot_through_time=learner.plot_params.plot_through_time,
         )
-        if learner.model.map_aerosol_to_climate:
+        if learner.model.use_forced_latents and learner.model.map_aerosol_to_climate:
             adj_effective = learner.model.get_effective_adj().cpu().detach().numpy()
             self.plot_adjacency_matrix(
                 mat1=adj_effective,
@@ -462,61 +466,63 @@ class Plotter:
                 variable="climate",
             )
 
-            self.plot_regions_map(
-                adj_w_aerosol,
-                learner.coordinates,
-                learner.iteration,
-                learner.plot_params.plot_through_time,
-                path=learner.plots_path,
-                idx_region=None,
-                annotate=True,
-                variable="aerosol",
-            )
-            self.plot_regions_map(
-                adj_w_aerosol,
-                learner.coordinates,
-                learner.iteration,
-                learner.plot_params.plot_through_time,
-                path=learner.plots_path,
-                idx_region=None,
-                annotate=True,
-                variable="aerosol",
-            )
-            if multiple_forcings:
+            if learner.model.use_forced_latents:
+
                 self.plot_regions_map(
-                    adj_w_so2,
+                    adj_w_aerosol,
                     learner.coordinates,
                     learner.iteration,
                     learner.plot_params.plot_through_time,
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
-                    variable="so2",
+                    variable="aerosol",
                 )
                 self.plot_regions_map(
-                    adj_w_so2,
+                    adj_w_aerosol,
                     learner.coordinates,
                     learner.iteration,
                     learner.plot_params.plot_through_time,
                     path=learner.plots_path,
                     idx_region=None,
                     annotate=True,
-                    variable="so2",
+                    variable="aerosol",
                 )
-            if learner.model.map_aerosol_to_climate:
-                routing = {
-                    name: value.detach().cpu()
-                    for name, value in learner.model.forcing_climate_spatial_alignment().items()
-                }
-                for name in ["aerosol", "so2"]:
-                    if name in routing:
-                        route = routing[name]
-                        self.plot_aerosol_to_climate_mapping(
-                            route,
-                            learner.iteration,
-                            name,
-                            path=learner.plots_path,
-                        )
+                if multiple_forcings:
+                    self.plot_regions_map(
+                        adj_w_so2,
+                        learner.coordinates,
+                        learner.iteration,
+                        learner.plot_params.plot_through_time,
+                        path=learner.plots_path,
+                        idx_region=None,
+                        annotate=True,
+                        variable="so2",
+                    )
+                    self.plot_regions_map(
+                        adj_w_so2,
+                        learner.coordinates,
+                        learner.iteration,
+                        learner.plot_params.plot_through_time,
+                        path=learner.plots_path,
+                        idx_region=None,
+                        annotate=True,
+                        variable="so2",
+                    )
+                if learner.model.map_aerosol_to_climate:
+                    routing = {
+                        name: value.detach().cpu()
+                        for name, value in learner.model.forcing_climate_spatial_alignment().items()
+                    }
+                    for name in ["aerosol", "so2"]:
+                        if name in routing:
+                            route = routing[name]
+                            self.plot_aerosol_to_climate_mapping(
+                                route,
+                                learner.iteration,
+                                name,
+                                path=learner.plots_path,
+                            )
 
     def plot_aerosol_to_climate_mapping(self, adj, iteration, surname, path):
         plt.figure(figsize=(8, 10))
@@ -933,11 +939,11 @@ class Plotter:
                 if annotate:
                     x, y = self.get_centroid(region[:, 1], region[:, 0])
                     ax.text(x, y, str(k), transform=ccrs.PlateCarree())
-            ax.legend(
-                loc="lower left",
-                fontsize=10,
-                frameon=True,
-            )
+            # ax.legend(
+            #     loc="lower left",
+            #     fontsize=10,
+            #     frameon=True,
+            # )
         if idx_region is not None:
             fname = f"spatial_aggregation{idx_region}_{variable}.png"
         elif plot_through_time:
@@ -1027,7 +1033,7 @@ class Plotter:
             plt.axhline(y=best_metrics["kl"], color="red", linestyle="dotted")
             plt.plot(t_loss, label="tr loss", color="purple")
             plt.axhline(y=best_metrics["elbo"], color="purple", linestyle="dotted")
-            plt.plot(t_gmst_loss, label="tr gmst", color="green")
+            plt.plot(t_gmst_loss, label="tr gmst", color="orange")
         else:
             plt.plot(t_loss, label="tr ELBO")
 
