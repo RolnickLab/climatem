@@ -480,8 +480,8 @@ class TrainingLatent:
                 # TODO(dev): Propagate the path for saving coordinates and adjacency matrices
                 if not self.plot_params.savar:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
-                # torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
-                torch.save(self.model.state_dict(), self.save_path / "model_last.pth")
+                torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
+                # torch.save(self.model.state_dict(), self.save_path / "model_last.pth")
 
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
@@ -762,12 +762,18 @@ class TrainingLatent:
         if self.instantaneous and not self.converged:
             h_acyclic = self.get_acyclicity_violation()
         h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder(), self.ortho_normalization)
-        h_ortho_aerosol_forcing = self.get_ortho_violation_forcings(
-            self.model.autoencoder.get_w_forcings("aerosol"), self.ortho_aerosol_normalization
-        )
-        h_ortho_so2_forcing = self.get_ortho_violation_forcings(
-            self.model.autoencoder.get_w_forcings("so2"), self.ortho_so2_normalization
-        )
+
+        if self.model.use_forced_latents:
+            h_ortho_aerosol_forcing = self.get_ortho_violation_forcings(
+                self.model.autoencoder.get_w_forcings("aerosol"), self.ortho_aerosol_normalization
+            )
+            h_ortho_so2_forcing = self.get_ortho_violation_forcings(
+                self.model.autoencoder.get_w_forcings("so2"), self.ortho_so2_normalization
+            )
+        else:
+            h_ortho_aerosol_forcing, h_ortho_so2_forcing = torch.tensor(
+                0.0, device=self.accelerator.device
+            ), torch.tensor(0.0, device=self.accelerator.device)
         # NOTE: Decoder utilization penalty is no longer applicable.
         # With the architectural fix, forcing latents are excluded from the observation decoder
         # (they only go through forcing decoders and the causal transition model).
@@ -779,7 +785,7 @@ class TrainingLatent:
             nll
             + connect_reg
             + sparsity_reg
-            + self.optim_params.forcing_so2_coeff * gmst_loss
+            + self.optim_params.gmst_coeff * gmst_loss
             + self.optim_params.forcing_co2_coeff * forcing_loss_co2
             + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol
             + self.optim_params.forcing_ch4_coeff * forcing_loss_ch4
@@ -890,13 +896,13 @@ class TrainingLatent:
             with torch.no_grad():
                 if self.model.use_forced_latents:
                     n_climate = self.model.d_z - self.model.n_forced_latents_total
+                    self.model.autoencoder.get_w_forcings("co2").clamp_(min=0.0)
+                    self.model.autoencoder.get_w_forcings("aerosol").clamp_(min=0.0)
+                    self.model.autoencoder.get_w_forcings("ch4").clamp_(min=0.0)
+                    self.model.autoencoder.get_w_forcings("so2").clamp_(min=0.0)
                 else:
                     n_climate = self.model.d_z
                 self.model.autoencoder.get_w_decoder()[..., :n_climate].clamp_(min=0.0)
-                self.model.autoencoder.get_w_forcings("co2").clamp_(min=0.0)
-                self.model.autoencoder.get_w_forcings("aerosol").clamp_(min=0.0)
-                self.model.autoencoder.get_w_forcings("ch4").clamp_(min=0.0)
-                self.model.autoencoder.get_w_forcings("so2").clamp_(min=0.0)
 
             # assert torch.min(self.model.autoencoder.get_w_decoder()) >= 0.0
 
@@ -947,7 +953,7 @@ class TrainingLatent:
                 f"SO2={forcing_loss_so2.item():.6f}, "
                 f"Supervision={forcing_latent_loss.item():.6f}, "
                 f"Recons={recons.item():.6f}, "
-                f"GMST={gmst_loss.item():.6f}"
+                f"GMST={gmst_loss.item():.6f}, "
             )
 
             logger.debug(f"  Decoder utilization penalty: {decoder_utilization_penalty.item():.6f}")
@@ -1240,13 +1246,18 @@ class TrainingLatent:
             if self.instantaneous and not self.converged:
                 h_acyclic = self.get_acyclicity_violation()
             h_ortho = self.get_ortho_violation(self.model.autoencoder.get_w_decoder(), self.ortho_normalization)
-            h_ortho_aerosol_forcing = self.get_ortho_violation_forcings(
-                self.model.autoencoder.get_w_forcings("aerosol"), self.ortho_aerosol_normalization
-            )
-            h_ortho_so2_forcing = self.get_ortho_violation_forcings(
-                self.model.autoencoder.get_w_forcings("so2"), self.ortho_so2_normalization
-            )
 
+            if self.model.use_forced_latents:
+                h_ortho_aerosol_forcing = self.get_ortho_violation_forcings(
+                    self.model.autoencoder.get_w_forcings("aerosol"), self.ortho_aerosol_normalization
+                )
+                h_ortho_so2_forcing = self.get_ortho_violation_forcings(
+                    self.model.autoencoder.get_w_forcings("so2"), self.ortho_so2_normalization
+                )
+            else:
+                h_ortho_aerosol_forcing, h_ortho_so2_forcing = torch.tensor(
+                    0.0, device=self.accelerator.device
+                ), torch.tensor(0.0, device=self.accelerator.device)
             # compute total loss - here we are removing the sparsity regularisation as we are usings the constraint here.
             loss = (
                 nll
@@ -1399,14 +1410,15 @@ class TrainingLatent:
                 self.save_path / f"encoder_mat_{self.iteration}.npy",
                 self.model.autoencoder.get_w_encoder().cpu().detach().numpy(),
             )
-            np.save(
-                self.save_path / f"decoder_aerosol_mat_{self.iteration}.npy",
-                self.model.autoencoder.get_w_aerosol().cpu().detach().numpy(),
-            )
-            np.save(
-                self.save_path / f"decoder_so2_mat_{self.iteration}.npy",
-                self.model.autoencoder.get_w_so2().cpu().detach().numpy(),
-            )
+            if self.model.use_forced_latents:
+                np.save(
+                    self.save_path / f"decoder_aerosol_mat_{self.iteration}.npy",
+                    self.model.autoencoder.get_w_aerosol().cpu().detach().numpy(),
+                )
+                np.save(
+                    self.save_path / f"decoder_so2_mat_{self.iteration}.npy",
+                    self.model.autoencoder.get_w_so2().cpu().detach().numpy(),
+                )
             np.save(self.save_path / "x_true_recons_val.npy", x.cpu().detach().numpy())
             np.save(self.save_path / "y_true_recons_val.npy", y.cpu().detach().numpy())
             np.save(self.save_path / "y_pred_recons_val.npy", y_pred_all.cpu().detach().numpy())
@@ -2059,8 +2071,8 @@ class TrainingLatent:
 
         if take_log:
             idx_pos = torch.logical_or(torch.abs(fft_pred) < 1e-4, torch.abs(fft_true) < 1e-4)
-            fft_true = torch.where(idx_pos, fft_true, 0.0)
-            fft_pred = torch.where(idx_pos, fft_pred, 0.0)
+            fft_true = torch.where(idx_pos, 0.0, fft_true)
+            fft_pred = torch.where(idx_pos, 0.0, fft_pred)
             fft_true = torch.log(torch.abs(fft_true) + 1e-4)
             fft_pred = torch.log(torch.abs(fft_pred) + 1e-4)
 
