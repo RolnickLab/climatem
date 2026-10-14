@@ -78,6 +78,7 @@ class dataParams:
         num_months_aggregated: List[int] = [
             1
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
+        global_lag: int = 0,  # NEW: global forcings: how many months the model can look back
         **kwargs,  # accept any new keys in the parameter configs (for reloading the returned extra parameters)
     ):
         self.data_dir = data_dir
@@ -114,6 +115,7 @@ class dataParams:
         self.load_train_into_mem = load_train_into_mem
         self.load_test_into_mem = load_test_into_mem
         self.num_months_aggregated = num_months_aggregated
+        self.global_lag = global_lag
 
 
 # # This class is only for debugging and for setting some params to the true aprams when training picabu
@@ -196,7 +198,7 @@ class modelParams:
         n_forced_latents_so2: int = 0,  # NEW: Number of latent dimensions for aerosol forcing
         forcing_arch: str = "baseline",  # NEW: baseline | transitioned | predefined
         map_aerosol_to_climate: bool = False,  # Added: if only allow global impacts from aerosol to climate
-        forcing_mse: bool = False,
+        forcing_mse: bool = False,  # Reconstruction eror of forcings
         # first check if z_climate and z_aerosol are mapped to the same locations. If so, then allow transition from z_aerosol to z_climate
     ):
         self.instantaneous = instantaneous

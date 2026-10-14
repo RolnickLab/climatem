@@ -37,10 +37,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from climatem.config import *
-from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule
+from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule, CausalClimateDataMultiScaleScenarioModule
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.tsdcd_latent import LatentTSDCD
-from climatem.model.tsdcd_latent_hierarchy import HierarchicalLatentTSDCD
+
 from climatem.utils import parse_args, update_config_withparse
 
 from climatem.synthetic_data.utils import permute_matrices
@@ -149,22 +149,7 @@ def main(
             seasonality_removal=data_params.seasonality_removal,
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
-            time_len=savar_params.time_len,
-            comp_size=savar_params.comp_size,
-            noise_val=savar_params.noise_val,
-            n_per_col=savar_params.n_per_col,
-            difficulty=savar_params.difficulty,
-            seasonality=savar_params.seasonality,
-            overlap=savar_params.overlap,
-            is_forced=savar_params.is_forced,
-            f_1=savar_params.f_1,
-            f_2=savar_params.f_2,
-            f_time_1=savar_params.f_time_1,
-            f_time_2=savar_params.f_time_2,
-            ramp_type=savar_params.ramp_type,
-            linearity=savar_params.linearity,
-            poly_degrees=savar_params.poly_degrees,
-            plot_original_data=savar_params.plot_original_data,
+            global_lag = data_params.global_lag # New: global lag
         )
         savar_data_args=dict(            
             # Below SAVAR data arguments
@@ -211,14 +196,15 @@ def main(
             )
         # ["ssp126", "ssp245", "historical"]
         # ["ts", "co2mass", "mmrbc", "so2", "ch4global"]
-
+        global_lag = getattr(data_params, "global_lag", 0)
         DATA_REGISTRY = {
             "single": {
                 "cls": CausalClimateDataModule,
                 "args": {**common_data_args, **savar_data_args},
             },
             "multi": { # the multiscenario dataset doesn't support savar input yet.
-                "cls": CausalClimateDataMultiScenarioModule,
+                "cls": ( # if global_lag > 0, use multiscale data module
+                    CausalClimateDataMultiScaleScenarioModule if global_lag > 0 else CausalClimateDataMultiScenarioModule), 
                 "args": {**common_data_args}
             },
         }
@@ -295,13 +281,24 @@ def main(
             logger.info("Instantiate LatentTSDCD!")
             model = LatentTSDCD(**common_model_kwargs)
         case _:
-            logger.info("Instantiate Hierarchical LatentTSDCD!")
-            model = HierarchicalLatentTSDCD(
-                **common_model_kwargs,
-                d_z_global=experiment_params.d_z_global,
-                nonlinear_global_dynamics=model_params.nonlinear_global_dynamics,
-            )
-
+            if model_params.use_forced_latents:
+                from climatem.model.tsdcd_latent_hierarchy import HierarchicalLatentTSDCD
+                logger.info("Instantiate Hierarchical LatentTSDCD! Forcings in latent space")
+                model = HierarchicalLatentTSDCD(
+                    **common_model_kwargs,
+                    d_z_global=experiment_params.d_z_global,
+                    nonlinear_global_dynamics=model_params.nonlinear_global_dynamics,
+                )
+                
+            else:
+                from climatem.model.tsdcd_latent_hierarchy_raw import HierarchicalLatentTSDCD
+                logger.info("Instantiate Hierarchical LatentTSDCD! Forcings as condition")
+                assert model_params.use_exogenous, "use_exogenous must be enabled to use raw forcings"
+                model = HierarchicalLatentTSDCD(
+                    **common_model_kwargs,
+                    d_z_global=experiment_params.d_z_global,
+                    nonlinear_global_dynamics=model_params.nonlinear_global_dynamics,
+                )
         # case _:
         #     raise ValueError(
         #         f"Unsupported d_z_global={experiment_params.d_z_global}"
@@ -505,8 +502,6 @@ def assert_args(
         or experiment_params.d_z_global < 0
     ):
         raise ValueError("When using latent model, you need to define d_z and d_x with integer values greater than 0; and d_z_global greater or equal to 0")
-    if experiment_params.d_z_global>1:
-        raise ValueError("The global latent should have at most one dimension!")
     # string input with limited possible values
     supported_dataformat = ["numpy", "hdf5"]
     if data_params.data_format not in supported_dataformat:

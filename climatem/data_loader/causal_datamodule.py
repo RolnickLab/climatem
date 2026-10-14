@@ -10,10 +10,172 @@ from climatem.constants import AVAILABLE_MODELS_FIRETYPE, OPENBURNING_MODEL_MAPP
 
 # import relevant data loading modules
 from climatem.data_loader.climate_datamodule import ClimateDataModule
-from climatem.data_loader.cmip6_dataset import CMIP6Dataset, MultiscenarioDataset
+from climatem.data_loader.cmip6_dataset import (
+    CMIP6Dataset,
+    MultiScaleMultiscenarioDataset,
+    MultiscenarioDataset,
+)
 from climatem.data_loader.era5_dataset import ERA5Dataset
 from climatem.data_loader.input4mip_dataset import Input4MipsDataset
 from climatem.data_loader.savar_dataset import SavarDataset
+
+# RESPONSE_INTERVALS = [(240, 240),(61, 239),(13, 60),(4, 12), (1, 3),(0,0)] # global_lag up to 240 months, but for the exact interval, please refer to the log files
+RESPONSE_INTERVALS = [
+    (60, 60),
+    (12, 59),
+    (5, 11),
+    (2, 4),
+    (1, 1),
+    (0, 0),
+]  # global_lag up to 60 months, I am thinking to move this variable to config file.
+
+
+# RESPONSE_INTERVALS = [(60, 60),(25, 59),(13, 24),(4, 12),(1, 3),(0, 0)]
+class MultiScaleCausalDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        x,
+        y,
+        co2_forcing=None,
+        aerosol_forcing=None,
+        gt_co2_latent=None,
+        gt_aerosol_latent=None,
+        domain=None,
+        response_intervals=RESPONSE_INTERVALS,
+        sample_global_response=True,
+        global_response_mode="sample",
+    ):
+        # Unsqueeze the variable dimension for savar data
+        if co2_forcing is not None and co2_forcing.ndim == 3:
+            co2_forcing = co2_forcing[:, :, None, :]
+        if aerosol_forcing is not None and aerosol_forcing.ndim == 3:
+            aerosol_forcing = aerosol_forcing[:, :, None, :]
+
+        self.x = x
+        self.y = y
+        self.global_forcings = co2_forcing
+        self.spatial_forcings = aerosol_forcing
+        self.gt_co2_latent = gt_co2_latent
+        self.gt_aerosol_latent = gt_aerosol_latent
+        self.domain = domain
+
+        self.response_intervals = response_intervals
+        print(f"Instantiate multi-temporal scale global forcings with intervals: {self.response_intervals}")
+        self.sample_global_response = sample_global_response
+
+        if self.global_forcings is not None and self.sample_global_response:
+            required = max(high for _, high in self.response_intervals) + 1
+            if self.global_forcings.shape[1] < required:
+                raise ValueError(
+                    f"Global forcing history must contain at least {required} months "
+                    f"to sample lag 0..{required - 1}, but got "
+                    f"{self.global_forcings.shape[1]} months."
+                )
+        self.global_response_mode = global_response_mode
+
+    def _sample_global_forcings(self, global_history):
+        """
+        Sample one month from each response interval independently for each global forcing variable.
+
+        global_history:
+            [global_lag+1, n_global_variables, ...]
+            ordered as [t-global_lag, ..., t]
+
+        returns:
+            [6, n_global_variables, ...]
+        """
+        n_time = global_history.shape[0]
+        n_vars = global_history.shape[1]
+
+        sampled = []
+
+        for lag_min, lag_max in self.response_intervals:
+            interval_values = []
+
+            for var_idx in range(n_vars):
+                if lag_min == lag_max:
+                    lag = lag_min
+                else:
+                    lag = np.random.randint(lag_min, lag_max + 1)
+
+                time_idx = n_time - 1 - lag
+
+                interval_values.append(global_history[time_idx, var_idx])
+
+            sampled.append(np.stack(interval_values, axis=0))
+
+        return np.stack(sampled, axis=0)
+
+    def _mean_global_forcings(self, global_history):
+        """
+        Average the months in each response interval.
+
+        global_history:
+            [global_lag +1, n_global_variables, ...]
+            ordered as [t-global_lag, ..., t]
+
+        returns:
+            [6, n_global_variables, ...]
+        """
+        n_time = global_history.shape[0]
+        interval_means = []
+
+        for lag_min, lag_max in self.response_intervals:
+            # Last element is current time t, so lag 0 maps to n_time - 1.
+            start_idx = n_time - 1 - lag_max
+            end_idx = n_time - lag_min
+            interval_values = global_history[start_idx:end_idx]
+            if torch.is_tensor(interval_values):
+                interval_means.append(interval_values.mean(dim=0))
+            else:
+                interval_means.append(interval_values.mean(axis=0))
+
+        if torch.is_tensor(global_history):
+            return torch.stack(interval_means, dim=0)
+        return np.stack(interval_means, axis=0)
+
+    def __getitem__(self, index: int):
+        """
+        Spatial state / spatial forcing keep their original short history (e.g. spatial_tau=5).
+
+        Global forcing is stored as a global_lag+1 month history [t-global_lag, ..., t],
+        then reduced here to 6 response-aware samples:
+            [t-240, t-120, ..., t-1, t] for example
+        """
+        if self.global_forcings is not None and self.spatial_forcings is not None:
+            global_forcings = self.global_forcings[index]
+
+            if self.sample_global_response:
+                if self.global_response_mode == "sample":
+                    # in training, random sample one lag from each interval
+                    global_forcings = self._sample_global_forcings(global_forcings)
+                elif self.global_response_mode == "mean":
+                    # in validation and testing, take the mean value from each interval
+                    global_forcings = self._mean_global_forcings(global_forcings)
+                else:
+                    raise ValueError(f"Unknown global_response_mode: {self.global_response_mode!r}")
+
+            result = {
+                "x": self.x[index],
+                "y": self.y[index],
+                "global_forcings": global_forcings,
+                "spatial_forcings": self.spatial_forcings[index],
+            }
+
+            if self.domain is not None:
+                result["domain"] = self.domain[index]
+
+            if self.gt_co2_latent is not None:
+                result["gt_co2_latent"] = self.gt_co2_latent[index]
+            if self.gt_aerosol_latent is not None:
+                result["gt_aerosol_latent"] = self.gt_aerosol_latent[index]
+
+            return result
+
+        return self.x[index], self.y[index]
+
+    def __len__(self):
+        return len(self.x)
 
 
 class CausalDataset(torch.utils.data.Dataset):
@@ -545,18 +707,18 @@ class CausalClimateDataMultiScenarioModule(ClimateDataModule):
         target_ssp_x, target_ssp_y, target_ssp_name = target_ssp  # (1550, 5, 1, 3072)  # (1550, 1, 1, 3072)
         target_hist_x, target_hist_y, target_hist_name = target_hist  # (1519, 5, 1, 3072) # (1519, 1, 1, 3072)
         spatial_forcing = (
-            np.concatenate((spatial_forcing_ssp_x, spatial_forcing_hist_x), axis=0),
-            np.concatenate((spatial_forcing_ssp_y, spatial_forcing_hist_y), axis=0),
+            np.concatenate((spatial_forcing_hist_x, spatial_forcing_ssp_x), axis=0),
+            np.concatenate((spatial_forcing_hist_y, spatial_forcing_ssp_y), axis=0),
         )
         global_forcing = (
-            np.concatenate((global_forcing_ssp_x, global_forcing_hist_x), axis=0),
-            np.concatenate((global_forcing_ssp_y, global_forcing_hist_y), axis=0),
+            np.concatenate((global_forcing_hist_x, global_forcing_ssp_x), axis=0),
+            np.concatenate((global_forcing_hist_y, global_forcing_ssp_y), axis=0),
         )
         target = (
-            np.concatenate((target_ssp_x, target_hist_x), axis=0),
-            np.concatenate((target_ssp_y, target_hist_y), axis=0),
+            np.concatenate((target_hist_x, target_ssp_x), axis=0),
+            np.concatenate((target_hist_y, target_ssp_y), axis=0),
         )
-        domain = np.concatenate((target_ssp_name, target_hist_name), axis=0)
+        domain = np.concatenate((target_hist_name, target_ssp_name), axis=0)
         return self._build_causal_dataset(target, spatial_forcing, global_forcing, domain)
 
     def _build_causal_dataset(self, target_data, spatial_forcing_data, global_forcing_data, domain):
@@ -580,6 +742,264 @@ class CausalClimateDataMultiScenarioModule(ClimateDataModule):
             co2_forcing=global_forcing,
             aerosol_forcing=spatial_forcing,
             domain=domain,
+        )
+
+    @staticmethod
+    def _flatten_space(data):
+        return data.reshape(data.shape[0], data.shape[1], data.shape[2], -1)
+
+
+class CausalClimateDataMultiScaleScenarioModule(ClimateDataModule):
+    """
+    DataModule for causal discovery using multi-scenario climate data. The dataset return multi temporal scales.
+
+    It loads spatial variables and global forcing variables separately, then converts them into MultiScaleCausalDataset
+    inputs.
+    """
+
+    def __init__(
+        self,
+        tau=5,
+        future_timesteps=1,
+        num_months_aggregated=1,
+        train_val_interval_length=100,
+        **kwargs,
+    ):
+        super().__init__(self)
+
+        self.hparams.test_models = self.hparams.train_models
+        self.tau = tau
+        self.future_timesteps = future_timesteps
+        self.num_months_aggregated = num_months_aggregated
+        self.train_val_interval_length = train_val_interval_length
+        self.shuffle_train = False
+        self.savar_name = None
+
+    @staticmethod
+    def years_to_list(years_str):
+        """Convert years input to list of years."""
+        if years_str is None:
+            return []
+        elif isinstance(years_str, int):
+            return [years_str]
+        elif isinstance(years_str, str):
+            print(years_str)
+            if len(years_str) != 9:
+                raise ValueError("Years string must be in the format xxxx-yyyy (eg. 2015-2100).")
+
+            years = years_str.split("-")
+            min_year, max_year = int(years[0]), int(years[1])
+            return np.arange(min_year, max_year + 1)
+        else:
+            raise ValueError(f"years_str must be int, str, or None, not {type(years_str)}")
+
+    def setup(self, stage: Optional[str] = None):
+        train_years = self.years_to_list(self.hparams.train_years)  # list 1600-2100
+
+        train_historical_years = self.years_to_list(self.hparams.train_historical_years)
+
+        os.makedirs(self.hparams.output_save_dir, exist_ok=True)
+
+        if stage in ["fit", "validate", None]:
+            train_val_dataset = self._build_multiscenario_dataset(
+                years=train_years,
+                historical_years=train_historical_years,
+                scenarios=self.hparams.train_scenarios,
+                mode="train+val",
+            )
+
+            self._setup_train_val(train_val_dataset, train_years)
+            self.coordinates = train_val_dataset.coordinates
+
+        if stage in ["test", None]:
+            test_dataset = self._build_multiscenario_dataset(
+                years=train_years,
+                historical_years=train_historical_years,
+                scenarios=self.hparams.test_scenarios,
+                mode="test",
+            )
+
+            self._setup_test(test_dataset)
+
+    def _build_multiscenario_dataset(self, years, historical_years, scenarios, mode):
+        openburning_specs = (
+            OPENBURNING_MODEL_MAPPING[self.hparams.train_models]
+            if self.hparams.train_models in AVAILABLE_MODELS_FIRETYPE
+            else OPENBURNING_MODEL_MAPPING["other"]
+        )
+        return MultiScaleMultiscenarioDataset(
+            years=years,
+            historical_years=historical_years,
+            data_dir=self.hparams.data_dir,
+            climate_model=self.hparams.train_models,
+            num_ensembles=self.hparams.num_ensembles,
+            variables=self.hparams.in_var_ids,
+            scenarios=scenarios,
+            channels_last=self.hparams.channels_last,
+            openburning_specs=openburning_specs,
+            mode=mode,
+            output_save_dir=self.hparams.output_save_dir,
+            lon=self.hparams.lon,
+            lat=self.hparams.lat,
+            icosahedral_coordinates_path=self.hparams.icosahedral_coordinates_path,
+            global_normalization=self.hparams.global_normalization,
+            seasonality_removal=self.hparams.seasonality_removal,
+            reload_climate_set_data=self.hparams.reload_climate_set_data,
+            global_lag=self.hparams.global_lag,
+        )
+
+    def _get_multiscale_causal_data(self, dataset, data, global_data, mode, domain_names, ratio_train=None):
+        return dataset.get_multiscale_causal_data(
+            data=data,
+            global_data=global_data,
+            spatial_tau=self.tau,
+            future_timesteps=self.future_timesteps,
+            ratio_train=ratio_train,
+            interval_length=self.train_val_interval_length,
+            mode=mode,
+            domain_names=domain_names,
+            global_prefix=dataset.norm_global_forcing_data_hist,
+            global_lookback=dataset.global_lookback,
+        )
+
+    def _setup_train_val(self, dataset, train_years):
+        ratio_train = 1 - self.hparams.val_split
+
+        train_target_ssp, val_target_ssp = self._get_multiscale_causal_data(
+            dataset,
+            dataset.norm_target_data_ssp,
+            dataset.norm_global_forcing_data_ssp,
+            mode="train+val",
+            ratio_train=ratio_train,
+            domain_names=dataset.scenarios,
+        )
+        train_spatial_forcing_ssp, val_spatial_forcing_ssp = self._get_multiscale_causal_data(
+            dataset,
+            dataset.norm_spatial_forcing_data_ssp,
+            dataset.norm_global_forcing_data_ssp,
+            mode="train+val",
+            ratio_train=ratio_train,
+            domain_names=dataset.scenarios,
+        )
+
+        train_target_hist, val_target_hist = dataset.get_multiscale_causal_data(
+            data=dataset.norm_target_data_hist,
+            global_data=dataset.norm_global_forcing_data_hist,
+            spatial_tau=self.tau,
+            future_timesteps=self.future_timesteps,
+            ratio_train=ratio_train,
+            interval_length=self.train_val_interval_length,
+            mode="train+val",
+            domain_names=["historical"],
+            global_prefix=None,
+            global_lookback=dataset.global_lookback,
+        )
+        train_spatial_forcing_hist, val_spatial_forcing_hist = dataset.get_multiscale_causal_data(
+            data=dataset.norm_spatial_forcing_data_hist,
+            global_data=dataset.norm_global_forcing_data_hist,
+            spatial_tau=self.tau,
+            future_timesteps=self.future_timesteps,
+            ratio_train=ratio_train,
+            interval_length=self.train_val_interval_length,
+            mode="train+val",
+            domain_names=["historical"],
+            global_prefix=None,
+            global_lookback=dataset.global_lookback,
+        )
+
+        train = self._merge_historical_and_ssp_multiscale(
+            target_ssp=train_target_ssp,
+            target_hist=train_target_hist,
+            spatial_forcing_ssp=train_spatial_forcing_ssp,
+            spatial_forcing_hist=train_spatial_forcing_hist,
+            global_response_mode="sample",
+        )
+
+        self._data_train = train
+        self.n_train = train.x.shape[0]
+
+        if val_target_ssp is not None:
+            self._data_val = self._merge_historical_and_ssp_multiscale(
+                target_ssp=val_target_ssp,
+                target_hist=val_target_hist,
+                spatial_forcing_ssp=val_spatial_forcing_ssp,
+                spatial_forcing_hist=val_spatial_forcing_hist,
+                global_response_mode="mean",
+            )
+
+    def _setup_test(self, dataset):
+        test_target, test_domain = self._get_multiscale_causal_data(
+            dataset,
+            dataset.norm_target_data_ssp,
+            dataset.norm_global_forcing_data_ssp,
+            mode="test",
+            domain_names=dataset.scenarios,
+        )
+        test_spatial_forcing, _ = self._get_multiscale_causal_data(
+            dataset,
+            dataset.norm_spatial_forcing_data_ssp,
+            dataset.norm_global_forcing_data_ssp,
+            mode="test",
+            domain_names=dataset.scenarios,
+        )
+
+        self._data_test = self._build_multiscale_causal_dataset(
+            target_data=test_target,
+            spatial_forcing_data=test_spatial_forcing,
+            domain=test_domain,
+            global_response_mode="mean",
+        )
+
+    def _merge_historical_and_ssp_multiscale(
+        self,
+        target_ssp,
+        target_hist,
+        spatial_forcing_ssp,
+        spatial_forcing_hist,
+        global_response_mode,
+    ):
+        target_ssp_x, target_ssp_y, global_forcing_ssp, target_ssp_name = target_ssp
+        target_hist_x, target_hist_y, global_forcing_hist, target_hist_name = target_hist
+
+        spatial_forcing_ssp_x, spatial_forcing_ssp_y, _, _ = spatial_forcing_ssp
+        spatial_forcing_hist_x, spatial_forcing_hist_y, _, _ = spatial_forcing_hist
+
+        target = (
+            np.concatenate((target_hist_x, target_ssp_x), axis=0),
+            np.concatenate((target_hist_y, target_ssp_y), axis=0),
+            np.concatenate((global_forcing_hist, global_forcing_ssp), axis=0),
+        )
+        spatial_forcing = (
+            np.concatenate((spatial_forcing_hist_x, spatial_forcing_ssp_x), axis=0),
+            np.concatenate((spatial_forcing_hist_y, spatial_forcing_ssp_y), axis=0),
+        )
+        domain = np.concatenate((target_hist_name, target_ssp_name), axis=0)
+
+        return self._build_multiscale_causal_dataset(
+            target, spatial_forcing, domain, global_response_mode=global_response_mode
+        )
+
+    def _build_multiscale_causal_dataset(
+        self, target_data, spatial_forcing_data, domain, global_response_mode="sample"
+    ):
+        target_x, target_y, global_forcing = target_data
+        spatial_forcing_x, spatial_forcing_y = spatial_forcing_data[:2]
+
+        spatial_forcing = np.concatenate((spatial_forcing_x, spatial_forcing_y), axis=1)
+
+        target_x = self._flatten_space(target_x)
+        target_y = self._flatten_space(target_y)
+        spatial_forcing = self._flatten_space(spatial_forcing)
+        global_forcing = self._flatten_space(global_forcing)
+        self.d = target_x.shape[2]
+
+        return MultiScaleCausalDataset(
+            x=target_x,
+            y=target_y,
+            co2_forcing=global_forcing,
+            aerosol_forcing=spatial_forcing,
+            domain=domain,
+            global_response_mode=global_response_mode,
         )
 
     @staticmethod
