@@ -1695,9 +1695,7 @@ class LatentTSDCD(nn.Module):
         else:
             z_climate = z
             forcing_slices = OrderedDict()
-        print("forcing_slices")
-        for k, v in forcing_slices.items():
-            print(k, v.shape)
+
         for i in range(self.d):
             # Todo, currently only handle z_co2 of d=1 and z_zerosol of d=1, what if there are more forcings? should we name them separately?
             forcing_latents = self._transition_forcing_list(forcing_slices, i)
