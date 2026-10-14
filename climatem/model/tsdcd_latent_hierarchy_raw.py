@@ -1,5 +1,8 @@
 # Adapted from the original code for CDSD, Brouillard et al., 2024.
 # Hierachical Model (x-> z-> z_global) or (x-> z1-> z2)
+# 28/09: the 6 step as input for global forcing (this relates to uncomment the input global forcings and in global transition take num_forcings as 12 instead of 2)
+# 29/09: adapt the globaltransitoinmodel, co2 and ch4 has own network, and final linear for merging
+
 from collections import OrderedDict
 from math import pi
 
@@ -436,7 +439,6 @@ class HierarchicalLatentTSDCD(nn.Module):
         #         self.mask.fix(self.gt_graph[:-1])
 
         self.map_aerosol_to_climate = map_aerosol_to_climate
-        self.gmst_mse = forcing_mse  # we used alias for gmst_mse
 
     def get_adj(self):
         """
@@ -542,7 +544,6 @@ class HierarchicalLatentTSDCD(nn.Module):
                     z2[:, :, i][:, :, :, None], i, k, y_co2=y_co2, y_ch4=y_ch4
                 )
             mu[:, i] = pz_params[:, :, 0]
-            mu[:, i] = pz_params[:, :, 0]
             std[:, i] = torch.exp(0.5 * self.transition_model_global.logvar[i])
 
         return mu, std
@@ -624,7 +625,7 @@ class HierarchicalLatentTSDCD(nn.Module):
     def forward(self, x, y, gt_z, iteration, xi=None, y_co2=None, y_aerosol=None, y_ch4=None, y_so2=None):
 
         if iteration == 1:
-            print(f"shape x: {x.shape}, y: {y.shape}")
+            print(f"shape x: {x.shape}, y: {y.shape}")  # (b, tau, 1, 3072), # (b, 1, 3072)
             if y_co2 is not None and y_aerosol is not None:
                 print(f"y_co2: {y_co2.shape}")  # (b, tau+1, 1)
                 print(f"y_aerosol: {y_aerosol.shape}")  # (b, tau+1, 3072)
@@ -650,10 +651,10 @@ class HierarchicalLatentTSDCD(nn.Module):
                 y_aerosol = y_aerosol[:, -1]
             if y_so2 is not None:
                 y_so2 = y_so2[:, -1]
-            if y_co2 is not None:
-                y_co2 = y_co2[:, -1]
-            if y_ch4 is not None:
-                y_ch4 = y_ch4[:, -1]
+            # if y_co2 is not None:
+            #     y_co2 = y_co2[:, -1]
+            # if y_ch4 is not None:
+            #     y_ch4 = y_ch4[:, -1]
 
         if self.instantaneous:
             pz2_mu, pz2_std = self.transition_global(z2[:, :-1].clone(), y_co2=y_co2, y_ch4=y_ch4)
@@ -747,10 +748,10 @@ class HierarchicalLatentTSDCD(nn.Module):
                 y_aerosol = y_aerosol[:, -1]
             if y_so2 is not None:
                 y_so2 = y_so2[:, -1]
-            if y_co2 is not None:
-                y_co2 = y_co2[:, -1]
-            if y_ch4 is not None:
-                y_ch4 = y_ch4[:, -1]
+            # if y_co2 is not None:
+            #     y_co2 = y_co2[:, -1]
+            # if y_ch4 is not None:
+            #     y_ch4 = y_ch4[:, -1]
 
         if self.instantaneous:
             z2_mu, pz2_std = self.transition_global(z2[:, :-1].clone(), y_co2=y_co2, y_ch4=y_ch4)
@@ -788,10 +789,10 @@ class HierarchicalLatentTSDCD(nn.Module):
                 y_aerosol = y_aerosol[:, -1]
             if y_so2 is not None:
                 y_so2 = y_so2[:, -1]
-            if y_co2 is not None:
-                y_co2 = y_co2[:, -1]
-            if y_ch4 is not None:
-                y_ch4 = y_ch4[:, -1]
+            # if y_co2 is not None:
+            #     y_co2 = y_co2[:, -1]
+            # if y_ch4 is not None:
+            #     y_ch4 = y_ch4[:, -1]
 
         mask = self.mask(b)
         if self.instantaneous:
@@ -829,10 +830,10 @@ class HierarchicalLatentTSDCD(nn.Module):
                 y_aerosol = y_aerosol[:, -1]
             if y_so2 is not None:
                 y_so2 = y_so2[:, -1]
-            if y_co2 is not None:
-                y_co2 = y_co2[:, -1]
-            if y_ch4 is not None:
-                y_ch4 = y_ch4[:, -1]
+            # if y_co2 is not None:
+            #     y_co2 = y_co2[:, -1]
+            # if y_ch4 is not None:
+            #     y_ch4 = y_ch4[:, -1]
 
         print("This is the shape of the latents that we are going to intervene on.", z.shape)
         print(
@@ -894,10 +895,10 @@ class HierarchicalLatentTSDCD(nn.Module):
                     y_aerosol = y_aerosol[:, -1]
                 if y_so2 is not None:
                     y_so2 = y_so2[:, -1]
-                if y_co2 is not None:
-                    y_co2 = y_co2[:, -1]
-                if y_ch4 is not None:
-                    y_ch4 = y_ch4[:, -1]
+                # if y_co2 is not None:
+                #     y_co2 = y_co2[:, -1]
+                # if y_ch4 is not None:
+                #     y_ch4 = y_ch4[:, -1]
 
             if self.instantaneous:
                 pz2_mu, _ = self.transition_global(z2[:, :-1].clone(), y_co2=y_co2, y_ch4=y_ch4)
@@ -944,14 +945,8 @@ class HierarchicalLatentTSDCD(nn.Module):
     def predict_sample_bayesianfiltering(
         self, x, y, num_samples, with_zs_logprob: bool = False, y_co2=None, y_aerosol=None, y_ch4=None, y_so2=None
     ):
-        """
-        This is a prediction function for the model, but where we take samples from the Gaussians of the latents.
-
-        Note this function also returns the option where we sample from the decoders, but of course these samples are
-        just chequerboards and not very interesting.
-
-        I can use no_grad here, because I am not going to be using the gradients for anything.
-        """
+        """Please OVERRIDE this method for inference, as different settings may require different scoring functions and
+        return values."""
 
         b = x.size(0)
 
@@ -968,10 +963,10 @@ class HierarchicalLatentTSDCD(nn.Module):
                     y_aerosol = y_aerosol[:, -1]
                 if y_so2 is not None:
                     y_so2 = y_so2[:, -1]
-                if y_co2 is not None:
-                    y_co2 = y_co2[:, -1]
-                if y_ch4 is not None:
-                    y_ch4 = y_ch4[:, -1]
+                # if y_co2 is not None:
+                #     y_co2 = y_co2[:, -1]
+                # if y_ch4 is not None:
+                #     y_ch4 = y_ch4[:, -1]
 
             if self.instantaneous:
                 pz2_mu, pz2_std = self.transition_global(
@@ -1292,9 +1287,9 @@ class TransitionModelGlobal(nn.Module):
             self.logvar = nn.Parameter(torch.ones(d, d_z) * -4)
         num_forcing = 0
         if d_y_co2 > 0:
-            num_forcing += 1
+            num_forcing += num_hidden
         if d_y_ch4 > 0:
-            num_forcing += 1
+            num_forcing += num_hidden
         if self.nonlinear_dynamics:
             print("NON LINEAR GLOBAL DYNAMICS")
             self.nn = nn.ModuleList(
@@ -1305,13 +1300,27 @@ class TransitionModelGlobal(nn.Module):
             self.nn = nn.ModuleList(MLP(0, 0, d * d_z * tau + num_forcing, self.num_output) for i in range(d * d_z))
         self.use_exogenous = (d_y_co2 + d_y_ch4) > 0
 
+        self.co2_net = nn.Sequential(
+            nn.Linear(self.tau + 1, num_hidden * 2),
+            nn.Tanh(),
+            nn.Linear(num_hidden * 2, num_hidden),
+        )
+
+        self.ch4_net = nn.Sequential(
+            nn.Linear(self.tau + 1, num_hidden * 2),
+            nn.Softplus(),
+            nn.Linear(num_hidden * 2, num_hidden),
+        )
+
     def forward(self, z, i, k, y_co2=None, y_ch4=None):
         """
         Returns the params of N(z_t | z_{<t}) for a specific feature i and latent variable k.
 
         z: (b, tau, d_z, 1)
-        y_co2: optional condition at t, shape should be (b, 1)
-        y_ch4: optional condition at t, shape should be (b, 1)
+        y_co2: optional condition from t-5 to t, shape (b, t, 1)
+        y_ch4: optional condition from t-5 to t, shape (b, t, 1)
+
+        CO2 and CH4 are nonlinearly transformed before condition the global latents
         """
         batch_size = z.size(0)
 
@@ -1321,12 +1330,14 @@ class TransitionModelGlobal(nn.Module):
 
         if self.use_exogenous:
             if y_co2 is not None:
-                components.append(y_co2.view(batch_size, -1))
+                y_co2 = self.co2_net(y_co2.view(batch_size, -1))
+                components.append(y_co2)
 
             if y_ch4 is not None:
-                components.append(y_ch4.view(batch_size, -1))
+                y_ch4 = self.ch4_net(y_ch4.view(batch_size, -1))
+                components.append(y_ch4)
 
-        conditioned_input = torch.cat(components, dim=-1)  # ([b, d_z + d_z2 + n_global_forcings])
+        conditioned_input = torch.cat(components, dim=-1)  # ([b, d_z + d_z2 + n_global_forcings*forcing_dim])
 
         param_z = self.nn[i * self.d_z + k](conditioned_input)
 
@@ -1801,7 +1812,7 @@ if __name__ == "__main__":
         num_input=num_input,
         num_output=2,
         num_layers_mixing=2,
-        num_hidden_mixing=16,
+        num_hidden_mixing=8,
         position_embedding_dim=100,
         transition_param_sharing=True,
         position_embedding_transition=45,
@@ -1818,7 +1829,7 @@ if __name__ == "__main__":
         tau=tau,
         instantaneous=False,
         nonlinear_dynamics=True,
-        nonlinear_global_dynamics=True,
+        nonlinear_global_dynamics=False,
         nonlinear_mixing=True,
         tied_w=False,
         fixed=False,
@@ -1826,7 +1837,7 @@ if __name__ == "__main__":
         d_y_aerosol=d_x,
         d_y_ch4=1,
         d_y_so2=d_x,
-        map_aerosol_to_climate=False,
+        map_aerosol_to_climate=True,
         use_exogenous=True,
     )
     # model = model.to(device)
@@ -1834,9 +1845,9 @@ if __name__ == "__main__":
     x = torch.randn(batch_size, tau, 1, d_x)
     y = torch.randn(batch_size, future_time_steps, d_x)
 
-    y_co2 = y.mean(dim=-1, keepdim=True)  # .to(device)
+    y_co2 = y.mean(dim=-1, keepdim=True) + torch.randn(batch_size, tau + future_time_steps, 1)  # .to(device)
     y_aerosol = torch.randn(batch_size, tau + future_time_steps, d_x)  # .to(device)
-    y_ch4 = torch.randn(batch_size, tau + future_time_steps, 1)  # .to(device)
+    y_ch4 = y_co2 - 0.2  # .to(device)
     y_so2 = torch.randn(batch_size, tau + future_time_steps, d_x)  # .to(device)
 
     y_co2_pert = y_co2.clone() + torch.randn(batch_size, tau + 1, 1)
@@ -1844,23 +1855,23 @@ if __name__ == "__main__":
     y_so2_pert = y_so2.clone() + 1
     y_aerosol_pert = y_aerosol.clone() + 1
 
-    model.predict_sample_bayesianfiltering(x, y, 2, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2)
+    # model.predict_sample_bayesianfiltering(x, y, 2, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2)
 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    # optimizer.zero_grad()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer.zero_grad()
 
-    # for i in range(10):
-    #     elbo,recons,kl,px_mu,_,_,_, forcing_recons_loss = model(x, y, gt_z=None, iteration=i, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2)
-    #     gmst_loss = forcing_recons_loss["gmst_loss"]
-    #     print(
-    #         f"{i}: elbo {elbo.item():.4f}, recons {recons.item():.4f}, gmst_loss {gmst_loss.item():.4f}"
-    #     )
-    #     loss = -elbo + gmst_loss*1000
-    #     loss.backward()
-    #     optimizer.step()
-    #     optimizer.zero_grad()
-    # print(f"Forward: {px_mu[0]}")
-    # print(f"Ground truth: {y[0]}")
+    for i in range(100):
+        elbo, recons, kl, px_mu, _, _, _, forcing_recons_loss = model(
+            x, y, gt_z=None, iteration=i, y_co2=y_co2, y_aerosol=y_aerosol, y_ch4=y_ch4, y_so2=y_so2
+        )
+        gmst_loss = forcing_recons_loss["gmst_loss"]
+        print(f"{i}: elbo {elbo.item():.4f}, recons {recons.item():.4f}, gmst_loss {gmst_loss.item():.4f}")
+        loss = -elbo + gmst_loss * 1000
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+    print(f"Forward: {px_mu[0]}")
+    print(f"Ground truth: {y[0]}")
 
     # model.eval()
     # torch.manual_seed(0)
