@@ -49,6 +49,8 @@ scikit-learn = "^1.6.1"
 jupyter-contrib-nbextensions = "^0.7.0"
 notebook = "^7.3.2"
 jupyterlab-widgets = "^3.0.13"
+fair = ">=2.2"
+h5netcdf = {version = "^1.8.2", extras = ["h5py"]}
 
 
 [tool.poetry.group.dev.dependencies]
