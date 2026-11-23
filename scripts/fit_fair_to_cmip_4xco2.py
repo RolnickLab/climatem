@@ -321,13 +321,14 @@ def plot_historical(model, obs, generic, fitted, fit_years, provenance, path):
 
 
 def git_state():
-    """Short commit hash, plus '+uncommitted' if this script differs from that commit."""
+    """Short commit hash, plus '+uncommitted' if anything under scripts/ (the FaIR scripts import each other)
+    differs from that commit or is new."""
 
     def git(*a):
         return subprocess.run(["git", "-C", str(REPO), *a], capture_output=True, text=True).stdout.strip()
 
     try:
-        dirty = git("status", "--porcelain", "--", Path(__file__).relative_to(REPO).as_posix())
+        dirty = git("status", "--porcelain", "--", "scripts")
         return (git("rev-parse", "--short", "HEAD") or "no-git") + ("+uncommitted" if dirty else "")
     except OSError:
         return "no-git"
