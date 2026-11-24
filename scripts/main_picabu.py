@@ -298,6 +298,13 @@ def main(
                     **common_model_kwargs,
                     d_z_global=experiment_params.d_z_global,
                     nonlinear_global_dynamics=model_params.nonlinear_global_dynamics,
+                    # thesis opt-in (defaults reproduce Shan's model)
+                    global_transition=model_params.global_transition,
+                    attention_dim=model_params.attention_dim,
+                    attention_gate=model_params.attention_gate,
+                    attention_gate_init=model_params.attention_gate_init,
+                    attention_gate_coeff=model_params.attention_gate_coeff,
+                    attention_gate_anchor=model_params.attention_gate_anchor,
                 )
         # case _:
         #     raise ValueError(

@@ -332,6 +332,7 @@ class TrainingLatent:
             self.optim_params.sparsity_min_iter_convergence,
             # dim_gamma=(1,),
             valid_freq=self.train_params.valid_freq,
+            mu_max=getattr(self.optim_params, "sparsity_mu_max", None),  # thesis opt-in cap
         )
 
         if self.instantaneous:
@@ -482,6 +483,7 @@ class TrainingLatent:
                     self.plotter.save_coordinates_and_adjacency_matrices(self)
                 torch.save(self.model.state_dict(), self.save_path / f"model_{self.iteration}.pth")
                 # torch.save(self.model.state_dict(), self.save_path / "model_last.pth")
+                self.save_attention_readout()
 
                 # try to use the accelerator.save function here
                 self.accelerator.save_state(output_dir=self.save_path)
@@ -626,6 +628,57 @@ class TrainingLatent:
 
         return valid_loss
 
+    def save_attention_readout(self):
+        """Thesis: save the attention-transition weights (the implicit global graph) at plot time.
+
+        No-op for Shan's MLP transition. Writes ``attention_<it>.npy`` (n_out x n_tokens, batch-mean of the last
+        forward pass), ``attention_gates_<it>.npy`` when gates are on, a text table, and ``attention_<it>.png``.
+        """
+        readout = getattr(self.model, "attention_readout", None)
+        if readout is None:
+            return
+        out = readout()
+        if out is None or out[1] is None:
+            return
+        labels, attn, gates = out
+        it = self.iteration
+        attn = attn.numpy()
+        np.save(self.save_path / f"attention_{it}.npy", attn)
+        if gates is not None:
+            gates = gates.numpy()
+            np.save(self.save_path / f"attention_gates_{it}.npy", gates)
+        with open(self.save_path / f"attention_{it}.txt", "w") as f:
+            f.write("token\tattention" + ("\tgate" if gates is not None else "") + "\n")
+            for j, lab in enumerate(labels):
+                row = f"{lab}\t{attn[0, j]:.4f}"
+                if gates is not None:
+                    row += f"\t{gates[0, j]:.4f}"
+                f.write(row + "\n")
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            n_rows = 1 + (gates is not None)
+            fig, axes = plt.subplots(n_rows, 1, figsize=(max(8, 0.6 * len(labels)), 3 * n_rows), squeeze=False)
+            x = np.arange(len(labels))
+            axes[0, 0].bar(x, attn[0], color="tab:blue")
+            axes[0, 0].set_ylabel("attention")
+            axes[0, 0].set_title(f"Global transition: attention over (variable, lag) tokens — iteration {it}")
+            if gates is not None:
+                axes[1, 0].bar(x, gates[0], color="tab:orange")
+                axes[1, 0].set_ylabel("gate")
+                axes[1, 0].set_ylim(0, 1)
+            for ax in axes[:, 0]:
+                ax.set_xticks(x)
+                ax.set_xticklabels(labels, rotation=60, ha="right", fontsize=8)
+            fig.tight_layout()
+            fig.savefig(self.plots_path / f"attention_{it}.png", dpi=120)
+            plt.close(fig)
+        except Exception as exc:  # noqa: BLE001 — plotting must never kill training
+            logger.warning(f"attention plot failed: {exc}")
+
     def train_step(self):  # noqa: C901
 
         self.model.train()
@@ -752,6 +805,11 @@ class TrainingLatent:
 
         else:
             sparsity_reg = self.get_regularisation()
+        # thesis: L1 on the attention gates (variant B); zero unless model_params.attention_gate_coeff > 0
+        attention_gate_reg = torch.tensor(0.0, device=self.accelerator.device)
+        gate_coeff = getattr(self.model, "attention_gate_coeff", 0.0)
+        if gate_coeff > 0:
+            attention_gate_reg = gate_coeff * self.model.attention_gate_penalty()
         connect_reg = torch.as_tensor([0.0])
         if self.exp_params.latent and self.optim_params.reg_coeff_connect > 0:
             # TODO: might be interesting to explore this
@@ -785,6 +843,7 @@ class TrainingLatent:
             nll
             + connect_reg
             + sparsity_reg
+            + attention_gate_reg
             + self.optim_params.gmst_coeff * gmst_loss
             + self.optim_params.forcing_co2_coeff * forcing_loss_co2
             + self.optim_params.forcing_aerosol_coeff * forcing_loss_aerosol

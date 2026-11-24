@@ -199,6 +199,12 @@ class modelParams:
         forcing_arch: str = "baseline",  # NEW: baseline | transitioned | predefined
         map_aerosol_to_climate: bool = False,  # Added: if only allow global impacts from aerosol to climate
         forcing_mse: bool = False,  # Reconstruction eror of forcings
+        global_transition: str = "mlp",  # thesis: "mlp" (default) | "attention" (hierarchical raw model only)
+        attention_dim: int = 16,  # thesis: token/query width of the attention transition
+        attention_gate: bool = False,  # thesis: variant B — learned gates on the attention logits
+        attention_gate_init: float = 3.0,  # thesis: gate logit init (sigmoid(3) = 0.95, all edges open)
+        attention_gate_coeff: float = 0.0,  # thesis: L1 weight on the gates in the loss (0 = off)
+        attention_gate_anchor: bool = False,  # thesis: pin the z2 t-1 gate at 1 (else L1 shrinks all gates freely)
         # first check if z_climate and z_aerosol are mapped to the same locations. If so, then allow transition from z_aerosol to z_climate
     ):
         self.instantaneous = instantaneous
@@ -235,6 +241,12 @@ class modelParams:
         self.forcing_arch = forcing_arch
         self.map_aerosol_to_climate = map_aerosol_to_climate
         self.forcing_mse = forcing_mse
+        self.global_transition = global_transition
+        self.attention_dim = attention_dim
+        self.attention_gate = attention_gate
+        self.attention_gate_init = attention_gate_init
+        self.attention_gate_coeff = attention_gate_coeff
+        self.attention_gate_anchor = attention_gate_anchor
 
 
 class optimParams:
@@ -275,6 +287,7 @@ class optimParams:
         ortho_spatial_min_iter_convergence: float = 1_000,  # orthogonality threshold i.e. achieved when below above threshold for at least ortho_min_iter_convergence
         sparsity_mu_init: float = 0.1,  # Below same aprams for sparsity  and acyclicity constraint
         sparsity_mu_mult_factor: float = 1.2,
+        sparsity_mu_max: float = None,  # thesis: ceiling on the sparsity ALM mu (None = unbounded, as before)
         sparsity_omega_gamma: float = 0.01,
         sparsity_omega_mu: float = 0.95,
         sparsity_h_threshold: float = 0.0001,
@@ -337,6 +350,7 @@ class optimParams:
 
         self.sparsity_mu_init = sparsity_mu_init
         self.sparsity_mu_mult_factor = sparsity_mu_mult_factor
+        self.sparsity_mu_max = sparsity_mu_max
         self.sparsity_omega_gamma = sparsity_omega_gamma
         self.sparsity_omega_mu = sparsity_omega_mu
         self.sparsity_h_threshold = sparsity_h_threshold

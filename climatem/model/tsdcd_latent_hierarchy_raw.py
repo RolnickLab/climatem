@@ -223,6 +223,12 @@ class HierarchicalLatentTSDCD(nn.Module):
         d_y_so2: int = 0,
         map_aerosol_to_climate=False,
         forcing_mse: bool = False,
+        global_transition: str = "mlp",  # thesis opt-in: "mlp" (Shan's, default) | "attention"
+        attention_dim: int = 16,
+        attention_gate: bool = False,  # variant B: learned gates on the attention logits
+        attention_gate_init: float = 3.0,
+        attention_gate_coeff: float = 0.0,  # L1 weight on the gates, added to the loss by the trainer
+        attention_gate_anchor: bool = False,  # keep the z2 t-1 gate at 1 (anchors the scale of the other gates)
         **args,
     ):
         """
@@ -411,17 +417,41 @@ class HierarchicalLatentTSDCD(nn.Module):
                 local_impact=map_aerosol_to_climate,
             )
         # Global transition model, single latent: no mask, no parameter-sharing
-        self.transition_model_global = TransitionModelGlobal(
-            self.d,
-            self.d_z2,
-            self.total_tau,
-            self.nonlinear_global_dynamics,
-            self.num_layers,
-            self.num_hidden,
-            self.num_output,
-            d_y_co2=d_y_co2,
-            d_y_ch4=d_y_ch4,
-        )
+        self.global_transition = global_transition
+        use_gate = global_transition == "attention" and attention_gate
+        self.attention_gate_coeff = attention_gate_coeff if use_gate else 0.0
+        if global_transition == "attention":
+            from climatem.model.attention_global import AttentionTransitionGlobal
+
+            print(f"ATTENTION GLOBAL TRANSITION (gate={attention_gate}, dim={attention_dim})")
+            self.transition_model_global = AttentionTransitionGlobal(
+                self.d,
+                self.d_z2,
+                self.total_tau,
+                self.num_layers,
+                self.num_hidden,
+                self.num_output,
+                d_y_co2=d_y_co2,
+                d_y_ch4=d_y_ch4,
+                attention_dim=attention_dim,
+                gate=attention_gate,
+                gate_init=attention_gate_init,
+                gate_anchor=attention_gate_anchor,
+            )
+        elif global_transition == "mlp":
+            self.transition_model_global = TransitionModelGlobal(
+                self.d,
+                self.d_z2,
+                self.total_tau,
+                self.nonlinear_global_dynamics,
+                self.num_layers,
+                self.num_hidden,
+                self.num_output,
+                d_y_co2=d_y_co2,
+                d_y_ch4=d_y_ch4,
+            )
+        else:
+            raise ValueError(f"global_transition must be 'mlp' or 'attention', got {global_transition!r}")
         # print("We are setting the Mask here.")
         self.mask = Mask(
             d,
@@ -516,6 +546,21 @@ class HierarchicalLatentTSDCD(nn.Module):
             mu[:, i] = q_mu
             std[:, i] = q_std
         return z2, mu, std
+
+    # ---- thesis helpers (no-ops for Shan's MLP transition) ----
+    def attention_gate_penalty(self):
+        """L1 penalty on the attention gates (variant B); zero tensor otherwise."""
+        fn = getattr(self.transition_model_global, "gate_penalty", None)
+        if fn is None:
+            return torch.zeros((), device=self.transition_model_global.logvar.device)
+        return fn()
+
+    def attention_readout(self):
+        """(labels, attention (n_out, n_tokens), gates or None) from the last forward pass; None for the MLP."""
+        tm = self.transition_model_global
+        if not hasattr(tm, "attention_matrix"):
+            return None
+        return tm.token_labels, tm.attention_matrix(), tm.gate_matrix()
 
     def transition_global(self, z2, y_co2=None, y_ch4=None):
         """

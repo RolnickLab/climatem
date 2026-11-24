@@ -16,6 +16,7 @@ class ALM:
         min_iter_convergence: int,
         dim_gamma=(1,),
         valid_freq: int = 100,
+        mu_max=None,  # thesis opt-in: ceiling on mu (None = unbounded, the original behaviour)
     ):
         self.gamma = torch.zeros(*dim_gamma)
         self.delta_gamma = -np.inf
@@ -25,6 +26,7 @@ class ALM:
         self.omega_mu = omega_mu
         self.omega_gamma = omega_gamma
         self.mu_mult_factor = mu_mult_factor
+        self.mu_max = mu_max
         self.stop_crit_window = valid_freq  # This is actually the rate of update of the ALM
         self.constraint_violation = []
         self.has_converged = False
@@ -80,4 +82,6 @@ class ALM:
                     if len(self.constraint_violation) >= 2:
                         if h_scalar > self.omega_mu * self.constraint_violation[-2]:
                             self.mu *= self.mu_mult_factor
+                            if self.mu_max is not None:
+                                self.mu = min(self.mu, self.mu_max)
                             self.has_increased_mu = True
