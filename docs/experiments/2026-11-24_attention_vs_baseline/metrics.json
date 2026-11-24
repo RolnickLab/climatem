@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-24",
+  "metric": "autoregressive validation RMSE on normalised ts anomalies, steps 1..9 (val_y_ar_k vs val_y_pred_ar_k, final checkpoint)",
+  "target_std": 0.962,
+  "runs": {
+    "baseline": {"job": 11864320, "step1": 0.910, "step9": 0.973, "mean": 0.943,
+                 "attention_share_final": null, "note": "Shan's MLP global transition; sparsity mu uncapped, reached ~1e15; loss dipped to -3.7e14"},
+    "attention_A": {"job": 11875143, "step1": 0.912, "step9": 0.992, "mean": 0.955,
+                    "attention_share_180k": {"z2": 0.48, "co2": 0.28, "ch4": 0.25}, "note": "plain attention, no gates, sparsity_mu_max 1e4"},
+    "attention_B2": {"job": 11875142, "step1": 0.912, "step9": 0.970, "mean": 0.944,
+                     "attention_share_180k": {"z2": 0.81, "co2": 0.17, "ch4": 0.02},
+                     "gates_180k": {"z2 t-5": 0.068, "z2 t-4": 0.991, "z2 t-3": 0.993, "z2 t-2": 0.993, "z2 t-1": 1.0,
+                                    "CO2 lag60": 0.884, "CO2 lag12-59": 0.236, "CO2 lag5-11": 0.363, "CO2 lag2-4": 0.579, "CO2 lag1": 0.875, "CO2 lag0": 0.282,
+                                    "CH4 lag60": 0.137, "CH4 lag12-59": 0.218, "CH4 lag5-11": 0.354, "CH4 lag2-4": 0.087, "CH4 lag1": 0.061, "CH4 lag0": 0.125},
+                     "note": "gated attention, anchor on z2 t-1, gate L1 coeff 1.0, sparsity_mu_max 1e4"}
+  }
+}

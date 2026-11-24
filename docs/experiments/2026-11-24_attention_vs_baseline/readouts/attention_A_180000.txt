@@ -1,0 +1,18 @@
+token	attention
+z2 t-5	0.0190
+z2 t-4	0.0782
+z2 t-3	0.0955
+z2 t-2	0.0847
+z2 t-1	0.2008
+CO2 lag60	0.0491
+CO2 lag12-59	0.0444
+CO2 lag5-11	0.0445
+CO2 lag2-4	0.0447
+CO2 lag1	0.0491
+CO2 lag0	0.0436
+CH4 lag60	0.0414
+CH4 lag12-59	0.0415
+CH4 lag5-11	0.0440
+CH4 lag2-4	0.0412
+CH4 lag1	0.0385
+CH4 lag0	0.0398
