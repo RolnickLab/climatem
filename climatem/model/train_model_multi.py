@@ -597,6 +597,8 @@ class TrainingLatent:
 
         # final plotting and printing
         self.plotter.plot_sparsity(self, save=True, multiple_forcings=True)
+        # thesis: the in-loop plot block never fires at max_iteration itself, so write the final readout here
+        self.save_attention_readout()
         self.print_results()
 
         # wandb.finish()
