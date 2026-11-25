@@ -207,6 +207,12 @@ def parse_args():
         help="test scenarios",
     )
     parser.add_argument(
+        "--rollout-scenarios",
+        type=str,
+        default=None,
+        help="rollout_bf.py only: comma-separated scenarios to roll out (default: the script's own list)",
+    )
+    parser.add_argument(
         "--config-path",
         type=str,
         default="configs/param_file.json",

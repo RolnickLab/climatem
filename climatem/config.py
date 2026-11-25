@@ -79,6 +79,8 @@ class dataParams:
             1
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
         global_lag: int = 0,  # NEW: global forcings: how many months the model can look back
+        x4_model: str = "NorESM2-MM",  # thesis: climate model of the abrupt-4xCO2 test block (Shan: NorESM2-MM)
+        x4_data_dir: str = None,  # thesis: CMIP6 root holding that abrupt-4xCO2 run; None = climateset_data
         **kwargs,  # accept any new keys in the parameter configs (for reloading the returned extra parameters)
     ):
         self.data_dir = data_dir
@@ -116,6 +118,8 @@ class dataParams:
         self.load_test_into_mem = load_test_into_mem
         self.num_months_aggregated = num_months_aggregated
         self.global_lag = global_lag
+        self.x4_model = x4_model
+        self.x4_data_dir = x4_data_dir
 
 
 # # This class is only for debugging and for setting some params to the true aprams when training picabu

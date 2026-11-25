@@ -578,6 +578,8 @@ class CausalClimateDataMultiScenarioModule(ClimateDataModule):
             global_normalization=self.hparams.global_normalization,
             seasonality_removal=self.hparams.seasonality_removal,
             reload_climate_set_data=self.hparams.reload_climate_set_data,
+            x4_model=getattr(self.hparams, "x4_model", "NorESM2-MM"),
+            x4_data_dir=getattr(self.hparams, "x4_data_dir", None),
         )
 
     def _get_causal_data(self, dataset, data, mode, domain_names, num_years=None, ratio_train=None):
@@ -845,6 +847,8 @@ class CausalClimateDataMultiScaleScenarioModule(ClimateDataModule):
             global_normalization=self.hparams.global_normalization,
             seasonality_removal=self.hparams.seasonality_removal,
             reload_climate_set_data=self.hparams.reload_climate_set_data,
+            x4_model=getattr(self.hparams, "x4_model", "NorESM2-MM"),
+            x4_data_dir=getattr(self.hparams, "x4_data_dir", None),
             global_lag=self.hparams.global_lag,
         )
 

@@ -203,9 +203,15 @@ def main(
                 "args": {**common_data_args, **savar_data_args},
             },
             "multi": { # the multiscenario dataset doesn't support savar input yet.
+                # thesis (opt-in): abrupt-4xCO2 test block source; defaults = Shan's NorESM2-MM under climateset_data.
+                # Only the multiscenario modules accept these (the single module's base class takes no extra kwargs).
                 "cls": ( # if global_lag > 0, use multiscale data module
                     CausalClimateDataMultiScaleScenarioModule if global_lag > 0 else CausalClimateDataMultiScenarioModule), 
-                "args": {**common_data_args}
+                "args": {
+                    **common_data_args,
+                    "x4_model": getattr(data_params, "x4_model", "NorESM2-MM"),
+                    "x4_data_dir": getattr(data_params, "x4_data_dir", None),
+                },
             },
         }
 
@@ -550,6 +556,8 @@ if __name__ == "__main__":
     # get user's scratch directory:
     scratch_path = os.getenv("SCRATCH")
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
+    if params["data_params"].get("x4_data_dir"):
+        params["data_params"]["x4_data_dir"] = params["data_params"]["x4_data_dir"].replace("$SCRATCH", scratch_path)
     logger.info("new data path: %s", params["data_params"]["data_dir"])
 
     params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)

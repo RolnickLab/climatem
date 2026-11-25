@@ -375,6 +375,8 @@ class MultiscenarioDataset(ClimateDataset):
         global_normalization: bool = True,
         seasonality_removal: bool = True,
         icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
+        x4_model: str = "NorESM2-MM",
+        x4_data_dir: Optional[str] = None,
         *args,
         **kwargs,
     ):
@@ -386,6 +388,10 @@ class MultiscenarioDataset(ClimateDataset):
             raise ValueError("At least one scenario must be provided.")
 
         self.root_dir = Path(data_dir)
+        # thesis (opt-in): which model's abrupt-4xCO2 run is the test block and where it lives.
+        # Defaults reproduce Shan's setup: NorESM2-MM ts/co2mass/ch4global under root_dir.
+        self.x4_model = x4_model
+        self.x4_root_dir = Path(x4_data_dir) if x4_data_dir else self.root_dir
         self.output_save_dir = Path(output_save_dir)
         self.scenarios = scenarios
         self.variables = variables
@@ -436,7 +442,7 @@ class MultiscenarioDataset(ClimateDataset):
             seq_to_seq=seq_to_seq,
         )
         fname_kwargs_x4 = dict(
-            climate_model="NorESM2-MM",
+            climate_model=x4_model,
             num_ensembles=len(ensembles),
             variables=variables,
             scenarios=["abrupt-4xCO2"],
@@ -757,7 +763,7 @@ class MultiscenarioDataset(ClimateDataset):
     def _collect_files_extreme_case(self, mip, domains, variables):
         # x4 CO2 data, the ts, co2mass, ch4global are from abrupt-4xCO2 folder (150 year), but the mmrbc and so2 are taken from the piControl (1850-2000).
         files = {"spatial": {}, "global": {}}
-        model = "NorESM2-MM"
+        model = getattr(self, "x4_model", "NorESM2-MM")
 
         scenario_override = {
             "mmrbc": "piControl",
@@ -780,13 +786,13 @@ class MultiscenarioDataset(ClimateDataset):
             for scenario in domains:
                 data_scenario = scenario_override.get(variable, scenario)
                 data_model = model_override.get(variable, model)
+                # aerosols stay in root_dir (LM piControl); the 4xCO2 variables may live elsewhere
+                root_dir = self.root_dir if variable in model_override else getattr(self, "x4_root_dir", self.root_dir)
 
                 table = self._table_for_variable(variable)
                 grid = self._grid_for_variable(variable)
 
-                var_dir = (
-                    self.root_dir / mip / "NCC" / data_model / data_scenario / self.ensemble / table / variable / grid
-                )
+                var_dir = root_dir / mip / "NCC" / data_model / data_scenario / self.ensemble / table / variable / grid
 
                 scenario_files = sorted(glob.glob(f"{var_dir}/**/*.nc", recursive=True))
 
@@ -1182,6 +1188,8 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
         seasonality_removal: bool = True,
         icosahedral_coordinates_path: str = "../../mappings/vertex_lonlat_mapping.npy",
         global_lag=240,
+        x4_model: str = "NorESM2-MM",
+        x4_data_dir: Optional[str] = None,
         *args,
         **kwargs,
     ):
@@ -1199,6 +1207,10 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
         self.global_lookback = global_lag
 
         self.root_dir = Path(data_dir)
+        # thesis (opt-in): which model's abrupt-4xCO2 run is the test block and where it lives.
+        # Defaults reproduce Shan's setup: NorESM2-MM ts/co2mass/ch4global under root_dir.
+        self.x4_model = x4_model
+        self.x4_root_dir = Path(x4_data_dir) if x4_data_dir else self.root_dir
         self.output_save_dir = Path(output_save_dir)
         self.scenarios = scenarios
         self.variables = variables
@@ -1250,7 +1262,7 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
         )
 
         fname_kwargs_x4 = dict(
-            climate_model="NorESM2-MM",
+            climate_model=x4_model,
             num_ensembles=len(ensembles),
             variables=variables,
             scenarios=["abrupt-4xCO2"],
@@ -1574,7 +1586,7 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
     def _collect_files_extreme_case(self, mip, domains, variables):
         # x4 CO2 data, the ts, co2mass, ch4global are from abrupt-4xCO2 folder (150 year), but the mmrbc and so2 are taken from the piControl (1850-2000).
         files = {"spatial": {}, "global": {}}
-        model = "NorESM2-MM"
+        model = getattr(self, "x4_model", "NorESM2-MM")
 
         scenario_override = {
             "mmrbc": "piControl",
@@ -1600,13 +1612,13 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
 
                 data_scenario = scenario_override.get(variable, scenario)
                 data_model = model_override.get(variable, model)
+                # aerosols stay in root_dir (LM piControl); the 4xCO2 variables may live elsewhere
+                root_dir = self.root_dir if variable in model_override else getattr(self, "x4_root_dir", self.root_dir)
 
                 table = self._table_for_variable(variable)
                 grid = self._grid_for_variable(variable)
 
-                var_dir = (
-                    self.root_dir / mip / "NCC" / data_model / data_scenario / self.ensemble / table / variable / grid
-                )
+                var_dir = root_dir / mip / "NCC" / data_model / data_scenario / self.ensemble / table / variable / grid
 
                 scenario_files = sorted(glob.glob(f"{var_dir}/**/*.nc", recursive=True))
 

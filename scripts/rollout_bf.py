@@ -295,7 +295,12 @@ def main(
                     CausalClimateDataMultiScaleScenarioModule
                     if global_lag > 0
                     else CausalClimateDataMultiScenarioModule),
-                "args": {**common_args}
+                "args": {
+                    **common_args,
+                    # thesis (opt-in): abrupt-4xCO2 test block source; defaults = Shan's NorESM2-MM under climateset_data
+                    "x4_model": getattr(data_params, "x4_model", "NorESM2-MM"),
+                    "x4_data_dir": getattr(data_params, "x4_data_dir", None),
+                },
             },
         }
 
@@ -468,6 +473,13 @@ def main(
                 **common_model_kwargs,
                 d_z_global=experiment_params.d_z_global,
                 nonlinear_global_dynamics=model_params.nonlinear_global_dynamics,
+                # thesis: attention global transition (defaults = Shan's MLP, so old runs load unchanged)
+                global_transition=getattr(model_params, "global_transition", "mlp"),
+                attention_dim=getattr(model_params, "attention_dim", 16),
+                attention_gate=getattr(model_params, "attention_gate", False),
+                attention_gate_init=getattr(model_params, "attention_gate_init", 3.0),
+                attention_gate_coeff=getattr(model_params, "attention_gate_coeff", 0.0),
+                attention_gate_anchor=getattr(model_params, "attention_gate_anchor", False),
                 selection=selection
             )
     # read paths 
@@ -720,7 +732,12 @@ def main_perturbed(
             },
             "multi": { # the multiscenario dataset doesn't support savar input yet.
                 "cls": CausalClimateDataMultiScenarioModule,
-                "args": {**common_args}
+                "args": {
+                    **common_args,
+                    # thesis (opt-in): abrupt-4xCO2 test block source; defaults = Shan's NorESM2-MM under climateset_data
+                    "x4_model": getattr(data_params, "x4_model", "NorESM2-MM"),
+                    "x4_data_dir": getattr(data_params, "x4_data_dir", None),
+                },
             },
         }
 
@@ -1679,6 +1696,8 @@ if __name__ == "__main__":
 
 
     params["data_params"]["data_dir"] = params["data_params"]["data_dir"].replace("$SCRATCH", scratch_path)
+    if params["data_params"].get("x4_data_dir"):
+        params["data_params"]["x4_data_dir"] = params["data_params"]["x4_data_dir"].replace("$SCRATCH", scratch_path)
     print ("new data path:", params["data_params"]["data_dir"])
 
     params["exp_params"]["exp_path"] = params["exp_params"]["exp_path"].replace("$SCRATCH", scratch_path)
@@ -1709,6 +1728,8 @@ if __name__ == "__main__":
     rollout_steps = 1027
     selection = "pz2mu"
     total_scenarios = [["abrupt-4xCO2"]]#[["ssp370"],["ssp126"],["ssp245"],["abrupt-4xCO2"]]
+    if getattr(args, "rollout_scenarios", None):  # thesis: opt-in override, e.g. --rollout-scenarios ssp370
+        total_scenarios = [[s.strip()] for s in args.rollout_scenarios.split(",") if s.strip()]
     for test_scenarios in total_scenarios:
         result_path = f"bs_{rollout_params.batch_size}_np_{rollout_params.num_particles}_npp_{rollout_params.num_particles_per_particle}_t_{rollout_steps}_sc_{selection}_temp_{rollout_params.tempering}_iter{iter_id}"
         # check_corr_co2_aerosol(Path(f"{scratch_path}/results/{args.exp_id}/rollouts/{result_path}"),ssps = ["ssp370"])
