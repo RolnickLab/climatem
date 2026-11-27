@@ -1,0 +1,62 @@
+{
+ "baseline": {
+  "rollout_dir": "<results>/shan_baseline/VALID_AUG_100_var_tsco2massch4globalmmrbcso2_nlinmix_True_nlindyn_True_tau_5_z_48_lr_0.0001_bs_128_20261123_182446/rollouts/bs_1_np_20_npp_50_t_1027_sc_pz2mu_temp_True_iter200000_abrupt-4xCO2",
+  "months": 1027,
+  "years": 85,
+  "pred_K_y1-10": 1.6182193756103516,
+  "true_K_y1-10": 2.675595283508301,
+  "ratio_y1-10": 0.6048072576522827,
+  "pred_K_y11-20": 1.7807910442352295,
+  "true_K_y11-20": 3.2583351135253906,
+  "ratio_y11-20": 0.5465340614318848,
+  "pred_K_y41-50": 1.77035391330719,
+  "true_K_y41-50": 3.054722547531128,
+  "ratio_y41-50": 0.5795465707778931,
+  "rmse_annual_K": 1.5253413915634155
+ },
+ "A": {
+  "rollout_dir": "<results>/attention_A/VALID_AUG_100_var_tsco2massch4globalmmrbcso2_nlinmix_True_nlindyn_True_tau_5_z_48_lr_0.0001_bs_128_20261124_095001/rollouts/bs_1_np_20_npp_50_t_1027_sc_pz2mu_temp_True_iter200000_abrupt-4xCO2",
+  "months": 1027,
+  "years": 85,
+  "pred_K_y1-10": 1.4651801586151123,
+  "true_K_y1-10": 2.675595283508301,
+  "ratio_y1-10": 0.5476090312004089,
+  "pred_K_y11-20": 1.4537278413772583,
+  "true_K_y11-20": 3.2583351135253906,
+  "ratio_y11-20": 0.44615665078163147,
+  "pred_K_y41-50": 1.4287638664245605,
+  "true_K_y41-50": 3.054722547531128,
+  "ratio_y41-50": 0.46772295236587524,
+  "rmse_annual_K": 1.8311587572097778
+ },
+ "B2": {
+  "rollout_dir": "<results>/attention_B/VALID_AUG_100_var_tsco2massch4globalmmrbcso2_nlinmix_True_nlindyn_True_tau_5_z_48_lr_0.0001_bs_128_20261124_094822/rollouts/bs_1_np_20_npp_50_t_1027_sc_pz2mu_temp_True_iter200000_abrupt-4xCO2",
+  "months": 1027,
+  "years": 85,
+  "pred_K_y1-10": 1.281171202659607,
+  "true_K_y1-10": 2.675595283508301,
+  "ratio_y1-10": 0.47883594036102295,
+  "pred_K_y11-20": 1.3423064947128296,
+  "true_K_y11-20": 3.2583351135253906,
+  "ratio_y11-20": 0.4119608402252197,
+  "pred_K_y41-50": 1.2823584079742432,
+  "true_K_y41-50": 3.054722547531128,
+  "ratio_y41-50": 0.41979536414146423,
+  "rmse_annual_K": 1.9502465724945068
+ },
+ "B2mem": {
+  "rollout_dir": "<results>/attention_B_mem/VALID_AUG_100_var_tsco2massch4globalmmrbcso2_nlinmix_True_nlindyn_True_tau_5_z_48_lr_0.0001_bs_128_20261126_161508/rollouts/bs_1_np_20_npp_50_t_1027_sc_pz2mu_temp_True_iter120000_abrupt-4xCO2",
+  "months": 1027,
+  "years": 85,
+  "pred_K_y1-10": 2.4043288230895996,
+  "true_K_y1-10": 2.675595283508301,
+  "ratio_y1-10": 0.8986145257949829,
+  "pred_K_y11-20": 2.466430187225342,
+  "true_K_y11-20": 3.2583351135253906,
+  "ratio_y11-20": 0.7569602727890015,
+  "pred_K_y41-50": 2.484494686126709,
+  "true_K_y41-50": 3.054722547531128,
+  "ratio_y41-50": 0.8133291006088257,
+  "rmse_annual_K": 0.8433634042739868
+ }
+}

@@ -19,6 +19,7 @@ import cartopy.feature as cfeature
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule,CausalClimateDataMultiScenarioModule,CausalClimateDataMultiScaleScenarioModule
 from climatem.model.tsdcd_latent import LatentTSDCD
 from climatem.model.tsdcd_latent_hierarchy_raw import HierarchicalLatentTSDCD as HVAE
+from climatem.data_loader.causal_datamodule import RESPONSE_INTERVALS
 from climatem.rollouts.bayesian_filter import calculate_fft_mean_std_across_all_noresm, particle_filter_weighting_bayesian_hierachical
 from climatem.config import *
 from climatem.utils import parse_args, update_config_withparse
@@ -264,7 +265,8 @@ def main(
             seasonality_removal=data_params.seasonality_removal,
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
-            global_lag= data_params.global_lag
+            global_lag= data_params.global_lag,
+            global_memory_years=getattr(data_params, "global_memory_years", None),  # thesis opt-in
         )
         savar_args=dict(            
             time_len=savar_params.time_len,
@@ -465,6 +467,7 @@ def main(
             if with_zs_logprob:
                 return samples_from_xs, samples_from_zs, y, z_samples_logprob, pz2_mu
             return samples_from_xs, samples_from_zs, y    
+    memory_years = list(getattr(data_params, "global_memory_years", None) or [])
     match experiment_params.d_z_global:
         case 0:
             model = LatentTSDCD(**common_model_kwargs)
@@ -480,6 +483,9 @@ def main(
                 attention_gate_init=getattr(model_params, "attention_gate_init", 3.0),
                 attention_gate_coeff=getattr(model_params, "attention_gate_coeff", 0.0),
                 attention_gate_anchor=getattr(model_params, "attention_gate_anchor", False),
+                # thesis opt-in: forcing-memory channels (None = Shan's tau + 1 lag values)
+                n_forcing_lags=(len(RESPONSE_INTERVALS) + len(memory_years)) if memory_years else None,
+                forcing_memory_labels=[f"mem{y:g}y" for y in memory_years],
                 selection=selection
             )
     # read paths 

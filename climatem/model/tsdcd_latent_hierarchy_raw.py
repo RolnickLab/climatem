@@ -229,6 +229,8 @@ class HierarchicalLatentTSDCD(nn.Module):
         attention_gate_init: float = 3.0,
         attention_gate_coeff: float = 0.0,  # L1 weight on the gates, added to the loss by the trainer
         attention_gate_anchor: bool = False,  # keep the z2 t-1 gate at 1 (anchors the scale of the other gates)
+        n_forcing_lags=None,  # thesis opt-in: values per global forcing (6 lags + memory); None = tau + 1 as before
+        forcing_memory_labels=None,  # thesis: labels of the memory channels, for the attention readout
         **args,
     ):
         """
@@ -437,6 +439,8 @@ class HierarchicalLatentTSDCD(nn.Module):
                 gate=attention_gate,
                 gate_init=attention_gate_init,
                 gate_anchor=attention_gate_anchor,
+                n_forcing_lags=n_forcing_lags,
+                memory_labels=forcing_memory_labels,
             )
         elif global_transition == "mlp":
             self.transition_model_global = TransitionModelGlobal(
@@ -449,6 +453,7 @@ class HierarchicalLatentTSDCD(nn.Module):
                 self.num_output,
                 d_y_co2=d_y_co2,
                 d_y_ch4=d_y_ch4,
+                n_forcing_lags=n_forcing_lags,
             )
         else:
             raise ValueError(f"global_transition must be 'mlp' or 'attention', got {global_transition!r}")
@@ -1303,6 +1308,7 @@ class TransitionModelGlobal(nn.Module):
         num_output: int = 2,
         d_y_co2: int = 0,
         d_y_ch4: int = 0,
+        n_forcing_lags=None,  # thesis opt-in: values per forcing (6 lags + memory channels); None = tau + 1 (Shan)
     ):
         """
         Args:
@@ -1317,6 +1323,7 @@ class TransitionModelGlobal(nn.Module):
         self.d = d  # number of variables
         self.d_z = d_z
         self.tau = tau
+        self.n_forcing_lags = int(n_forcing_lags) if n_forcing_lags is not None else tau + 1
         output_var = False
 
         # initialize NNs
@@ -1346,13 +1353,13 @@ class TransitionModelGlobal(nn.Module):
         self.use_exogenous = (d_y_co2 + d_y_ch4) > 0
 
         self.co2_net = nn.Sequential(
-            nn.Linear(self.tau + 1, num_hidden * 2),
+            nn.Linear(self.n_forcing_lags, num_hidden * 2),
             nn.Tanh(),
             nn.Linear(num_hidden * 2, num_hidden),
         )
 
         self.ch4_net = nn.Sequential(
-            nn.Linear(self.tau + 1, num_hidden * 2),
+            nn.Linear(self.n_forcing_lags, num_hidden * 2),
             nn.Softplus(),
             nn.Linear(num_hidden * 2, num_hidden),
         )

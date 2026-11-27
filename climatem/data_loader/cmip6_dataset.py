@@ -1164,6 +1164,41 @@ class MultiscenarioDataset(ClimateDataset):
                 return test
 
 
+def exponential_memory(series, years, months_per_year=12):
+    """
+    Exponentially weighted running means of a global-forcing series, one per timescale (thesis, opt-in).
+
+    For each timescale T (years) the memory is m_t = m_{t-1} + (x_t - m_{t-1}) / (12 T), started at m_0 = x_0,
+    i.e. the forcing history weighted with an exponential of time constant T.  After a step in x the memory
+    reaches 63 % of the step after T years and 95 % after 3 T years, so it keeps changing long after the
+    60-month lag window has stopped.  Linear, so it commutes with z-score normalisation.
+
+    Parameters
+    ----------
+    series : np.ndarray
+        (scenario, time, variable, ...) monthly values, oldest first.
+    years : sequence of float
+        Timescales in years.
+
+    Returns
+    -------
+    np.ndarray
+        (scenario, time, variable * len(years), ...), variable-major: [v0_T0, v0_T1, ..., v1_T0, ...].
+    """
+    series = np.asarray(series, dtype=np.float64)
+    n_scen, n_time, n_var = series.shape[:3]
+    alphas = np.array([1.0 / (months_per_year * float(T)) for T in years], dtype=np.float64)
+    if np.any(alphas <= 0) or np.any(alphas > 1):
+        raise ValueError(f"global_memory_years must be >= 1/12 year, got {list(years)}")
+    out = np.empty((n_scen, n_time, n_var, len(years)) + series.shape[3:], dtype=np.float64)
+    m = np.repeat(series[:, 0, :, None], len(years), axis=2)  # (scenario, variable, T, ...)
+    a = alphas.reshape((1, 1, -1) + (1,) * (series.ndim - 3))
+    for t in range(n_time):
+        m = m + a * (series[:, t, :, None] - m)
+        out[:, t] = m
+    return out.reshape((n_scen, n_time, n_var * len(years)) + series.shape[3:]).astype("float32")
+
+
 class MultiScaleMultiscenarioDataset(ClimateDataset):
 
     def __init__(
@@ -1190,9 +1225,12 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
         global_lag=240,
         x4_model: str = "NorESM2-MM",
         x4_data_dir: Optional[str] = None,
+        global_memory_years: Optional[List[float]] = None,  # thesis opt-in: memory channels (exponential_memory)
         *args,
         **kwargs,
     ):
+        # thesis (opt-in): timescales of the exponential forcing memory appended to every global-forcing window.
+        self.global_memory_years = list(global_memory_years) if global_memory_years else []
         # SSP scenarios only. Historical is loaded separately and used as
         # training data / prefix for long global-forcing histories.
         scenarios = [s for s in scenarios if s != "historical"]
@@ -1950,6 +1988,28 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
 
         return np.stack(windows).astype("float32")
 
+    def _global_with_memory(self, scenario_global, full_prefix, global_lookback):
+        """
+        Thesis (opt-in): append the exponential forcing-memory channels to one scenario's global forcing.
+
+        scenario_global : (1, time, variable, ...) the scenario's own months.
+        full_prefix : (1, P, variable, ...) or None - the months that precede the scenario (all of historical for an
+            SSP; the first ``global_lookback`` months of historical for abrupt-4xCO2, as in Shan's setup).  The memory
+            is run over prefix + scenario, so the SSP memory carries the whole of historical.
+        Returns (scenario_global_aug, window_prefix): the augmented scenario and the last ``global_lookback`` months
+        of the augmented prefix (None if there is no prefix).  With no memory timescales both are returned unchanged,
+        i.e. exactly what the loader used before.
+        """
+        window_prefix = None if full_prefix is None else full_prefix[:, -global_lookback:]
+        if not self.global_memory_years:
+            return scenario_global, window_prefix
+        series = scenario_global if full_prefix is None else np.concatenate([full_prefix, scenario_global], axis=1)
+        aug = np.concatenate([series, exponential_memory(series, self.global_memory_years)], axis=2)
+        n_prefix = 0 if full_prefix is None else full_prefix.shape[1]
+        scenario_aug = aug[:, n_prefix:]
+        window_prefix_aug = None if full_prefix is None else aug[:, max(0, n_prefix - global_lookback) : n_prefix]
+        return scenario_aug, window_prefix_aug
+
     def get_multiscale_causal_data(
         self,
         data,
@@ -2060,16 +2120,23 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
                     future_timesteps,
                 )
 
+                # thesis (opt-in): memory channels; without global_memory_years this returns the inputs unchanged
+                full_prefix_s = None
+                if global_prefix is not None:
+                    full_prefix_s = global_prefix if global_prefix.shape[0] == 1 else global_prefix[s : s + 1]
+                global_data_s, prefix_s = self._global_with_memory(
+                    global_data[s : s + 1], full_prefix_s, global_lookback
+                )
                 global_train = self.get_global_forcing_windows(
-                    global_data[s : s + 1],
+                    global_data_s,
                     [idx_train],
-                    historical_prefix=None if prefix is None else prefix[s : s + 1],
+                    historical_prefix=prefix_s,
                     global_lookback=global_lookback,
                 )
                 global_valid = self.get_global_forcing_windows(
-                    global_data[s : s + 1],
+                    global_data_s,
                     [idx_valid],
-                    historical_prefix=None if prefix is None else prefix[s : s + 1],
+                    historical_prefix=prefix_s,
                     global_lookback=global_lookback,
                 )
 
@@ -2138,15 +2205,18 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
         # Therefore, select the prefix separately for each scenario inside the loop.
         for s, (scenario, name) in enumerate(zip(data, domain_names)):
             prefix_length = 0
+            full_prefix = None
             if global_prefix is not None:
                 # for ssp, use last global lag months in historical
                 if name == "abrupt-4xCO2":
                     print(f"prefix for {name} use the first {global_lookback} years")
-                    prefix = global_prefix[:, :global_lookback]
+                    full_prefix = global_prefix[:, :global_lookback]
                 else:
                     print(f"prefix for {name} use the last {global_lookback} years")
-                    prefix = global_prefix[:, -global_lookback:]
-                prefix_length = prefix.shape[1]
+                    full_prefix = global_prefix  # the memory channels (if any) run over all of historical
+                prefix_length = min(full_prefix.shape[1], global_lookback)
+            # thesis (opt-in): memory channels; without global_memory_years this is the old prefix/data
+            global_data_s, prefix = self._global_with_memory(global_data[s : s + 1], full_prefix, global_lookback)
 
             idx_test = np.arange(
                 spatial_tau,
@@ -2167,7 +2237,7 @@ class MultiScaleMultiscenarioDataset(ClimateDataset):
             )
 
             global_test = self.get_global_forcing_windows(
-                global_data[s : s + 1],
+                global_data_s,
                 [idx_test],
                 historical_prefix=prefix,
                 global_lookback=global_lookback,

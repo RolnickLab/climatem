@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 from climatem.config import *
 from climatem.data_loader.causal_datamodule import CausalClimateDataModule, CausalClimateDataMultiScenarioModule, CausalClimateDataMultiScaleScenarioModule
+from climatem.data_loader.causal_datamodule import RESPONSE_INTERVALS
 from climatem.model.metrics import edge_errors, mcc_latent, precision_recall, shd, w_mae
 from climatem.model.tsdcd_latent import LatentTSDCD
 
@@ -149,7 +150,8 @@ def main(
             seasonality_removal=data_params.seasonality_removal,
             reload_climate_set_data=data_params.reload_climate_set_data,
             icosahedral_coordinates_path=data_params.icosahedral_coordinates_path,
-            global_lag = data_params.global_lag # New: global lag
+            global_lag = data_params.global_lag, # New: global lag
+            global_memory_years=getattr(data_params, "global_memory_years", None),  # thesis opt-in: memory channels
         )
         savar_data_args=dict(            
             # Below SAVAR data arguments
@@ -299,6 +301,7 @@ def main(
             else:
                 from climatem.model.tsdcd_latent_hierarchy_raw import HierarchicalLatentTSDCD
                 logger.info("Instantiate Hierarchical LatentTSDCD! Forcings as condition")
+                memory_years = list(getattr(data_params, "global_memory_years", None) or [])
                 assert model_params.use_exogenous, "use_exogenous must be enabled to use raw forcings"
                 model = HierarchicalLatentTSDCD(
                     **common_model_kwargs,
@@ -311,6 +314,9 @@ def main(
                     attention_gate_init=model_params.attention_gate_init,
                     attention_gate_coeff=model_params.attention_gate_coeff,
                     attention_gate_anchor=model_params.attention_gate_anchor,
+                    # thesis opt-in: forcing-memory channels appended to the 6 lag values (None = Shan's tau + 1)
+                    n_forcing_lags=(len(RESPONSE_INTERVALS) + len(memory_years)) if memory_years else None,
+                    forcing_memory_labels=[f"mem{y:g}y" for y in memory_years],
                 )
         # case _:
         #     raise ValueError(

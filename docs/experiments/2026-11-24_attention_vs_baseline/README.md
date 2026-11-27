@@ -103,3 +103,12 @@ simulated mmrbc/so2 — unverified inference.
 
 Jobs: 4xCO2 11884312-4; ssp370 11886342 (unkillable), 11886371-2 (main). Plots: `gmst_*_rollouts.png` (kelvin),
 `shan_plot_*.png` (Shan's normalised GMST / z2 / forcing panel). The `gmst_*.npz` arrays are local only.
+
+### Comparison with Shan's own runs (team biweekly deck, 2026-11-25, pages 63-68)
+
+Shan's abrupt-4xCO2 rollout starts from the first five months of the run (cold start) and jumps to about
+1.6 normalised units within year 1, then stays flat while the truth climbs to 2.0-2.4 units. Shan's reading:
+wrong response at some lags, systematic underestimation at low concentrations. Our warm-start rollouts show the
+same shape (step, then nothing). In Shan's ssp370 constant-forcing test, freezing CO2 and CH4 still leaves
+~0.85 units of rise in the yearly global latent; only freezing BC and SO2 as well makes it flat. That supports
+the spatial-aerosol candidate for the wiggle puzzle above. Numbers read off plots, +-0.1 unit.

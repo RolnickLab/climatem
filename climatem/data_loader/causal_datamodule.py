@@ -44,7 +44,11 @@ class MultiScaleCausalDataset(torch.utils.data.Dataset):
         response_intervals=RESPONSE_INTERVALS,
         sample_global_response=True,
         global_response_mode="sample",
+        n_global_memory=0,  # thesis opt-in: memory channels per variable appended to the global forcing (0 = none)
     ):
+        # thesis (opt-in): the stored window holds n_vars * (1 + n_global_memory) channels; the memory channels are
+        # returned at the current month only, after the response-interval values (see __getitem__).
+        self.n_global_memory = int(n_global_memory)
         # Unsqueeze the variable dimension for savar data
         if co2_forcing is not None and co2_forcing.ndim == 3:
             co2_forcing = co2_forcing[:, :, None, :]
@@ -144,6 +148,16 @@ class MultiScaleCausalDataset(torch.utils.data.Dataset):
         """
         if self.global_forcings is not None and self.spatial_forcings is not None:
             global_forcings = self.global_forcings[index]
+            memory = None
+            if self.n_global_memory > 0:
+                if not self.sample_global_response:
+                    raise ValueError("global memory channels need sample_global_response=True")
+                n_vars = global_forcings.shape[1] // (1 + self.n_global_memory)
+                # memory channels at the current month t: (n_vars * k, ...) variable-major -> (k, n_vars, ...)
+                memory = global_forcings[-1, n_vars:]
+                memory = memory.reshape((n_vars, self.n_global_memory) + memory.shape[1:])
+                memory = memory.movedim(0, 1) if torch.is_tensor(memory) else np.moveaxis(memory, 0, 1)
+                global_forcings = global_forcings[:, :n_vars]
 
             if self.sample_global_response:
                 if self.global_response_mode == "sample":
@@ -154,6 +168,12 @@ class MultiScaleCausalDataset(torch.utils.data.Dataset):
                     global_forcings = self._mean_global_forcings(global_forcings)
                 else:
                     raise ValueError(f"Unknown global_response_mode: {self.global_response_mode!r}")
+            if memory is not None:
+                # (6 + k, n_vars, ...): the 6 response-interval values first, then the k memory values
+                if torch.is_tensor(global_forcings):
+                    global_forcings = torch.cat([global_forcings, torch.as_tensor(memory)], dim=0)
+                else:
+                    global_forcings = np.concatenate([global_forcings, np.asarray(memory)], axis=0)
 
             result = {
                 "x": self.x[index],
@@ -850,6 +870,7 @@ class CausalClimateDataMultiScaleScenarioModule(ClimateDataModule):
             x4_model=getattr(self.hparams, "x4_model", "NorESM2-MM"),
             x4_data_dir=getattr(self.hparams, "x4_data_dir", None),
             global_lag=self.hparams.global_lag,
+            global_memory_years=getattr(self.hparams, "global_memory_years", None),  # thesis opt-in
         )
 
     def _get_multiscale_causal_data(self, dataset, data, global_data, mode, domain_names, ratio_train=None):
@@ -1004,6 +1025,7 @@ class CausalClimateDataMultiScaleScenarioModule(ClimateDataModule):
             aerosol_forcing=spatial_forcing,
             domain=domain,
             global_response_mode=global_response_mode,
+            n_global_memory=len(getattr(self.hparams, "global_memory_years", None) or []),  # thesis opt-in
         )
 
     @staticmethod

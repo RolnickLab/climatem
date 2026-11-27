@@ -79,6 +79,8 @@ class dataParams:
             1
         ],  # Aggregate num_months_aggregated months i.e. if you want yearly temporal resolution set this param to [12]
         global_lag: int = 0,  # NEW: global forcings: how many months the model can look back
+        # thesis opt-in: exponential forcing-memory timescales in years, e.g. [1, 10, 30, 100]; None = off (as before)
+        global_memory_years: List[float] = None,
         x4_model: str = "NorESM2-MM",  # thesis: climate model of the abrupt-4xCO2 test block (Shan: NorESM2-MM)
         x4_data_dir: str = None,  # thesis: CMIP6 root holding that abrupt-4xCO2 run; None = climateset_data
         **kwargs,  # accept any new keys in the parameter configs (for reloading the returned extra parameters)
@@ -118,6 +120,7 @@ class dataParams:
         self.load_test_into_mem = load_test_into_mem
         self.num_months_aggregated = num_months_aggregated
         self.global_lag = global_lag
+        self.global_memory_years = list(global_memory_years) if global_memory_years else []
         self.x4_model = x4_model
         self.x4_data_dir = x4_data_dir
 

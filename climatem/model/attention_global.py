@@ -6,7 +6,8 @@ Drop-in replacement for ``TransitionModelGlobal`` in ``tsdcd_latent_hierarchy_ra
 latent). What changes is *how* the inputs are combined:
 
 - every scalar input becomes a token: the global latent at each of the ``tau`` past steps, CO2 at each of its lag
-  samples, CH4 at each of its lag samples (Shan's loader gives 6 response-interval samples per forcing);
+  samples, CH4 at each of its lag samples (Shan's loader gives 6 response-interval samples per forcing), plus, when
+  ``data_params.global_memory_years`` is set, one exponential forcing-memory value per timescale (``mem10y`` ...);
 - one learned query per output latent attends over the tokens (single head, softmax);
 - the attention weights are the implicit causal graph: one weight per (variable, lag), readable as effect size and lag
   response (variant A);
@@ -58,6 +59,7 @@ class AttentionTransitionGlobal(nn.Module):
         gate_init: float = 3.0,
         n_forcing_lags: Optional[int] = None,
         gate_anchor: bool = False,
+        memory_labels: Optional[List[str]] = None,  # thesis: labels of the forcing-memory channels after the 6 lags
     ):
         super().__init__()
         self.d = d
@@ -69,6 +71,7 @@ class AttentionTransitionGlobal(nn.Module):
         self.use_ch4 = d_y_ch4 > 0
         self.use_exogenous = self.use_co2 or self.use_ch4
         self.n_forcing_lags = n_forcing_lags if n_forcing_lags is not None else tau + 1  # Shan: tau + 1 samples
+        self.memory_labels = list(memory_labels) if memory_labels else []
         self.attention_dim = attention_dim
         self.use_gate = gate
 
@@ -107,8 +110,8 @@ class AttentionTransitionGlobal(nn.Module):
         self._attn_batch: List[Optional[torch.Tensor]] = [None] * n_out
 
     def _lag_labels(self) -> List[str]:
-        if self.n_forcing_lags == len(FORCING_LAG_LABELS):
-            return list(FORCING_LAG_LABELS)
+        if self.n_forcing_lags == len(FORCING_LAG_LABELS) + len(self.memory_labels):
+            return list(FORCING_LAG_LABELS) + self.memory_labels
         return [f"lag{self.n_forcing_lags - 1 - j}" for j in range(self.n_forcing_lags)]
 
     # ------------------------------------------------------------------ gates
